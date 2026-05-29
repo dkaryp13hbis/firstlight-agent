@@ -36,7 +36,7 @@ function Ask($prompt, $default = "", [switch]$Secret) {
         return $plain
     }
     $v = Read-Host
-    return if ($v) { $v } else { $default }
+    if ($v) { return $v } else { return $default }
 }
 
 # ── Banner ────────────────────────────────────────────────────────────
@@ -155,7 +155,8 @@ Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
 $srcDir = (Get-ChildItem $extractPath -Directory | Select-Object -First 1).FullName
 Copy-Item "$srcDir\*" -Destination $INSTALL_DIR -Recurse -Force
 Ok "Agent files installed to $INSTALL_DIR"
-Log "Agent files extracted from: $(if ($useLocal) {'local zip'} else {'GitHub'})"
+$src_label = if ($useLocal) { 'local zip' } else { 'GitHub' }
+Log "Agent files extracted from: $src_label"
 
 # ── Step 5: Write .env ────────────────────────────────────────────────
 Step 5 "Writing configuration..."
