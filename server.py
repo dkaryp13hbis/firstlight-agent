@@ -237,16 +237,28 @@ class _ThreadingServer(socketserver.ThreadingMixIn, HTTPServer):
 
 
 if __name__ == "__main__":
-    srv = _ThreadingServer(("localhost", PORT), Handler)
-    url = f"http://localhost:{PORT}"
-    print(f"[server] Hotel Morning Briefing -> {url}")
-    print("[server] Press Ctrl+C to stop")
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--daemon", action="store_true",
+                        help="Cloud-poll only — no HTTP server, no browser (for hotel server)")
+    args = parser.parse_args()
 
-    if _CLOUD_POLL:
-        threading.Thread(target=_poll_commands, daemon=True).start()
-
-    webbrowser.open(url)
-    try:
-        srv.serve_forever()
-    except KeyboardInterrupt:
-        print("\n[server] Stopped.")
+    if args.daemon:
+        # Headless mode: just poll for remote refresh commands
+        print("[firstlight] Daemon started — polling for refresh commands every 30 s")
+        if _CLOUD_POLL:
+            _poll_commands()   # blocks forever
+        else:
+            print("[firstlight] FIRSTLIGHT_API_URL/KEY not set — nothing to do.")
+    else:
+        srv = _ThreadingServer(("localhost", PORT), Handler)
+        url = f"http://localhost:{PORT}"
+        print(f"[server] Hotel Morning Briefing -> {url}")
+        print("[server] Press Ctrl+C to stop")
+        if _CLOUD_POLL:
+            threading.Thread(target=_poll_commands, daemon=True).start()
+        webbrowser.open(url)
+        try:
+            srv.serve_forever()
+        except KeyboardInterrupt:
+            print("\n[server] Stopped.")

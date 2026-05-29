@@ -70,14 +70,21 @@ Write-Host "  Installing packages..." -ForegroundColor Yellow
 python -m pip install -q -r "$PSScriptRoot\requirements.txt"
 Write-Host "  Packages ready." -ForegroundColor Green
 
-# Register scheduled task
+# Task 1: daily morning briefing
 $action    = New-ScheduledTaskAction -Execute "python" -Argument "main.py" -WorkingDirectory $PSScriptRoot
 $trigger   = New-ScheduledTaskTrigger -Daily -At $RUN_TIME
 $settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable
 $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 Register-ScheduledTask -TaskName "FirstLight Morning Briefing" -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
 
+# Task 2: refresh daemon — starts at boot, listens for PWA refresh commands
+$action2   = New-ScheduledTaskAction -Execute "python" -Argument "server.py --daemon" -WorkingDirectory $PSScriptRoot
+$trigger2  = New-ScheduledTaskTrigger -AtStartup
+$settings2 = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Days 365)
+Register-ScheduledTask -TaskName "FirstLight Refresh Daemon" -Action $action2 -Trigger $trigger2 -Settings $settings2 -Principal $principal -Force | Out-Null
+
 Write-Host "  Scheduled task set: daily at $RUN_TIME" -ForegroundColor Green
+Write-Host "  Refresh daemon set: starts at boot" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Setup complete for $HOTEL_NAME" -ForegroundColor Cyan
 Write-Host "  Test now: python main.py --preview" -ForegroundColor DarkGray
