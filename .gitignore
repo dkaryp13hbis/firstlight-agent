@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+preview.html
+ai_cache.json
+server_out.txt
+server_err.txt
+logs/
+*.log
+.venv/
+venv/

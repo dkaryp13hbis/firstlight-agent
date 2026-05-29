@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Morning Briefing · {{ data.hotel_name }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --n950: #061535; --n900: #0A1F4D; --n800: #0F2860; --n700: #15296B;
+    --n600: #1B3A80; --n500: #2E5BA8; --n400: #5B89CC; --n300: #8AADDD;
+    --n200: #B8CFEE; --n100: #DCE7F6; --n50: #EEF2FA;
+    --blue: #2E7CF7; --teal: #38E1F0;
+    --grad-hero: linear-gradient(135deg, #0A1F4D 0%, #2E7CF7 100%);
+    --grad-deep: linear-gradient(160deg, #061535 0%, #15296B 100%);
+    --grad-cyan: linear-gradient(135deg, #2E7CF7 0%, #38E1F0 100%);
+    --green: #1A7A50; --green-bg: rgba(26,122,80,0.05);
+    --red: #B83A1B;  --red-bg: rgba(184,58,27,0.05);
+    --grey-50: #F7F8FB; --grey-100: #F0F2F7; --grey-200: #E2E7F0;
+    --grey-300: #CDD4E0; --grey-400: #A0AAC0; --grey-500: #6E7A96;
+    --grey-600: #4D5A74; --text: #1A2540;
+    --card-bg: #FFFFFF; --card-border: #E2E7F0;
+    --font: 'Outfit', sans-serif; --mono: 'IBM Plex Mono', monospace;
+    --r: 10px; --r-lg: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--grey-100); font-family: var(--font); color: var(--text); -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 20px 16px 48px; }
+
+  /* Header */
+  .hdr { background: var(--grad-hero); border-radius: var(--r-lg); padding: 26px 28px 22px; margin-bottom: 14px; position: relative; overflow: hidden; }
+  .hdr::before { content:""; position:absolute; right:-60px; top:-50px; width:220px; height:220px; border-radius:50%; background:radial-gradient(circle,rgba(56,225,240,.14),transparent 70%); pointer-events:none; }
+  .hdr::after  { content:""; position:absolute; left:30%; bottom:-60px; width:180px; height:180px; border-radius:50%; background:radial-gradient(circle,rgba(46,124,247,.12),transparent 70%); pointer-events:none; }
+  .hdr-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; position:relative; z-index:1; }
+  .hdr-logo { display:flex; align-items:center; gap:8px; }
+  .hdr-logo svg { width:20px; height:20px; }
+  .hdr-logo-t { font-weight:700; font-size:15px; color:#fff; letter-spacing:-0.02em; }
+  .hdr-badge { font-family:var(--mono); font-size:9px; letter-spacing:0.12em; text-transform:uppercase; color:var(--teal); border:1px solid rgba(56,225,240,.25); padding:4px 10px; border-radius:999px; }
+  .hdr-hotel { font-weight:700; font-size:20px; color:#fff; letter-spacing:-0.01em; line-height:1.3; position:relative; z-index:1; }
+  .hdr-meta { font-family:var(--mono); font-size:10px; color:rgba(255,255,255,.45); margin-top:4px; position:relative; z-index:1; }
+  .hdr-meta em { color:var(--teal); font-style:normal; }
+
+  /* Section label */
+  .sl { display:flex; align-items:center; gap:7px; font-size:13px; font-weight:700; color:var(--n800); margin:18px 0 8px; letter-spacing:-0.01em; }
+  .sl svg { flex-shrink:0; color:var(--blue); opacity:.75; }
+
+  /* AI Summary */
+  .ai-sum { background:var(--grad-deep); border-radius:var(--r-lg); padding:18px 22px; margin-bottom:14px; position:relative; overflow:hidden; }
+  .ai-sum::before { content:""; position:absolute; right:-30px; top:-30px; width:140px; height:140px; border-radius:50%; background:radial-gradient(circle,rgba(46,124,247,.10),transparent 70%); pointer-events:none; }
+  .ai-sum-tag { display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:9px; letter-spacing:0.1em; text-transform:uppercase; color:var(--teal); font-weight:500; margin-bottom:10px; position:relative; z-index:1; }
+  .ai-sum-tag::before { content:""; width:5px; height:5px; background:var(--teal); border-radius:50%; }
+  .ai-sum p { font-size:13.5px; line-height:1.75; color:rgba(255,255,255,.72); position:relative; z-index:1; }
+
+  /* KPI cards */
+  .kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:6px; }
+  .kpi-card { background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--r); padding:14px 12px 12px; text-align:center; position:relative; }
+  .kpi-card::before { content:""; position:absolute; top:0; left:0; right:0; height:3px; background:var(--grad-cyan); border-radius:var(--r) var(--r) 0 0; }
+  .kpi-label { font-size:11px; font-weight:600; color:var(--n700); margin-bottom:6px; }
+  .kpi-value { font-weight:800; font-size:22px; color:var(--text); letter-spacing:-0.03em; line-height:1; margin-bottom:8px; }
+  .kpi-var { font-size:11px; font-weight:600; }
+  .kpi-var.up { color:var(--green); }
+  .kpi-var.dn { color:var(--red); }
+  .kpi-ly { display:block; font-family:var(--mono); font-size:9px; color:var(--grey-400); margin-top:2px; }
+
+  /* MTD strip */
+  .mtd-strip { display:grid; grid-template-columns:repeat(4,1fr); background:var(--grey-50); border:1px solid var(--card-border); border-radius:var(--r); margin-bottom:14px; overflow:hidden; }
+  .mtd-cell { padding:8px 6px; text-align:center; border-right:1px solid var(--grey-200); }
+  .mtd-cell:last-child { border-right:none; }
+  .mtd-lbl { font-size:9px; font-weight:600; color:var(--grey-500); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:2px; }
+  .mtd-val { font-weight:700; font-size:14px; color:var(--text); letter-spacing:-0.02em; }
+  .mtd-chg { font-size:9px; font-weight:600; }
+
+  /* OTB by month */
+  .otb-row { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-bottom:14px; }
+  .otb-card { background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--r); padding:14px 14px 12px; text-align:center; }
+  .otb-card .top-bar { height:3px; border-radius:var(--r) var(--r) 0 0; margin:-14px -14px 12px -14px; }
+  .otb-mo { font-size:10px; font-weight:600; color:var(--grey-500); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px; }
+  .otb-rev { font-weight:800; font-size:20px; color:var(--text); letter-spacing:-0.03em; line-height:1; }
+  .otb-detail { font-size:11px; color:var(--grey-500); margin-top:6px; line-height:1.4; }
+  .otb-detail b { color:var(--text); font-weight:600; }
+  .otb-occ { font-size:13px; font-weight:700; }
+  .otb-vs { font-size:10px; font-weight:600; margin-top:4px; }
+
+  /* Card */
+  .card { background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--r-lg); padding:16px 18px; margin-bottom:6px; }
+
+  /* Pickup table */
+  .pu { width:100%; border-collapse:collapse; }
+  .pu th { font-family:var(--mono); font-size:9px; text-transform:uppercase; letter-spacing:0.08em; color:var(--grey-400); padding:0 3px 10px; text-align:center; font-weight:500; }
+  .pu th:first-child { text-align:left; padding-left:0; }
+  .pu td { padding:6px 3px; text-align:center; border-top:1px solid var(--grey-100); }
+  .pu td:first-child { text-align:left; padding-left:0; font-family:var(--mono); font-size:9px; letter-spacing:0.06em; color:var(--grey-500); text-transform:uppercase; font-weight:500; }
+  .pu td:nth-child(4), .pu td:nth-child(6) { border-left:1px solid var(--grey-200); }
+  .pu th:nth-child(4), .pu th:nth-child(6) { border-left:1px solid var(--grey-200); }
+  .pu-v { font-weight:700; font-size:12px; color:var(--text); display:block; letter-spacing:-0.01em; }
+  .pu-v.blue { color:var(--blue); }
+  .pu-v.red  { color:var(--red); }
+  .pu-sub { display:flex; gap:6px; margin-bottom:14px; }
+  .pu-sub-card { flex:1; background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--r); padding:10px 12px; }
+
+  /* Chart cards */
+  .chart-card { background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--r-lg); padding:16px 16px 12px; margin-bottom:8px; }
+  .chart-h { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px; }
+  .chart-title { font-weight:700; font-size:13px; color:var(--text); }
+  .chart-subtitle { font-family:var(--mono); font-size:10px; color:var(--grey-500); margin-top:2px; }
+  .chart-legend { display:flex; gap:12px; font-family:var(--mono); font-size:8px; color:var(--grey-500); letter-spacing:0.04em; }
+  .chart-legend span { display:flex; align-items:center; gap:4px; }
+  .lg-box { width:8px; height:8px; border-radius:2px; }
+  .lg-line { width:12px; height:0; border-top:2px dashed; }
+  .lg-dot { width:8px; height:3px; border-radius:2px; }
+
+  /* Channels */
+  .ch-row { display:flex; align-items:center; padding:7px 0; border-top:1px solid var(--grey-100); gap:10px; }
+  .ch-row:first-child { border-top:none; }
+  .ch-name { font-weight:600; font-size:12px; flex:1; }
+  .ch-bar-wrap { flex:2; background:var(--grey-100); border-radius:4px; height:6px; overflow:hidden; }
+  .ch-bar { height:100%; background:var(--grad-cyan); border-radius:4px; }
+  .ch-nights { font-family:var(--mono); font-size:10px; color:var(--grey-600); min-width:36px; text-align:right; }
+  .badge-pos { background:var(--green-bg); color:var(--green); font-family:var(--mono); font-size:9px; font-weight:600; padding:2px 6px; border-radius:4px; }
+  .badge-neg { background:var(--red-bg);   color:var(--red);   font-family:var(--mono); font-size:9px; font-weight:600; padding:2px 6px; border-radius:4px; }
+
+  /* AI Insight Cards */
+  .icard {
+    background:#fff; border:1px solid rgba(10,31,77,.08); border-radius:16px;
+    padding:20px 20px 8px 24px; margin-bottom:12px; overflow:hidden;
+    position:relative; box-shadow:0 6px 20px rgba(10,31,77,.07),0 2px 4px rgba(10,31,77,.04);
+  }
+  .icard::before {
+    content:""; position:absolute; left:0; top:0; bottom:0; width:3px; border-radius:3px 0 0 3px;
+  }
+  .icard.ic-warn::before { background:linear-gradient(180deg,#C7411B 0%,#E0A82E 100%); }
+  .icard.ic-pos::before  { background:linear-gradient(180deg,#2E7CF7 0%,#38E1F0 100%); }
+  .icard.ic-info::before { background:linear-gradient(180deg,#2E7CF7 0%,#56FFC4 100%); }
+  .icard.ic-mon::before  { background:linear-gradient(180deg,#7C5BFF 0%,#38E1F0 100%); }
+  .icard-head { display:flex; align-items:flex-start; gap:12px; margin-bottom:14px; }
+  .icard-title { font-weight:700; font-size:14px; color:#0A1F4D; line-height:1.38; flex:1; }
+  .icard-badge {
+    font-family:var(--mono); font-size:9px; font-weight:500; letter-spacing:.14em;
+    text-transform:uppercase; padding:5px 10px; border-radius:999px; flex-shrink:0; white-space:nowrap; margin-top:2px;
+  }
+  .icard-badge.ic-warn { background:rgba(199,65,27,.10); color:#C7411B; border:1px solid rgba(199,65,27,.22); }
+  .icard-badge.ic-pos  { background:rgba(46,124,247,.10); color:#1E6DD8; border:1px solid rgba(46,124,247,.22); }
+  .icard-badge.ic-info { background:rgba(46,124,247,.08); color:#1E6DD8; border:1px solid rgba(46,124,247,.18); }
+  .icard-badge.ic-mon  { background:rgba(124,91,255,.10); color:#6344D9; border:1px solid rgba(124,91,255,.22); }
+  .icard-kpis { display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
+  .kpi-chip {
+    background:#F4F7FC; border:1px solid rgba(10,31,77,.07); border-radius:10px;
+    padding:10px 13px; min-width:120px; flex:1;
+  }
+  .kpi-label { font-family:var(--mono); font-size:9px; color:#8A93AE; text-transform:uppercase; letter-spacing:.10em; margin-bottom:5px; }
+  .kpi-val { font-family:var(--mono); font-weight:700; font-size:13px; color:#0A1F4D; line-height:1.35; }
+  .kpi-ty   { font-weight:700; }
+  .kpi-ty.kup   { color:#1A7A50; }
+  .kpi-ty.kdown { color:#B83A1B; }
+  .kpi-sep  { font-weight:400; color:#A0AAC0; font-size:11px; margin:0 2px; }
+  .kpi-ly   { color:#5A6486; font-weight:500; font-size:12px; }
+  .icard-bullets { margin-bottom:14px; }
+  .ibullet {
+    display:flex; gap:10px; align-items:flex-start;
+    font-size:12.5px; color:#2A3354; line-height:1.6; margin-bottom:6px;
+  }
+  .ibullet:last-child { margin-bottom:0; }
+  .ibullet::before {
+    content:""; width:6px; height:6px; border-radius:50%; background:#2E7CF7;
+    flex-shrink:0; margin-top:6px; box-shadow:0 0 0 3px rgba(46,124,247,.12);
+  }
+  .icard.ic-warn .ibullet::before { background:#C7411B; box-shadow:0 0 0 3px rgba(199,65,27,.12); }
+  .icard-action {
+    background:linear-gradient(135deg,rgba(46,124,247,.06),rgba(86,255,196,.06));
+    border:1px solid rgba(46,124,247,.14); border-radius:10px;
+    padding:12px 14px; display:flex; gap:11px; align-items:flex-start; margin-bottom:14px;
+  }
+  .icard.ic-warn .icard-action { background:linear-gradient(135deg,rgba(199,65,27,.05),rgba(224,168,46,.06)); border-color:rgba(199,65,27,.16); }
+  .iaction-icon {
+    width:28px; height:28px; border-radius:8px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; color:#fff;
+    box-shadow:0 4px 10px -2px rgba(46,124,247,.4);
+  }
+  .iaction-icon.ic-warn { background:linear-gradient(135deg,#C7411B,#E0A82E); box-shadow:0 4px 10px -2px rgba(199,65,27,.4); }
+  .iaction-icon.ic-pos  { background:linear-gradient(135deg,#2E7CF7,#38E1F0); }
+  .iaction-icon.ic-info { background:linear-gradient(135deg,#2E7CF7,#56FFC4); }
+  .iaction-icon.ic-mon  { background:linear-gradient(135deg,#7C5BFF,#38E1F0); }
+  .iaction-text { font-size:12.5px; color:#2A3354; line-height:1.5; margin:0; padding-top:4px; }
+  .icard-foot {
+    display:flex; align-items:center; gap:8px;
+    padding:12px 0; border-top:1px solid rgba(10,31,77,.07);
+  }
+  .icard-btn {
+    display:inline-flex; align-items:center; gap:6px;
+    padding:8px 15px; border-radius:999px;
+    background:linear-gradient(135deg,#2E7CF7,#38E1F0);
+    color:#fff; font-family:var(--mono); font-size:10px; font-weight:600;
+    text-decoration:none; letter-spacing:.04em;
+    box-shadow:0 4px 12px -3px rgba(46,124,247,.5);
+  }
+  .icard.ic-warn .icard-btn { background:linear-gradient(135deg,#C7411B,#E0A82E); box-shadow:0 4px 12px -3px rgba(199,65,27,.45); }
+  .icard.ic-mon  .icard-btn { background:linear-gradient(135deg,#7C5BFF,#38E1F0); }
+  .icard-pri {
+    margin-left:auto; font-family:var(--mono); font-size:10px;
+    text-transform:uppercase; letter-spacing:.14em; color:#A0AAC0;
+    display:flex; align-items:center; gap:6px;
+  }
+  .icard-pri::before { content:""; width:6px; height:6px; border-radius:50%; background:#56FFC4; box-shadow:0 0 0 3px rgba(86,255,196,.22); }
+  .icard.ic-warn .icard-pri::before { background:#E0A82E; box-shadow:0 0 0 3px rgba(224,168,46,.22); }
+
+  /* CTA */
+  .cta { text-align:center; margin:22px 0 14px; }
+  .cta a { display:inline-block; background:var(--grad-cyan); color:var(--n950); font-size:13px; font-weight:700; text-decoration:none; padding:12px 32px; border-radius:8px; letter-spacing:-0.01em; }
+  .cta-sub { text-align:center; font-size:10px; color:var(--grey-400); margin-top:8px; line-height:1.5; }
+
+  /* Footer */
+  .ftr { text-align:center; padding:8px 0; }
+  .ftr-b { font-family:var(--mono); font-size:9px; text-transform:uppercase; letter-spacing:0.12em; color:var(--grey-400); }
+  .ftr-s { font-size:9px; color:var(--grey-300); margin-top:2px; }
+  .ftr-s a { color:var(--grey-500); }
+
+  @media (max-width:480px) {
+    .kpi-row { grid-template-columns:1fr 1fr; }
+    .otb-row { grid-template-columns:1fr; }
+  }
+
+  /* ── Tab nav ── */
+  .tab-nav {
+    position:sticky; top:0; z-index:99;
+    background:var(--grey-50);
+    border-bottom:1px solid var(--grey-200);
+    display:flex; justify-content:center; gap:0; overflow-x:auto;
+    scrollbar-width:none; margin-bottom:4px;
+  }
+  .tab-nav::-webkit-scrollbar { display:none; }
+  .tab-btn {
+    flex-shrink:0; padding:11px 16px;
+    background:none; border:none; border-bottom:2px solid transparent;
+    font-family:var(--font); font-size:12px; font-weight:600;
+    color:var(--grey-500); cursor:pointer; white-space:nowrap;
+    transition:color .15s, border-color .15s;
+  }
+  .tab-btn.active { color:var(--blue); border-bottom-color:var(--blue); }
+  .tab-badge {
+    display:inline-flex; align-items:center; justify-content:center;
+    background:var(--blue); color:#fff; font-size:9px; font-weight:700;
+    border-radius:999px; min-width:16px; height:16px;
+    padding:0 4px; margin-left:5px; vertical-align:middle;
+  }
+
+  /* ── Section scroll anchors ── */
+  .sec-anchor { scroll-margin-top:46px; }
+
+  /* ── AI card collapse ── */
+  .icard-toggle {
+    flex-shrink:0; background:none; border:none; cursor:pointer;
+    color:var(--grey-400); padding:2px 0 0; display:flex; align-items:center;
+    transition:transform .2s;
+  }
+  .icard-toggle.open { transform:rotate(180deg); }
+  .icard-head { cursor:pointer; user-select:none; margin-bottom:0 !important; }
+  .icard-body { padding-top:14px; }
+</style>
+</head>
+<body>
+<nav class="tab-nav" id="tab-nav">
+  <button class="tab-btn active" onclick="navTo('sec-overview')">Overview</button>
+  <button class="tab-btn" onclick="navTo('sec-pickup')">Pickup</button>
+  <button class="tab-btn" onclick="navTo('sec-pace')">Pace</button>
+  <button class="tab-btn" onclick="navTo('sec-ai')">AI Insights{% if ai.insights %}<span class="tab-badge">{{ ai.insights | length }}</span>{% endif %}</button>
+</nav>
+<div class="wrap">
+<div id="sec-overview" class="sec-anchor"></div>
+
+{# ── Jinja2 computed vars ── #}
+{% set yd  = data.yesterday %}
+{% set mtd = data.mtd %}
+{% set pu  = data.pickup %}
+
+{# Yesterday variance helpers #}
+{% set yd_rev_var  = ((yd.revenue - yd.revenueLY) / yd.revenueLY * 100)   if yd.revenueLY   else 0 %}
+{% set yd_occ_var  = ((yd.occupancy - yd.occupancyLY) / yd.occupancyLY * 100) if yd.occupancyLY else 0 %}
+{% set yd_adr_var  = ((yd.adr - yd.adrLY) / yd.adrLY * 100)               if yd.adrLY       else 0 %}
+{% set yd_rn_var   = ((yd.roomNights - yd.roomNightsLY) / yd.roomNightsLY * 100) if yd.roomNightsLY else 0 %}
+
+{# MTD variances #}
+{% set mtd_rev_var = ((mtd.revenue - mtd.revenueLY) / mtd.revenueLY * 100) if mtd.revenueLY else 0 %}
+{% set mtd_occ_var = ((mtd.occupancy - mtd.occupancyLY) / mtd.occupancyLY * 100) if mtd.occupancyLY else 0 %}
+{% set mtd_adr_var = ((mtd.adr - mtd.adrLY) / mtd.adrLY * 100)             if mtd.adrLY     else 0 %}
+{% set mtd_rn_var  = ((mtd.roomNights - mtd.roomNightsLY) / mtd.roomNightsLY * 100) if mtd.roomNightsLY else 0 %}
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-row">
+    <div class="hdr-logo">
+      <svg viewBox="0 0 24 24" fill="none"><rect x="2" y="14" width="4" height="8" rx="1" fill="#fff"/><rect x="10" y="8" width="4" height="14" rx="1" fill="var(--teal)"/><rect x="18" y="2" width="4" height="20" rx="1" fill="#fff"/></svg>
+      <span class="hdr-logo-t">HBIS</span>
+    </div>
+    <span class="hdr-badge">Morning Briefing</span>
+  </div>
+  <div class="hdr-hotel">{{ data.hotel_name }}</div>
+  <div class="hdr-meta">{{ data.report_date }} &middot; Generated at <em>{{ data.generated_at }}</em> &middot; Protel PMS</div>
+</div>
+
+<!-- AI EXECUTIVE SUMMARY -->
+{% if ai.executive_summary %}
+<div class="ai-sum">
+  <div class="ai-sum-tag">AI Executive Summary</div>
+  <p>{{ ai.executive_summary }}</p>
+</div>
+{% endif %}
+
+<!-- YESTERDAY KPIs -->
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>Yesterday</div>
+<div class="kpi-row">
+  <div class="kpi-card">
+    <div class="kpi-label">Total Revenue</div>
+    <div class="kpi-value">{{ yd.revenue | euro }}</div>
+    <div class="kpi-var {{ 'up' if yd_rev_var >= 0 else 'dn' }}">
+      {{ '▲' if yd_rev_var >= 0 else '▼' }} {{ '%+.1f'|format(yd_rev_var) }}%
+    </div>
+    <span class="kpi-ly">vs LY {{ yd.revenueLY | euro }}</span>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Occupancy</div>
+    <div class="kpi-value">{{ yd.occupancy | pct }}</div>
+    <div class="kpi-var {{ 'up' if yd_occ_var >= 0 else 'dn' }}">
+      {{ '▲' if yd_occ_var >= 0 else '▼' }} {{ '%+.1f'|format(yd_occ_var) }}%
+    </div>
+    <span class="kpi-ly">vs LY {{ yd.occupancyLY | pct }}</span>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">ADR</div>
+    <div class="kpi-value">{{ yd.adr | round(0) | int }}&thinsp;€</div>
+    <div class="kpi-var {{ 'up' if yd_adr_var >= 0 else 'dn' }}">
+      {{ '▲' if yd_adr_var >= 0 else '▼' }} {{ '%+.1f'|format(yd_adr_var) }}%
+    </div>
+    <span class="kpi-ly">vs LY {{ yd.adrLY | round(0) | int }}&thinsp;€</span>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Room Nights</div>
+    <div class="kpi-value">{{ yd.roomNights }}</div>
+    <div class="kpi-var {{ 'up' if yd_rn_var >= 0 else 'dn' }}">
+      {{ '▲' if yd_rn_var >= 0 else '▼' }} {{ '%+.1f'|format(yd_rn_var) }}%
+    </div>
+    <span class="kpi-ly">vs LY {{ yd.roomNightsLY }}</span>
+  </div>
+</div>
+
+<!-- MTD STRIP -->
+<div class="mtd-strip">
+  <div class="mtd-cell">
+    <div class="mtd-lbl">MTD Rev</div>
+    <div class="mtd-val">{{ mtd.revenue | kilo }}</div>
+    <div class="mtd-chg" style="color:{{ 'var(--green)' if mtd_rev_var >= 0 else 'var(--red)' }}">
+      {{ '▲' if mtd_rev_var >= 0 else '▼' }} {{ '%+.1f'|format(mtd_rev_var) }}%
+    </div>
+  </div>
+  <div class="mtd-cell">
+    <div class="mtd-lbl">MTD Occ</div>
+    <div class="mtd-val">{{ mtd.occupancy | pct }}</div>
+    <div class="mtd-chg" style="color:{{ 'var(--green)' if mtd_occ_var >= 0 else 'var(--red)' }}">
+      {{ '▲' if mtd_occ_var >= 0 else '▼' }} {{ '%+.1f'|format(mtd_occ_var) }}%
+    </div>
+  </div>
+  <div class="mtd-cell">
+    <div class="mtd-lbl">MTD ADR</div>
+    <div class="mtd-val">{{ mtd.adr | round(0) | int }}&thinsp;€</div>
+    <div class="mtd-chg" style="color:{{ 'var(--green)' if mtd_adr_var >= 0 else 'var(--red)' }}">
+      {{ '▲' if mtd_adr_var >= 0 else '▼' }} {{ '%+.1f'|format(mtd_adr_var) }}%
+    </div>
+  </div>
+  <div class="mtd-cell">
+    <div class="mtd-lbl">MTD Rooms</div>
+    <div class="mtd-val">{{ mtd.roomNights }}</div>
+    <div class="mtd-chg" style="color:{{ 'var(--green)' if mtd_rn_var >= 0 else 'var(--red)' }}">
+      {{ '▲' if mtd_rn_var >= 0 else '▼' }} {{ '%+.1f'|format(mtd_rn_var) }}%
+    </div>
+  </div>
+</div>
+
+<!-- OTB BY MONTH (next 3 months from pace) -->
+{% if data.pace_current %}
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>On The Books &mdash; Next 3 Months</div>
+<div class="otb-row">
+  {% for p in data.pace_current %}
+    {% set vs_stly = ((p.rev - p.rev_stly) / p.rev_stly * 100) if p.rev_stly else 0 %}
+    {% set bar_color = 'var(--grad-cyan)' if p.status == 'ahead' else ('var(--red)' if p.status == 'behind' else 'var(--n500)') %}
+    <div class="otb-card">
+      <div class="top-bar" style="background:{{ bar_color }}"></div>
+      <div class="otb-mo">{{ p.month }}</div>
+      <div class="otb-rev">{{ p.rev | kilo }}</div>
+      <div class="otb-detail"><b>{{ p.rn }}</b> rn &middot; <span class="otb-occ" style="color:{{ 'var(--green)' if p.status == 'ahead' else ('var(--red)' if p.status == 'behind' else 'var(--grey-600)') }}">{{ p.occ | pct }}</span> occ</div>
+      <div class="otb-vs" style="color:{{ 'var(--green)' if vs_stly >= 0 else 'var(--red)' }}">
+        {{ '▲' if vs_stly >= 0 else '▼' }} {{ '%+.0f'|format(vs_stly) }}% vs STLY
+      </div>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- PICKUP -->
+<div id="sec-pickup" class="sec-anchor"></div>
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>Pickup Activity</div>
+<div class="card" style="margin-bottom:6px">
+  <table class="pu">
+    <thead>
+      <tr>
+        <th></th>
+        <th colspan="2" style="color:var(--blue)">{{ pu.date1d }}</th>
+        <th colspan="2">{{ pu.date3d }}</th>
+        <th colspan="2">{{ pu.date7d }}</th>
+      </tr>
+      <tr>
+        <th></th>
+        <th style="font-size:7px;color:var(--blue)">Booked</th>
+        <th style="font-size:7px;color:var(--red)">Cancel</th>
+        <th style="font-size:7px">Booked</th>
+        <th style="font-size:7px;color:var(--red)">Cancel</th>
+        <th style="font-size:7px">Booked</th>
+        <th style="font-size:7px;color:var(--red)">Cancel</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Room Nights</td>
+        <td><span class="pu-v blue">+{{ pu.last1d.roomNights }}</span></td>
+        <td><span class="pu-v red">-{{ pu.cancellations1d }}</span></td>
+        <td><span class="pu-v">+{{ pu.last3d.roomNights }}</span></td>
+        <td><span class="pu-v red">-{{ pu.cancellations3d }}</span></td>
+        <td><span class="pu-v">+{{ pu.last7d.roomNights }}</span></td>
+        <td><span class="pu-v red">-{{ pu.cancellations7d }}</span></td>
+      </tr>
+      <tr>
+        <td>Revenue</td>
+        <td><span class="pu-v blue">{{ pu.last1d.revenue | kilo }}</span></td>
+        <td><span class="pu-v red">-{{ pu.cancellationRevenue | kilo }}</span></td>
+        <td><span class="pu-v">{{ pu.last3d.revenue | kilo }}</span></td>
+        <td><span class="pu-v red">-{{ pu.cancellationRevenue3d | kilo }}</span></td>
+        <td><span class="pu-v">{{ pu.last7d.revenue | kilo }}</span></td>
+        <td><span class="pu-v red">-{{ pu.cancellationRevenue7d | kilo }}</span></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<div class="pu-sub">
+  <div class="pu-sub-card">
+    <div style="font-size:9px;font-weight:600;color:var(--grey-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Top month (7d)</div>
+    <div style="font-weight:700;font-size:15px;color:var(--text)">{{ pu.topMonth }} <span style="font-size:11px;color:var(--grey-500);font-weight:400">+{{ pu.topMonthNights }} rn</span></div>
+  </div>
+  <div class="pu-sub-card">
+    <div style="font-size:9px;font-weight:600;color:var(--grey-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Net pickup (7d)</div>
+    <div style="font-weight:700;font-size:15px;color:var(--green)">+{{ pu.last7d.roomNights }} rn <span style="font-size:11px;color:var(--grey-500);font-weight:400">{{ pu.last7d.revenue | kilo }} gross</span></div>
+  </div>
+</div>
+
+<!-- PACE CHARTS -->
+{% if data.pace %}
+<div id="sec-pace" class="sec-anchor"></div>
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Pace &mdash; OTB vs STLY vs Final LY</div>
+
+{# ── Compute chart layout variables ── #}
+{% set n_mo = data.pace | length %}
+{% set step = 480.0 / n_mo %}
+{% set bot  = 100 %}
+{% set ch   = 88 %}
+{% set bw   = 12 if n_mo > 6 else 13 %}
+
+{# ── REVENUE BAR CHART ── #}
+{% set ns = namespace(max_rev=1.0) %}
+{% for p in data.pace %}
+  {% if p.rev       > ns.max_rev %}{% set ns.max_rev = p.rev       %}{% endif %}
+  {% if p.rev_stly  > ns.max_rev %}{% set ns.max_rev = p.rev_stly  %}{% endif %}
+  {% if p.rev_final > ns.max_rev %}{% set ns.max_rev = p.rev_final %}{% endif %}
+{% endfor %}
+
+<div class="chart-card">
+  <div class="chart-h">
+    <div class="chart-title">Revenue OTB</div>
+    <div class="chart-legend">
+      <span><span class="lg-box" style="background:var(--n800)"></span> OTB TY</span>
+      <span><span class="lg-box" style="background:var(--grey-300)"></span> STLY</span>
+      <span><span class="lg-line" style="border-color:var(--green)"></span> Final LY</span>
+    </div>
+  </div>
+  <svg viewBox="0 0 560 145" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+    <line x1="40" y1="10"  x2="520" y2="10"  stroke="#E2E7F0" stroke-width="0.5"/>
+    <line x1="40" y1="37"  x2="520" y2="37"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="40" y1="64"  x2="520" y2="64"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="40" y1="100" x2="520" y2="100" stroke="#E2E7F0" stroke-width="0.5"/>
+    <text x="36" y="14"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (ns.max_rev) | kilo }}</text>
+    <text x="36" y="41"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (ns.max_rev * 0.67) | kilo }}</text>
+    <text x="36" y="68"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (ns.max_rev * 0.33) | kilo }}</text>
+    <text x="36" y="104" text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€0</text>
+    {% for p in data.pace %}
+      {% set xi = (40 + (loop.index0 + 0.5) * step) | round(1) %}
+      {% set bh_ty   = [((p.rev       / ns.max_rev) * ch) | round(1), 1] | max %}
+      {% set bh_stly = [((p.rev_stly  / ns.max_rev) * ch) | round(1), 0] | max %}
+      {% set bh_fly  = [((p.rev_final / ns.max_rev) * ch) | round(1), 0] | max %}
+      {% set y_ty   = bot - bh_ty   %}
+      {% set y_stly = bot - bh_stly %}
+      {% set ly_y   = bot - bh_fly  %}
+      {% set vs = ((p.rev - p.rev_stly) / p.rev_stly * 100) | round(1) if p.rev_stly else 0 %}
+      <rect x="{{ xi - bw - 1 }}" y="{{ y_ty }}"   width="{{ bw }}" height="{{ bh_ty }}"   rx="1.5" fill="#0F2860"/>
+      <rect x="{{ xi + 1 }}"      y="{{ y_stly }}" width="{{ bw }}" height="{{ bh_stly }}" rx="1.5" fill="#CDD4E0"/>
+      <line x1="{{ xi - bw - 3 }}" y1="{{ ly_y }}" x2="{{ xi + bw + 3 }}" y2="{{ ly_y }}" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
+      <rect x="{{ xi - 18 }}" y="122" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
+      <text x="{{ xi }}" y="117" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">{{ p.month }}</text>
+      <text x="{{ xi }}" y="131" text-anchor="middle" font-size="10" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="IBM Plex Mono" font-weight="600">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
+    {% endfor %}
+  </svg>
+</div>
+
+{# ── OCCUPANCY LINE CHART ── #}
+{% set ns2 = namespace(max_occ=0.001, pts_ty='', pts_stly='', pts_fly='', first_xi=0.0, last_xi=0.0) %}
+{% for p in data.pace %}
+  {% if p.occ   > ns2.max_occ %}{% set ns2.max_occ = p.occ   %}{% endif %}
+  {% if p.stly  > ns2.max_occ %}{% set ns2.max_occ = p.stly  %}{% endif %}
+  {% if p.final > ns2.max_occ %}{% set ns2.max_occ = p.final %}{% endif %}
+{% endfor %}
+{% set occ_top = ((ns2.max_occ * 1.15) | round(1)) %}
+{% for p in data.pace %}
+  {% set xi    = (40 + (loop.index0 + 0.5) * step) | round(1) %}
+  {% set y_ty  = (bot - (p.occ   / occ_top) * ch) | round(1) %}
+  {% set y_stly= (bot - (p.stly  / occ_top) * ch) | round(1) %}
+  {% set y_fly = (bot - (p.final / occ_top) * ch) | round(1) %}
+  {% if loop.first %}{% set ns2.first_xi = xi %}{% endif %}
+  {% set ns2.last_xi = xi %}
+  {% set ns2.pts_ty   = ns2.pts_ty   ~ xi|string ~ ',' ~ y_ty|string   ~ ' ' %}
+  {% set ns2.pts_stly = ns2.pts_stly ~ xi|string ~ ',' ~ y_stly|string ~ ' ' %}
+  {% set ns2.pts_fly  = ns2.pts_fly  ~ xi|string ~ ',' ~ y_fly|string  ~ ' ' %}
+{% endfor %}
+
+<div class="chart-card">
+  <div class="chart-h">
+    <div class="chart-title">Occupancy</div>
+    <div class="chart-legend">
+      <span><span class="lg-dot" style="background:var(--n800)"></span> OTB TY</span>
+      <span><span class="lg-dot" style="background:var(--grey-300)"></span> STLY</span>
+      <span><span class="lg-line" style="border-color:var(--green)"></span> Final LY</span>
+    </div>
+  </div>
+  <svg viewBox="0 0 560 145" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+    <line x1="40" y1="10"  x2="520" y2="10"  stroke="#E2E7F0" stroke-width="0.5"/>
+    <line x1="40" y1="37"  x2="520" y2="37"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="40" y1="64"  x2="520" y2="64"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="40" y1="100" x2="520" y2="100" stroke="#E2E7F0" stroke-width="0.5"/>
+    <text x="36" y="14"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (occ_top * 100) | round(0) | int }}%</text>
+    <text x="36" y="41"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (occ_top * 67) | round(0) | int }}%</text>
+    <text x="36" y="68"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (occ_top * 33) | round(0) | int }}%</text>
+    <text x="36" y="104" text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">0%</text>
+    {# Area fill under OTB TY line #}
+    <polygon points="{{ ns2.first_xi }},{{ bot }} {{ ns2.pts_ty }}{{ ns2.last_xi }},{{ bot }}" fill="rgba(15,40,96,0.07)"/>
+    {# Lines #}
+    <polyline points="{{ ns2.pts_fly  }}" fill="none" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="4,3" stroke-linecap="round"/>
+    <polyline points="{{ ns2.pts_stly }}" fill="none" stroke="#CDD4E0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="{{ ns2.pts_ty   }}" fill="none" stroke="#0F2860" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    {# Dots + labels #}
+    {% for p in data.pace %}
+      {% set xi    = (40 + (loop.index0 + 0.5) * step) | round(1) %}
+      {% set y_ty  = (bot - (p.occ  / occ_top) * ch) | round(1) %}
+      {% set y_stly= (bot - (p.stly / occ_top) * ch) | round(1) %}
+      {% set vs = ((p.occ - p.stly) / p.stly * 100) | round(1) if p.stly else 0 %}
+      <circle cx="{{ xi }}" cy="{{ y_stly }}" r="3" fill="#CDD4E0" stroke="#fff" stroke-width="1.5"/>
+      <circle cx="{{ xi }}" cy="{{ y_ty }}"   r="4" fill="#0F2860" stroke="#fff" stroke-width="1.5"/>
+      <text x="{{ xi }}" y="{{ y_ty - 7 }}" text-anchor="middle" font-size="11" fill="#0F2860" font-family="IBM Plex Mono" font-weight="600">{{ (p.occ * 100) | round(0) | int }}%</text>
+      <rect x="{{ xi - 18 }}" y="122" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
+      <text x="{{ xi }}" y="117" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">{{ p.month }}</text>
+      <text x="{{ xi }}" y="131" text-anchor="middle" font-size="10" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="IBM Plex Mono" font-weight="600">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
+    {% endfor %}
+  </svg>
+</div>
+
+{# ── ADR BAR CHART ── #}
+{% set ns3 = namespace(max_adr=1.0) %}
+{% for p in data.pace %}
+  {% if p.adr          > ns3.max_adr %}{% set ns3.max_adr = p.adr          %}{% endif %}
+  {% if p.adr_stly     > ns3.max_adr %}{% set ns3.max_adr = p.adr_stly     %}{% endif %}
+  {% if p.adr_final_ly > ns3.max_adr %}{% set ns3.max_adr = p.adr_final_ly %}{% endif %}
+{% endfor %}
+
+<div class="chart-card">
+  <div class="chart-h">
+    <div class="chart-title">ADR</div>
+    <div class="chart-legend">
+      <span><span class="lg-box" style="background:var(--n800)"></span> OTB TY</span>
+      <span><span class="lg-box" style="background:var(--grey-300)"></span> STLY</span>
+      <span><span class="lg-line" style="border-color:var(--green)"></span> Final LY</span>
+    </div>
+  </div>
+  <svg viewBox="0 0 560 145" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+    <line x1="40" y1="10"  x2="520" y2="10"  stroke="#E2E7F0" stroke-width="0.5"/>
+    <line x1="40" y1="37"  x2="520" y2="37"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="40" y1="64"  x2="520" y2="64"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="40" y1="100" x2="520" y2="100" stroke="#E2E7F0" stroke-width="0.5"/>
+    <text x="36" y="14"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€{{ ns3.max_adr | round(0) | int }}</text>
+    <text x="36" y="41"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€{{ (ns3.max_adr * 0.67) | round(0) | int }}</text>
+    <text x="36" y="68"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€{{ (ns3.max_adr * 0.33) | round(0) | int }}</text>
+    <text x="36" y="104" text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€0</text>
+    {% for p in data.pace %}
+      {% set xi = (40 + (loop.index0 + 0.5) * step) | round(1) %}
+      {% set bh_ty   = [((p.adr      / ns3.max_adr) * ch) | round(1), 1] | max %}
+      {% set bh_stly = [((p.adr_stly / ns3.max_adr) * ch) | round(1), 0] | max %}
+      {% set bh_fly  = [((p.adr_final_ly / ns3.max_adr) * ch) | round(1), 0] | max %}
+      {% set y_ty   = bot - bh_ty   %}
+      {% set y_stly = bot - bh_stly %}
+      {% set ly_y   = bot - bh_fly  %}
+      {% set vs = ((p.adr - p.adr_stly) / p.adr_stly * 100) | round(1) if p.adr_stly else 0 %}
+      <rect x="{{ xi - bw - 1 }}" y="{{ y_ty }}"   width="{{ bw }}" height="{{ bh_ty }}"   rx="1.5" fill="#0F2860"/>
+      <rect x="{{ xi + 1 }}"      y="{{ y_stly }}" width="{{ bw }}" height="{{ bh_stly }}" rx="1.5" fill="#CDD4E0"/>
+      <line x1="{{ xi - bw - 3 }}" y1="{{ ly_y }}" x2="{{ xi + bw + 3 }}" y2="{{ ly_y }}" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
+      <rect x="{{ xi - 18 }}" y="122" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
+      <text x="{{ xi }}" y="117" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">{{ p.month }}</text>
+      <text x="{{ xi }}" y="131" text-anchor="middle" font-size="10" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="IBM Plex Mono" font-weight="600">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
+    {% endfor %}
+  </svg>
+</div>
+{% endif %}
+
+{% if false %}{# BOOKING REVENUE CURVE — removed #}
+{% set curve = data.curves.full %}
+{% set ns = namespace(max_v=1.0, pts_ty='', pts_stly='', pts_sa='', first_xi=50.0, last_ty_xi=50.0, last_ty_y=195.0, last_stly_xi=50.0, last_stly_y=195.0) %}
+{% for p in curve.ty %}{% if p.v > ns.max_v %}{% set ns.max_v = p.v %}{% endif %}{% endfor %}
+{% for p in curve.stly %}{% if p.v > ns.max_v %}{% set ns.max_v = p.v %}{% endif %}{% endfor %}
+{% for p in curve.stly_after %}{% if p.v > ns.max_v %}{% set ns.max_v = p.v %}{% endif %}{% endfor %}
+{% if curve.final_ly > ns.max_v %}{% set ns.max_v = curve.final_ly %}{% endif %}
+{% set max_v = ns.max_v * 1.08 %}
+{% set y_bot = 195 %}{% set y_ch = 168 %}
+{% set ty_year = data.report_date[:4] %}
+{% set ly_year = (ty_year | int - 1) | string %}
+
+{# Build label list and maps #}
+{% set all_labels = [] %}
+{% for p in curve.stly %}{% if p.label not in all_labels %}{% set _ = all_labels.append(p.label) %}{% endif %}{% endfor %}
+{% for p in curve.ty %}{% if p.label not in all_labels %}{% set _ = all_labels.append(p.label) %}{% endif %}{% endfor %}
+{% for p in curve.stly_after %}{% if p.label not in all_labels %}{% set _ = all_labels.append(p.label) %}{% endif %}{% endfor %}
+{% set xstep = (470.0 / ([all_labels | length - 1, 1] | max)) %}
+{% set ty_map = {} %}{% for p in curve.ty %}{% set _ = ty_map.update({p.label: p.v}) %}{% endfor %}
+{% set stly_map = {} %}{% for p in curve.stly %}{% set _ = stly_map.update({p.label: p.v}) %}{% endfor %}
+{% set sa_map = {} %}{% for p in curve.stly_after %}{% set _ = sa_map.update({p.label: p.v}) %}{% endfor %}
+
+{% for lbl in all_labels %}
+  {% set xi = (50 + loop.index0 * xstep) | round(1) %}
+  {% if lbl in ty_map %}
+    {% set yi = (y_bot - (ty_map[lbl] / max_v) * y_ch) | round(1) %}
+    {% if loop.first %}{% set ns.first_xi = xi %}{% endif %}
+    {% set ns.last_ty_xi = xi %}{% set ns.last_ty_y = yi %}
+    {% set ns.pts_ty = ns.pts_ty ~ xi|string ~ ',' ~ yi|string ~ ' ' %}
+  {% endif %}
+  {% if lbl in stly_map %}
+    {% set yi = (y_bot - (stly_map[lbl] / max_v) * y_ch) | round(1) %}
+    {% set ns.last_stly_xi = xi %}{% set ns.last_stly_y = yi %}
+    {% set ns.pts_stly = ns.pts_stly ~ xi|string ~ ',' ~ yi|string ~ ' ' %}
+  {% endif %}
+  {% if lbl in sa_map %}
+    {% set yi = (y_bot - (sa_map[lbl] / max_v) * y_ch) | round(1) %}
+    {% set ns.pts_sa = ns.pts_sa ~ xi|string ~ ',' ~ yi|string ~ ' ' %}
+  {% endif %}
+{% endfor %}
+
+{% set fly_y = (y_bot - (curve.final_ly / max_v) * y_ch) | round(1) %}
+{% set today_xi = ns.last_ty_xi %}
+{% set ty_total = curve.ty[-1].v if curve.ty else 0 %}
+{% set stly_at_today = curve.stly[-1].v if curve.stly else 0 %}
+{% set gap_to_ly = (curve.final_ly - ty_total) | round(0) | int %}
+{% set pct_of_ly = ((ty_total / curve.final_ly * 100) | round(1)) if curve.final_ly else 0 %}
+
+<div class="chart-card" style="margin-bottom:14px;">
+  <div class="chart-h">
+    <div>
+      <div class="chart-title">Booking Revenue Curve &mdash; Full Season {{ ty_year }}</div>
+      <div class="chart-subtitle">Total cumulative OTB revenue (all months) by book date</div>
+    </div>
+    <div class="chart-legend">
+      <span><span class="lg-line" style="border-top:2px solid #0F2860"></span> Revenue OTB {{ ty_year }}</span>
+      <span><span class="lg-line" style="border-top:2px solid #CDD4E0"></span> Revenue STLY {{ ly_year }}</span>
+      <span><span class="lg-line" style="border-color:#1A7A50"></span> Final LY {{ curve.final_ly | kilo }}</span>
+    </div>
+  </div>
+
+<svg viewBox="0 0 570 238" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+  {# Grid lines #}
+  <line x1="50" y1="25"  x2="520" y2="25"  stroke="#E2E7F0" stroke-width="0.5"/>
+  <line x1="50" y1="67"  x2="520" y2="67"  stroke="#F0F2F7" stroke-width="0.5"/>
+  <line x1="50" y1="109" x2="520" y2="109" stroke="#F0F2F7" stroke-width="0.5"/>
+  <line x1="50" y1="152" x2="520" y2="152" stroke="#F0F2F7" stroke-width="0.5"/>
+  <line x1="50" y1="195" x2="520" y2="195" stroke="#E2E7F0" stroke-width="0.5"/>
+  {# Y axis labels #}
+  <text x="46" y="29"  text-anchor="end" font-size="11" fill="#4D5A74" font-family="IBM Plex Mono" font-weight="500">{{ max_v | kilo }}</text>
+  <text x="46" y="71"  text-anchor="end" font-size="11" fill="#6E7A96" font-family="IBM Plex Mono">{{ (max_v * 0.75) | kilo }}</text>
+  <text x="46" y="113" text-anchor="end" font-size="11" fill="#6E7A96" font-family="IBM Plex Mono">{{ (max_v * 0.5)  | kilo }}</text>
+  <text x="46" y="156" text-anchor="end" font-size="11" fill="#6E7A96" font-family="IBM Plex Mono">{{ (max_v * 0.25) | kilo }}</text>
+  <text x="46" y="199" text-anchor="end" font-size="11" fill="#6E7A96" font-family="IBM Plex Mono">€0</text>
+  {# X axis month labels #}
+  {% for lbl in all_labels %}
+    {% set xi = (50 + loop.index0 * xstep) | round(1) %}
+    <text x="{{ xi }}" y="211" text-anchor="middle" font-size="11" fill="{% if lbl in sa_map and lbl not in ty_map and lbl not in stly_map %}#A0AAC0{% else %}#4D5A74{% endif %}" font-family="Outfit" font-weight="500">{{ lbl }}</text>
+  {% endfor %}
+  {# Final LY dashed horizontal line #}
+  {% if curve.final_ly > 0 %}
+  <line x1="50" y1="{{ fly_y }}" x2="520" y2="{{ fly_y }}" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="6,4" opacity="0.65"/>
+  <text x="518" y="{{ fly_y - 5 }}" text-anchor="end" font-size="10" fill="#1A7A50" font-family="IBM Plex Mono" font-weight="600">Final LY {{ curve.final_ly | kilo }}</text>
+  {% endif %}
+  {# TODAY vertical dashed marker #}
+  <line x1="{{ today_xi }}" y1="25" x2="{{ today_xi }}" y2="195" stroke="#0F2860" stroke-width="1" stroke-dasharray="3,3" opacity="0.25"/>
+  {# STLY faded continuation after today's equivalent #}
+  {% if ns.pts_sa %}
+  <polyline points="{{ ns.last_stly_xi }},{{ ns.last_stly_y }} {{ ns.pts_sa }}" fill="none" stroke="#CDD4E0" stroke-width="1.5" opacity="0.4" stroke-linecap="round" stroke-linejoin="round"/>
+  {% endif %}
+  {# STLY solid line #}
+  {% if ns.pts_stly %}
+  <polyline points="{{ ns.pts_stly }}" fill="none" stroke="#CDD4E0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="{{ ns.last_stly_xi }}" cy="{{ ns.last_stly_y }}" r="3.5" fill="#CDD4E0" stroke="#fff" stroke-width="1.5"/>
+  <text x="{{ ns.last_stly_xi - 7 }}" y="{{ ns.last_stly_y + 4 }}" text-anchor="end" font-size="8.5" fill="#A0AAC0" font-family="IBM Plex Mono">{{ stly_at_today | kilo }}</text>
+  {% endif %}
+  {# TY line with subtle fill #}
+  {% if ns.pts_ty %}
+  <polygon points="{{ ns.first_xi }},{{ y_bot }} {{ ns.pts_ty }}{{ today_xi }},{{ y_bot }}" fill="rgba(15,40,96,0.07)"/>
+  <polyline points="{{ ns.pts_ty }}" fill="none" stroke="#0F2860" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  {# vs STLY label above the TY endpoint badge #}
+  {% if stly_at_today > 0 %}
+    {% set vs = ((ty_total - stly_at_today) / stly_at_today * 100) | round(0) | int %}
+    {% set ann_col = '#1A7A50' if vs >= 0 else '#B83A1B' %}
+    <text x="{{ today_xi }}" y="{{ ns.last_ty_y - 38 }}" text-anchor="middle" font-size="10.5" fill="{{ ann_col }}" font-family="IBM Plex Mono" font-weight="700">{{ '+' if vs >= 0 else '' }}{{ vs }}%</text>
+    <text x="{{ today_xi }}" y="{{ ns.last_ty_y - 26 }}" text-anchor="middle" font-size="8.5" fill="{{ ann_col }}" font-family="IBM Plex Mono">vs STLY</text>
+  {% endif %}
+  {# TY endpoint badge centered on dot #}
+  <rect x="{{ today_xi - 31 }}" y="{{ ns.last_ty_y - 22 }}" width="62" height="21" rx="5" fill="#0F2860"/>
+  <text x="{{ today_xi }}" y="{{ ns.last_ty_y - 7 }}" text-anchor="middle" font-size="11" fill="#fff" font-family="IBM Plex Mono" font-weight="700">{{ ty_total | kilo }}</text>
+  <circle cx="{{ today_xi }}" cy="{{ ns.last_ty_y }}" r="4" fill="#0F2860" stroke="#fff" stroke-width="2"/>
+  {% endif %}
+  {# TODAY pill below x-axis #}
+  <rect x="{{ today_xi - 26 }}" y="218" width="52" height="16" rx="4" fill="#0F2860"/>
+  <text x="{{ today_xi }}" y="229" text-anchor="middle" font-size="8.5" fill="#fff" font-family="IBM Plex Mono" font-weight="600">TODAY</text>
+  {# Floating info text in right half: gap to LY + % captured #}
+  {% if curve.final_ly > 0 %}
+    {% set info_x = ((today_xi + 520) / 2) | round(0) | int %}
+    <text x="{{ info_x }}" y="118" text-anchor="middle" font-size="12" fill="#C8D1E0" font-family="IBM Plex Mono" font-weight="600">{{ gap_to_ly | abs | kilo }} still to come</text>
+    <text x="{{ info_x }}" y="136" text-anchor="middle" font-size="11" fill="#C8D1E0" font-family="IBM Plex Mono">{{ pct_of_ly }}% of Final LY captured</text>
+  {% endif %}
+</svg>
+</div>
+{% endif %}
+
+<!-- TOP SOURCES OTB -->
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg>Top Sources &mdash; OTB Full Year</div>
+<div class="card" style="margin-bottom:14px;">
+  {% for ch in data.topChannels %}
+  {% set pct_w = (ch.pct * 100) | round(0) | int %}
+  {% set var_pct = ((ch.var * 100) | round(1)) if ch.var is not none else 0 %}
+  <div class="ch-row">
+    <div class="ch-name">{{ ch.name }}</div>
+    <div class="ch-bar-wrap"><div class="ch-bar" style="width:{{ pct_w }}%"></div></div>
+    <div class="ch-nights" style="min-width:52px">{{ ch.rev | kilo }}</div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--grey-400);min-width:48px;text-align:right">{{ ch.rev_stly | kilo }}</div>
+    <div style="text-align:right;min-width:52px;">
+      {% if ch.trend == 'up' %}
+        <span class="badge-pos">&#9650; {{ '%+.1f'|format(var_pct) }}%</span>
+      {% else %}
+        <span class="badge-neg">&#9660; {{ '%+.1f'|format(var_pct) }}%</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- AI INSIGHTS -->
+{% if ai.insights %}
+<div id="sec-ai" class="sec-anchor"></div>
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>AI Insights</div>
+{% for ins in ai.insights %}
+  {% if ins.type == 'warning' %}
+    {% set ic = 'warn' %}{% set il = 'Alert' %}
+  {% elif ins.type == 'opportunity' %}
+    {% set ic = 'pos'  %}{% set il = 'Opportunity' %}
+  {% elif ins.type == 'observation' %}
+    {% set ic = 'info' %}{% set il = 'Insight' %}
+  {% else %}
+    {% set ic = 'mon'  %}{% set il = 'Monitor' %}
+  {% endif %}
+<div class="icard ic-{{ ic }}">
+  <div class="icard-head" onclick="toggleCard(this)">
+    <h2 class="icard-title">{{ ins.title | highlight | safe }}</h2>
+    <span class="icard-badge ic-{{ ic }}">{{ il }}</span>
+    <button class="icard-toggle" aria-label="Expand">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>
+  </div>
+  <div class="icard-body" style="display:none">
+  {% if ins.kpis %}
+  <div class="icard-kpis">
+    {% for kpi in ins.kpis %}
+    <div class="kpi-chip">
+      <div class="kpi-label">{{ kpi.label }}</div>
+      {% set parts = kpi.value.split(' vs ') %}
+      {% if parts | length >= 2 %}
+      <div class="kpi-val">
+        <span class="kpi-ty {% if kpi.direction == 'up' %}kup{% elif kpi.direction == 'down' %}kdown{% endif %}">{{ parts[0] }}</span><span class="kpi-sep"> vs </span><span class="kpi-ly">{{ parts[1] }}</span>
+      </div>
+      {% else %}
+      <div class="kpi-val {% if kpi.direction == 'up' %}kup{% elif kpi.direction == 'down' %}kdown{% endif %}">{{ kpi.value | highlight | safe }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if ins.bullets %}
+  <div class="icard-bullets">
+    {% for b in ins.bullets %}
+    <div class="ibullet"><span>{{ b | highlight | safe }}</span></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if ins.recommendation %}
+  <div class="icard-action">
+    <div class="iaction-icon ic-{{ ic }}">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M5 19l2-2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </div>
+    <p class="iaction-text">{{ ins.recommendation | highlight | safe }}</p>
+  </div>
+  {% endif %}
+  {% if ins.body and not ins.bullets %}
+  <div style="font-size:12.5px;color:#2A3354;line-height:1.6;margin-bottom:10px">{{ ins.body | highlight | safe }}</div>
+  {% if ins.review_suggestion %}
+  <div class="icard-action">
+    <div class="iaction-icon ic-{{ ic }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+    <p class="iaction-text">{{ ins.review_suggestion | highlight | safe }}</p>
+  </div>
+  {% endif %}
+  {% endif %}
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+<!-- CTA -->
+<div class="cta">
+  <a href="https://app.hbis.io">Open Hotel BI for full report &rarr;</a>
+  <div class="cta-sub">Booking curves &middot; Channel detail &middot; Room type breakdown &middot; Lead time &amp; LOS</div>
+</div>
+
+<!-- FOOTER -->
+<div class="ftr">
+  <div class="ftr-b">HBIS &middot; AI Morning Briefing v2.0</div>
+  <div class="ftr-s">Data from Protel PMS &middot; Generated {{ data.generated_at }} &middot; <a href="#">Manage preferences</a></div>
+</div>
+
+</div>
+
+<script>
+// ── Tab navigation ───────────────────────────────────────────────
+function navTo(id) {
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Highlight active tab based on scroll position
+const _sections = ['sec-overview','sec-pickup','sec-pace','sec-ai'];
+const _tabs = document.querySelectorAll('.tab-btn');
+const _obs = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      const idx = _sections.indexOf(e.target.id);
+      if (idx >= 0) {
+        _tabs.forEach((t,i) => t.classList.toggle('active', i === idx));
+      }
+    }
+  });
+}, { rootMargin: '-40px 0px -60% 0px', threshold: 0 });
+_sections.forEach(id => { const el = document.getElementById(id); if (el) _obs.observe(el); });
+
+// ── AI Insight card toggle ───────────────────────────────────────
+function toggleCard(head) {
+  const body   = head.nextElementSibling;
+  const toggle = head.querySelector('.icard-toggle');
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : 'block';
+  toggle.classList.toggle('open', !isOpen);
+}
+</script>
+</body>
+</html>
