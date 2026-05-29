@@ -10,7 +10,7 @@ $ErrorActionPreference = "Stop"
 $INSTALL_DIR  = "C:\FirstLight"
 $TASK_NAME    = "FirstLight Morning Briefing"
 $LOG_FILE     = "$INSTALL_DIR\install.log"
-$AGENT_ZIP    = "https://github.com/dkaryp13hbis/hotel-morning-briefing/archive/refs/heads/main.zip"
+$AGENT_ZIP    = "https://github.com/dkaryp13hbis/firstlight-agent/archive/refs/heads/main.zip"
 
 # ── Helpers ───────────────────────────────────────────────────────────
 function Log($msg) {
