@@ -291,10 +291,33 @@ def generate_insights(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_cached_insights() -> dict:
-    """Return last cached AI response without hitting the API."""
+    """Return last AI insights: local cache first, then cloud fallback."""
     from pathlib import Path
     cache = Path("ai_cache.json")
     if cache.exists():
-        return json.loads(cache.read_text(encoding="utf-8"))
-    print("[analyst] No cache file — returning empty insights.")
+        result = json.loads(cache.read_text(encoding="utf-8"))
+        if result.get("insights"):
+            return result
+
+    # No local cache — fetch from cloud
+    print("[analyst] No local cache — fetching AI insights from cloud...")
+    try:
+        import os, requests as _req
+        api_url = os.getenv("FIRSTLIGHT_API_URL", "").rstrip("/")
+        api_key = os.getenv("FIRSTLIGHT_API_KEY", "")
+        if api_url and api_key:
+            resp = _req.get(
+                f"{api_url}/my/ai-insights",
+                headers={"x-api-key": api_key},
+                timeout=10,
+            )
+            if resp.ok:
+                ai = resp.json().get("ai_insights") or {}
+                if ai.get("insights"):
+                    print("[analyst] Loaded AI insights from cloud.")
+                    return ai
+    except Exception as exc:
+        print(f"[analyst] Cloud fallback failed: {exc}")
+
+    print("[analyst] No AI insights available — returning empty.")
     return _STUB
