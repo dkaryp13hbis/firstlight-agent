@@ -65,20 +65,24 @@ FIRSTLIGHT_API_KEY=$FL_KEY
 Write-Host ""
 Write-Host "  .env saved." -ForegroundColor Green
 
+# Resolve full Python path so SYSTEM account can find it
+$pythonExe = python -c "import sys; print(sys.executable)"
+Write-Host "  Python path: $pythonExe" -ForegroundColor Gray
+
 # Install Python packages
 Write-Host "  Installing packages..." -ForegroundColor Yellow
-python -m pip install -q -r "$PSScriptRoot\requirements.txt"
+& $pythonExe -m pip install -q -r "$PSScriptRoot\requirements.txt"
 Write-Host "  Packages ready." -ForegroundColor Green
 
 # Task 1: daily morning briefing
-$action    = New-ScheduledTaskAction -Execute "python" -Argument "main.py" -WorkingDirectory $PSScriptRoot
+$action    = New-ScheduledTaskAction -Execute $pythonExe -Argument "main.py" -WorkingDirectory $PSScriptRoot
 $trigger   = New-ScheduledTaskTrigger -Daily -At $RUN_TIME
 $settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable
 $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 Register-ScheduledTask -TaskName "FirstLight Morning Briefing" -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
 
 # Task 2: refresh daemon — starts at boot, listens for PWA refresh commands
-$action2   = New-ScheduledTaskAction -Execute "python" -Argument "server.py --daemon" -WorkingDirectory $PSScriptRoot
+$action2   = New-ScheduledTaskAction -Execute $pythonExe -Argument "server.py --daemon" -WorkingDirectory $PSScriptRoot
 $trigger2  = New-ScheduledTaskTrigger -AtStartup
 $settings2 = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Days 365)
 Register-ScheduledTask -TaskName "FirstLight Refresh Daemon" -Action $action2 -Trigger $trigger2 -Settings $settings2 -Principal $principal -Force | Out-Null
