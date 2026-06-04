@@ -4,7 +4,6 @@ Uses the HBIS analyst persona with structured JSON output.
 """
 
 import json
-import re
 from typing import Any
 
 import anthropic
@@ -93,34 +92,12 @@ low vs final LY is normal — they fill late.
 
 ## OUTPUT FORMAT
 
-Return ONLY valid JSON. No markdown, no backticks, no extra text.
-
-{
-  "executive_summary": "2-4 short sentences. What happened yesterday — how the next few months look — the one thing to pay attention to today.",
-  "insights": [
-    {
-      "priority": 1,
-      "type": "warning|opportunity|observation|monitor",
-      "title": "Short headline with the key number, max 80 characters",
-      "kpis": [
-        {"label": "Jun occupancy", "value": "42.7% vs 19.6% last year", "direction": "up"},
-        {"label": "Jun ADR", "value": "€385 vs €437 last year", "direction": "down"}
-      ],
-      "bullets": [
-        "More than double the rooms booked vs this time last year",
-        "But ADR is €52 lower than at this booking stage last year"
-      ],
-      "recommendation": "Review whether current pricing reflects how strong demand is — rooms are filling much faster but at a lower ADR"
-    }
-  ]
-}
-
-FIELD RULES:
+Use the submit_briefing tool to return your analysis. Fill every field:
+- executive_summary: 2-4 short sentences. What happened yesterday — how the next few months look — the one thing to pay attention to today.
 - title: One clear line with the key number or tension. Max 80 characters.
 - kpis: 2-4 metric chips. label = plain words (e.g. "Jun occupancy"), value = "TY vs LY" format, direction = "up"/"down"/"neutral"
 - bullets: 2-3 short lines. One fact or connection per line. Plain language.
-- recommendation: One sentence starting with "Review...", "Check...", "Confirm...", or "Compare...".
-  Points to WHERE to look — NEVER tells them what to do.
+- recommendation: One sentence starting with "Review...", "Check...", "Confirm...", or "Compare...". Points to WHERE to look — NEVER tells them what to do.
 
 Return 3-5 insights ordered by importance:
 - warning: significantly worse than last year
@@ -132,6 +109,44 @@ Return 3-5 insights ordered by importance:
 _STUB = {
     "executive_summary": "",
     "insights": [],
+}
+
+_TOOL: dict[str, Any] = {
+    "name": "submit_briefing",
+    "description": "Submit the hotel morning briefing analysis with executive summary and insights.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "executive_summary": {"type": "string"},
+            "insights": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "priority":       {"type": "integer"},
+                        "type":           {"type": "string", "enum": ["warning", "opportunity", "observation", "monitor"]},
+                        "title":          {"type": "string"},
+                        "kpis": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "label":     {"type": "string"},
+                                    "value":     {"type": "string"},
+                                    "direction": {"type": "string", "enum": ["up", "down", "neutral"]},
+                                },
+                                "required": ["label", "value", "direction"],
+                            },
+                        },
+                        "bullets":        {"type": "array", "items": {"type": "string"}},
+                        "recommendation": {"type": "string"},
+                    },
+                    "required": ["priority", "type", "title", "kpis", "bullets", "recommendation"],
+                },
+            },
+        },
+        "required": ["executive_summary", "insights"],
+    },
 }
 
 
@@ -223,20 +238,6 @@ Cancellations yesterday: {pu['cancellations1d']} rooms, €{pu['cancellationReve
     ) + "\n\nNow analyze this data and return the JSON response with executive_summary and 3-5 prioritized insights."
 
 
-def _strip_json(text: str) -> str:
-    """Strip markdown fences and find the JSON object in the response."""
-    text = text.strip()
-    text = re.sub(r"^```(?:json)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
-    text = text.strip()
-    # Find the outermost JSON object if there's surrounding text
-    start = text.find("{")
-    end   = text.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        text = text[start:end + 1]
-    return text
-
-
 def generate_insights(data: dict[str, Any]) -> dict[str, Any]:
     """
     Sends the briefing data to Claude and returns parsed AI output.
@@ -251,7 +252,15 @@ def generate_insights(data: dict[str, Any]) -> dict[str, Any]:
             model="claude-sonnet-4-6",
             max_tokens=2500,
             temperature=0.3,
-            system=_SYSTEM_PROMPT,
+            system=[
+                {
+                    "type": "text",
+                    "text": _SYSTEM_PROMPT,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            tools=[_TOOL],
+            tool_choice={"type": "tool", "name": "submit_briefing"},
             messages=[
                 {
                     "role": "user",
@@ -259,13 +268,8 @@ def generate_insights(data: dict[str, Any]) -> dict[str, Any]:
                 }
             ],
         )
-        raw = response.content[0].text
-        text = _strip_json(raw)
-        try:
-            result = json.loads(text)
-        except json.JSONDecodeError as je:
-            print(f"[analyst] JSON parse error at char {je.pos}: {je.msg}")
-            raise
+        tool_use = next(b for b in response.content if b.type == "tool_use")
+        result: dict[str, Any] = tool_use.input
         result.setdefault("executive_summary", "")
         result.setdefault("insights", [])
         for ins in result["insights"]:
