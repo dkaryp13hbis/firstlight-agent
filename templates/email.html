@@ -302,7 +302,7 @@
 <!-- AI EXECUTIVE SUMMARY -->
 {% if ai.executive_summary %}
 <div class="ai-sum">
-  <div class="ai-sum-tag">AI Executive Summary</div>
+  <div class="ai-sum-tag">Smart Summary</div>
   <p>{{ ai.executive_summary }}</p>
 </div>
 {% endif %}
@@ -386,7 +386,7 @@
     <div class="otb-card">
       <div class="top-bar" style="background:{{ bar_color }}"></div>
       <div class="otb-mo">{{ p.month }}</div>
-      <div class="otb-rev">{{ p.rev | kilo }}</div>
+      <div class="otb-rev">{{ p.rev | kilo0 }}</div>
       <div class="otb-detail"><b>{{ p.rn }}</b> rn &middot; <span class="otb-occ" style="color:{{ 'var(--green)' if p.status == 'ahead' else ('var(--red)' if p.status == 'behind' else 'var(--grey-600)') }}">{{ p.occ | pct }}</span> occ</div>
       <div class="otb-vs" style="color:{{ 'var(--green)' if vs_stly >= 0 else 'var(--red)' }}">
         {{ '▲' if vs_stly >= 0 else '▼' }} {{ '%+.0f'|format(vs_stly) }}% vs STLY
@@ -454,7 +454,7 @@
   </div>
   <div class="pu-sub-card">
     <div style="font-size:9px;font-weight:600;color:var(--grey-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Net pickup (7d)</div>
-    <div style="font-weight:700;font-size:15px;color:var(--green)">+{{ pu.last7d.roomNights }} rn <span style="font-size:11px;color:var(--grey-500);font-weight:400">{{ pu.last7d.revenue | kilo }} gross</span></div>
+    <div style="font-weight:700;font-size:15px;color:var(--green)">+{{ pu.last7d.roomNights - pu.cancellations7d }} rn <span style="font-size:11px;color:var(--grey-500);font-weight:400">{{ (pu.last7d.revenue - pu.cancellationRevenue7d) | kilo }} net rev</span></div>
   </div>
 </div>
 

@@ -46,6 +46,7 @@ def _render(data: dict[str, Any], ai: dict[str, Any]) -> str:
     env.filters["euro"]      = lambda v: f"€{v:,.0f}".replace(",", ".")
     env.filters["pct"]       = lambda v: f"{v * 100:.1f}%"
     env.filters["kilo"]      = lambda v: (f"€{v/1000:.1f}k" if v >= 1000 else f"€{int(v)}")
+    env.filters["kilo0"]     = lambda v: (f"€{round(v/1000)}k" if v >= 1000 else f"€{int(v)}")
     env.filters["highlight"] = _highlight
 
     return env.get_template("email.html").render(data=data, ai=ai)
