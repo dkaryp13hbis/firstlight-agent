@@ -386,7 +386,7 @@
     <div class="otb-card">
       <div class="top-bar" style="background:{{ bar_color }}"></div>
       <div class="otb-mo">{{ p.month }}</div>
-      <div class="otb-rev">{{ p.rev | kilo0 }}</div>
+      <div class="otb-rev">{{ p.rev | euro }}</div>
       <div class="otb-detail"><b>{{ p.rn }}</b> rn &middot; <span class="otb-occ" style="color:{{ 'var(--green)' if p.status == 'ahead' else ('var(--red)' if p.status == 'behind' else 'var(--grey-600)') }}">{{ p.occ | pct }}</span> occ</div>
       <div class="otb-vs" style="color:{{ 'var(--green)' if vs_stly >= 0 else 'var(--red)' }}">
         {{ '▲' if vs_stly >= 0 else '▼' }} {{ '%+.0f'|format(vs_stly) }}% vs STLY
