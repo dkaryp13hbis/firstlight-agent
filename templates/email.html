@@ -115,7 +115,7 @@
   .ch-row { display:flex; align-items:center; padding:7px 0; border-top:1px solid var(--grey-100); gap:10px; }
   .ch-row:first-child { border-top:none; }
   .ch-name { font-weight:600; font-size:12px; flex:1; }
-  .ch-bar-wrap { flex:2; background:var(--grey-100); border-radius:4px; height:6px; overflow:hidden; }
+  .ch-bar-wrap { flex:2; background:var(--grey-100); border-radius:4px; height:6px; overflow:visible; position:relative; }
   .ch-bar { height:100%; background:var(--grad-cyan); border-radius:4px; }
   .ch-nights { font-family:var(--mono); font-size:10px; color:var(--grey-600); min-width:36px; text-align:right; }
   .badge-pos { background:var(--green-bg); color:var(--green); font-family:var(--mono); font-size:9px; font-weight:600; padding:2px 6px; border-radius:4px; }
@@ -399,62 +399,81 @@
 <!-- PICKUP -->
 <div id="sec-pickup" class="sec-anchor"></div>
 <div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>Pickup Activity</div>
-<div class="card" style="margin-bottom:6px">
-  <table class="pu">
-    <thead>
-      <tr>
-        <th></th>
-        <th colspan="2" style="color:var(--green)">Today</th>
-        <th colspan="2" style="color:var(--blue)">{{ pu.date1d }}</th>
-        <th colspan="2">{{ pu.date3d }}</th>
-        <th colspan="2">{{ pu.date7d }}</th>
-      </tr>
-      <tr>
-        <th></th>
-        <th style="font-size:7px;color:var(--green)">Booked</th>
-        <th style="font-size:7px;color:var(--red)">Cancel</th>
-        <th style="font-size:7px;color:var(--blue)">Booked</th>
-        <th style="font-size:7px;color:var(--red)">Cancel</th>
-        <th style="font-size:7px">Booked</th>
-        <th style="font-size:7px;color:var(--red)">Cancel</th>
-        <th style="font-size:7px">Booked</th>
-        <th style="font-size:7px;color:var(--red)">Cancel</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>Room Nights</td>
-        <td><span class="pu-v" style="color:var(--green)">+{{ pu.today.roomNights }}</span></td>
-        <td><span class="pu-v red">-{{ pu.cancellationsToday }}</span></td>
-        <td><span class="pu-v blue">+{{ pu.last1d.roomNights }}</span></td>
-        <td><span class="pu-v red">-{{ pu.cancellations1d }}</span></td>
-        <td><span class="pu-v">+{{ pu.last3d.roomNights }}</span></td>
-        <td><span class="pu-v red">-{{ pu.cancellations3d }}</span></td>
-        <td><span class="pu-v">+{{ pu.last7d.roomNights }}</span></td>
-        <td><span class="pu-v red">-{{ pu.cancellations7d }}</span></td>
-      </tr>
-      <tr>
-        <td>Revenue</td>
-        <td><span class="pu-v" style="color:var(--green)">{{ pu.today.revenue | kilo }}</span></td>
-        <td><span class="pu-v red">-{{ pu.cancellationRevenueToday | kilo }}</span></td>
-        <td><span class="pu-v blue">{{ pu.last1d.revenue | kilo }}</span></td>
-        <td><span class="pu-v red">-{{ pu.cancellationRevenue | kilo }}</span></td>
-        <td><span class="pu-v">{{ pu.last3d.revenue | kilo }}</span></td>
-        <td><span class="pu-v red">-{{ pu.cancellationRevenue3d | kilo }}</span></td>
-        <td><span class="pu-v">{{ pu.last7d.revenue | kilo }}</span></td>
-        <td><span class="pu-v red">-{{ pu.cancellationRevenue7d | kilo }}</span></td>
-      </tr>
-    </tbody>
-  </table>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+
+  {# TODAY #}
+  <div class="card" style="padding:12px">
+    <div style="font-size:10px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Today</div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
+      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
+      <span style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--green)">+{{ pu.today.roomNights }} rn &middot; {{ pu.today.revenue | kilo }}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Cancel</span>
+      <span style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--red)">-{{ pu.cancellationsToday }} rn &middot; -{{ pu.cancellationRevenueToday | kilo }}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:6px;border-top:1px solid var(--grey-100)">
+      <span style="font-size:9px;font-weight:700;color:var(--grey-600);text-transform:uppercase;letter-spacing:.05em">Net</span>
+      <span style="font-family:var(--mono);font-size:12px;font-weight:700">{{ pu.today.roomNights - pu.cancellationsToday }} rn &middot; {{ (pu.today.revenue - pu.cancellationRevenueToday) | kilo }}</span>
+    </div>
+  </div>
+
+  {# YESTERDAY #}
+  <div class="card" style="padding:12px">
+    <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Yesterday <span style="font-weight:400;font-size:9px;color:var(--grey-400)">{{ pu.date1d }}</span></div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
+      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
+      <span style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--blue)">+{{ pu.last1d.roomNights }} rn &middot; {{ pu.last1d.revenue | kilo }}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Cancel</span>
+      <span style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--red)">-{{ pu.cancellations1d }} rn &middot; -{{ pu.cancellationRevenue | kilo }}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:6px;border-top:1px solid var(--grey-100)">
+      <span style="font-size:9px;font-weight:700;color:var(--grey-600);text-transform:uppercase;letter-spacing:.05em">Net</span>
+      <span style="font-family:var(--mono);font-size:12px;font-weight:700">{{ pu.last1d.roomNights - pu.cancellations1d }} rn &middot; {{ (pu.last1d.revenue - pu.cancellationRevenue) | kilo }}</span>
+    </div>
+  </div>
+
+  {# 3-DAY #}
+  <div class="card" style="padding:12px">
+    <div style="font-size:10px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">3-Day <span style="font-weight:400;font-size:9px;color:var(--grey-400)">{{ pu.date3d }}</span></div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
+      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
+      <span style="font-family:var(--mono);font-size:11px;font-weight:700">+{{ pu.last3d.roomNights }} rn &middot; {{ pu.last3d.revenue | kilo }}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Cancel</span>
+      <span style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--red)">-{{ pu.cancellations3d }} rn &middot; -{{ pu.cancellationRevenue3d | kilo }}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:6px;border-top:1px solid var(--grey-100)">
+      <span style="font-size:9px;font-weight:700;color:var(--grey-600);text-transform:uppercase;letter-spacing:.05em">Net</span>
+      <span style="font-family:var(--mono);font-size:12px;font-weight:700">{{ pu.last3d.roomNights - pu.cancellations3d }} rn &middot; {{ (pu.last3d.revenue - pu.cancellationRevenue3d) | kilo }}</span>
+    </div>
+  </div>
+
+  {# 7-DAY #}
+  <div class="card" style="padding:12px">
+    <div style="font-size:10px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">7-Day <span style="font-weight:400;font-size:9px;color:var(--grey-400)">{{ pu.date7d }}</span></div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
+      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
+      <span style="font-family:var(--mono);font-size:11px;font-weight:700">+{{ pu.last7d.roomNights }} rn &middot; {{ pu.last7d.revenue | kilo }}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Cancel</span>
+      <span style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--red)">-{{ pu.cancellations7d }} rn &middot; -{{ pu.cancellationRevenue7d | kilo }}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:6px;border-top:1px solid var(--grey-100)">
+      <span style="font-size:9px;font-weight:700;color:var(--grey-600);text-transform:uppercase;letter-spacing:.05em">Net</span>
+      <span style="font-family:var(--mono);font-size:12px;font-weight:700">{{ pu.last7d.roomNights - pu.cancellations7d }} rn &middot; {{ (pu.last7d.revenue - pu.cancellationRevenue7d) | kilo }}</span>
+    </div>
+  </div>
+
 </div>
 <div class="pu-sub">
   <div class="pu-sub-card">
     <div style="font-size:9px;font-weight:600;color:var(--grey-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Top month (7d)</div>
-    <div style="font-weight:700;font-size:15px;color:var(--text)">{{ pu.topMonth }} <span style="font-size:11px;color:var(--grey-500);font-weight:400">+{{ pu.topMonthNights }} rn</span></div>
-  </div>
-  <div class="pu-sub-card">
-    <div style="font-size:9px;font-weight:600;color:var(--grey-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Net pickup (7d)</div>
-    <div style="font-weight:700;font-size:15px;color:var(--green)">+{{ pu.last7d.roomNights - pu.cancellations7d }} rn <span style="font-size:11px;color:var(--grey-500);font-weight:400">{{ (pu.last7d.revenue - pu.cancellationRevenue7d) | kilo }} net rev</span></div>
+    <div style="font-weight:700;font-size:15px;color:var(--text)">{{ pu.topMonth }} <span style="font-size:11px;color:var(--grey-500);font-weight:400">+{{ pu.topMonthNights }} rn booked</span></div>
   </div>
 </div>
 
@@ -466,8 +485,8 @@
 {# ── Compute chart layout variables ── #}
 {% set n_mo = data.pace | length %}
 {% set step = 480.0 / n_mo %}
-{% set bot  = 100 %}
-{% set ch   = 88 %}
+{% set bot  = 115 %}
+{% set ch   = 101 %}
 {% set bw   = 12 if n_mo > 6 else 13 %}
 
 {# ── REVENUE BAR CHART ── #}
@@ -487,15 +506,15 @@
       <span><span class="lg-line" style="border-color:var(--green)"></span> Final LY</span>
     </div>
   </div>
-  <svg viewBox="0 0 560 145" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+  <svg viewBox="0 0 560 162" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
     <line x1="40" y1="10"  x2="520" y2="10"  stroke="#E2E7F0" stroke-width="0.5"/>
-    <line x1="40" y1="37"  x2="520" y2="37"  stroke="#F0F2F7" stroke-width="0.5"/>
-    <line x1="40" y1="64"  x2="520" y2="64"  stroke="#F0F2F7" stroke-width="0.5"/>
-    <line x1="40" y1="100" x2="520" y2="100" stroke="#E2E7F0" stroke-width="0.5"/>
+    <line x1="40" y1="45"  x2="520" y2="45"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="40" y1="80"  x2="520" y2="80"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="40" y1="115" x2="520" y2="115" stroke="#E2E7F0" stroke-width="0.5"/>
     <text x="36" y="14"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (ns.max_rev) | kilo }}</text>
-    <text x="36" y="41"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (ns.max_rev * 0.67) | kilo }}</text>
-    <text x="36" y="68"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (ns.max_rev * 0.33) | kilo }}</text>
-    <text x="36" y="104" text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€0</text>
+    <text x="36" y="49"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (ns.max_rev * 0.67) | kilo }}</text>
+    <text x="36" y="84"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (ns.max_rev * 0.33) | kilo }}</text>
+    <text x="36" y="119" text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€0</text>
     {% for p in data.pace %}
       {% set xi = (40 + (loop.index0 + 0.5) * step) | round(1) %}
       {% set bh_ty   = [((p.rev       / ns.max_rev) * ch) | round(1), 1] | max %}
@@ -508,15 +527,15 @@
       <rect x="{{ xi - bw - 1 }}" y="{{ y_ty }}"   width="{{ bw }}" height="{{ bh_ty }}"   rx="1.5" fill="#0F2860"/>
       <rect x="{{ xi + 1 }}"      y="{{ y_stly }}" width="{{ bw }}" height="{{ bh_stly }}" rx="1.5" fill="#CDD4E0"/>
       <line x1="{{ xi - bw - 3 }}" y1="{{ ly_y }}" x2="{{ xi + bw + 3 }}" y2="{{ ly_y }}" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
-      <rect x="{{ xi - 18 }}" y="122" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
-      <text x="{{ xi }}" y="117" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">{{ p.month }}</text>
-      <text x="{{ xi }}" y="131" text-anchor="middle" font-size="10" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="IBM Plex Mono" font-weight="600">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
+      <rect x="{{ xi - 18 }}" y="137" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
+      <text x="{{ xi }}" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">{{ p.month }}</text>
+      <text x="{{ xi }}" y="146" text-anchor="middle" font-size="10" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="IBM Plex Mono" font-weight="600">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
     {% endfor %}
   </svg>
 </div>
 
 {# ── OCCUPANCY LINE CHART ── #}
-{% set ns2 = namespace(max_occ=0.001, pts_ty='', pts_stly='', pts_fly='', first_xi=0.0, last_xi=0.0) %}
+{% set ns2 = namespace(max_occ=0.001, pts_fly='', first_xi=0.0, last_xi=0.0, smooth_ty='', smooth_stly='', smooth_area='', prev_xi=0.0, prev_y_ty=0.0, prev_y_stly=0.0) %}
 {% for p in data.pace %}
   {% if p.occ   > ns2.max_occ %}{% set ns2.max_occ = p.occ   %}{% endif %}
   {% if p.stly  > ns2.max_occ %}{% set ns2.max_occ = p.stly  %}{% endif %}
@@ -528,12 +547,23 @@
   {% set y_ty  = (bot - (p.occ   / occ_top) * ch) | round(1) %}
   {% set y_stly= (bot - (p.stly  / occ_top) * ch) | round(1) %}
   {% set y_fly = (bot - (p.final / occ_top) * ch) | round(1) %}
-  {% if loop.first %}{% set ns2.first_xi = xi %}{% endif %}
-  {% set ns2.last_xi = xi %}
-  {% set ns2.pts_ty   = ns2.pts_ty   ~ xi|string ~ ',' ~ y_ty|string   ~ ' ' %}
-  {% set ns2.pts_stly = ns2.pts_stly ~ xi|string ~ ',' ~ y_stly|string ~ ' ' %}
-  {% set ns2.pts_fly  = ns2.pts_fly  ~ xi|string ~ ',' ~ y_fly|string  ~ ' ' %}
+  {% if loop.first %}
+    {% set ns2.first_xi = xi %}
+    {% set ns2.smooth_ty    = 'M' ~ xi ~ ',' ~ y_ty %}
+    {% set ns2.smooth_stly  = 'M' ~ xi ~ ',' ~ y_stly %}
+  {% else %}
+    {% set cp1x = (ns2.prev_xi + step / 3) | round(1) %}
+    {% set cp2x = (xi - step / 3) | round(1) %}
+    {% set ns2.smooth_ty   = ns2.smooth_ty   ~ ' C' ~ cp1x ~ ',' ~ ns2.prev_y_ty   ~ ' ' ~ cp2x ~ ',' ~ y_ty   ~ ' ' ~ xi ~ ',' ~ y_ty %}
+    {% set ns2.smooth_stly = ns2.smooth_stly ~ ' C' ~ cp1x ~ ',' ~ ns2.prev_y_stly ~ ' ' ~ cp2x ~ ',' ~ y_stly ~ ' ' ~ xi ~ ',' ~ y_stly %}
+  {% endif %}
+  {% set ns2.last_xi    = xi %}
+  {% set ns2.prev_xi    = xi %}
+  {% set ns2.prev_y_ty  = y_ty %}
+  {% set ns2.prev_y_stly = y_stly %}
+  {% set ns2.pts_fly = ns2.pts_fly ~ xi|string ~ ',' ~ y_fly|string ~ ' ' %}
 {% endfor %}
+{% set smooth_area = ns2.smooth_ty ~ ' L' ~ ns2.last_xi ~ ',' ~ bot ~ ' L' ~ ns2.first_xi ~ ',' ~ bot ~ ' Z' %}
 
 <div class="chart-card">
   <div class="chart-h">
@@ -544,21 +574,22 @@
       <span><span class="lg-line" style="border-color:var(--green)"></span> Final LY</span>
     </div>
   </div>
-  <svg viewBox="0 0 560 145" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+  <svg viewBox="0 0 560 162" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
     <line x1="40" y1="10"  x2="520" y2="10"  stroke="#E2E7F0" stroke-width="0.5"/>
-    <line x1="40" y1="37"  x2="520" y2="37"  stroke="#F0F2F7" stroke-width="0.5"/>
-    <line x1="40" y1="64"  x2="520" y2="64"  stroke="#F0F2F7" stroke-width="0.5"/>
-    <line x1="40" y1="100" x2="520" y2="100" stroke="#E2E7F0" stroke-width="0.5"/>
+    <line x1="40" y1="45"  x2="520" y2="45"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="40" y1="80"  x2="520" y2="80"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="40" y1="115" x2="520" y2="115" stroke="#E2E7F0" stroke-width="0.5"/>
     <text x="36" y="14"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (occ_top * 100) | round(0) | int }}%</text>
-    <text x="36" y="41"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (occ_top * 67) | round(0) | int }}%</text>
-    <text x="36" y="68"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (occ_top * 33) | round(0) | int }}%</text>
-    <text x="36" y="104" text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">0%</text>
-    {# Area fill under OTB TY line #}
-    <polygon points="{{ ns2.first_xi }},{{ bot }} {{ ns2.pts_ty }}{{ ns2.last_xi }},{{ bot }}" fill="rgba(15,40,96,0.07)"/>
-    {# Lines #}
-    <polyline points="{{ ns2.pts_fly  }}" fill="none" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="4,3" stroke-linecap="round"/>
-    <polyline points="{{ ns2.pts_stly }}" fill="none" stroke="#CDD4E0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-    <polyline points="{{ ns2.pts_ty   }}" fill="none" stroke="#0F2860" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="36" y="49"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (occ_top * 67) | round(0) | int }}%</text>
+    <text x="36" y="84"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (occ_top * 33) | round(0) | int }}%</text>
+    <text x="36" y="119" text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">0%</text>
+    {# Smooth area fill #}
+    <path d="{{ smooth_area }}" fill="rgba(15,40,96,0.07)"/>
+    {# Final LY dashed line (linear reference) #}
+    <polyline points="{{ ns2.pts_fly }}" fill="none" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="4,3" stroke-linecap="round"/>
+    {# Smooth STLY and TY curves #}
+    <path d="{{ ns2.smooth_stly }}" fill="none" stroke="#CDD4E0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="{{ ns2.smooth_ty   }}" fill="none" stroke="#0F2860" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
     {# Dots + labels #}
     {% for p in data.pace %}
       {% set xi    = (40 + (loop.index0 + 0.5) * step) | round(1) %}
@@ -569,9 +600,9 @@
       <circle cx="{{ xi }}" cy="{{ y_ty }}"   r="4" fill="#0F2860" stroke="#fff" stroke-width="1.5"/>
       <rect x="{{ xi - 16 }}" y="{{ y_ty - 20 }}" width="32" height="14" rx="3" fill="white"/>
       <text x="{{ xi }}" y="{{ y_ty - 9 }}" text-anchor="middle" font-size="11" fill="#0F2860" font-family="IBM Plex Mono" font-weight="600">{{ (p.occ * 100) | round(0) | int }}%</text>
-      <rect x="{{ xi - 18 }}" y="122" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
-      <text x="{{ xi }}" y="117" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">{{ p.month }}</text>
-      <text x="{{ xi }}" y="131" text-anchor="middle" font-size="10" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="IBM Plex Mono" font-weight="600">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
+      <rect x="{{ xi - 18 }}" y="137" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
+      <text x="{{ xi }}" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">{{ p.month }}</text>
+      <text x="{{ xi }}" y="146" text-anchor="middle" font-size="10" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="IBM Plex Mono" font-weight="600">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
     {% endfor %}
   </svg>
 </div>
@@ -593,15 +624,15 @@
       <span><span class="lg-line" style="border-color:var(--green)"></span> Final LY</span>
     </div>
   </div>
-  <svg viewBox="0 0 560 145" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+  <svg viewBox="0 0 560 162" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
     <line x1="40" y1="10"  x2="520" y2="10"  stroke="#E2E7F0" stroke-width="0.5"/>
-    <line x1="40" y1="37"  x2="520" y2="37"  stroke="#F0F2F7" stroke-width="0.5"/>
-    <line x1="40" y1="64"  x2="520" y2="64"  stroke="#F0F2F7" stroke-width="0.5"/>
-    <line x1="40" y1="100" x2="520" y2="100" stroke="#E2E7F0" stroke-width="0.5"/>
+    <line x1="40" y1="45"  x2="520" y2="45"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="40" y1="80"  x2="520" y2="80"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="40" y1="115" x2="520" y2="115" stroke="#E2E7F0" stroke-width="0.5"/>
     <text x="36" y="14"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€{{ ns3.max_adr | round(0) | int }}</text>
-    <text x="36" y="41"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€{{ (ns3.max_adr * 0.67) | round(0) | int }}</text>
-    <text x="36" y="68"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€{{ (ns3.max_adr * 0.33) | round(0) | int }}</text>
-    <text x="36" y="104" text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€0</text>
+    <text x="36" y="49"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€{{ (ns3.max_adr * 0.67) | round(0) | int }}</text>
+    <text x="36" y="84"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€{{ (ns3.max_adr * 0.33) | round(0) | int }}</text>
+    <text x="36" y="119" text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€0</text>
     {% for p in data.pace %}
       {% set xi = (40 + (loop.index0 + 0.5) * step) | round(1) %}
       {% set bh_ty   = [((p.adr      / ns3.max_adr) * ch) | round(1), 1] | max %}
@@ -614,9 +645,9 @@
       <rect x="{{ xi - bw - 1 }}" y="{{ y_ty }}"   width="{{ bw }}" height="{{ bh_ty }}"   rx="1.5" fill="#0F2860"/>
       <rect x="{{ xi + 1 }}"      y="{{ y_stly }}" width="{{ bw }}" height="{{ bh_stly }}" rx="1.5" fill="#CDD4E0"/>
       <line x1="{{ xi - bw - 3 }}" y1="{{ ly_y }}" x2="{{ xi + bw + 3 }}" y2="{{ ly_y }}" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
-      <rect x="{{ xi - 18 }}" y="122" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
-      <text x="{{ xi }}" y="117" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">{{ p.month }}</text>
-      <text x="{{ xi }}" y="131" text-anchor="middle" font-size="10" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="IBM Plex Mono" font-weight="600">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
+      <rect x="{{ xi - 18 }}" y="137" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
+      <text x="{{ xi }}" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">{{ p.month }}</text>
+      <text x="{{ xi }}" y="146" text-anchor="middle" font-size="10" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="IBM Plex Mono" font-weight="600">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
     {% endfor %}
   </svg>
 </div>
@@ -750,12 +781,17 @@
 <!-- TOP SOURCES OTB -->
 <div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg>Top Sources &mdash; OTB Full Year</div>
 <div class="card" style="margin-bottom:14px;">
+  {% set total_rev_ty = (data.topChannels[0].rev / data.topChannels[0].pct) | round(0) if data.topChannels else 1 %}
   {% for ch in data.topChannels %}
   {% set pct_w = (ch.pct * 100) | round(0) | int %}
+  {% set stly_pct = [[ch.rev_stly / total_rev_ty * 100, 0] | max, 100] | min | round(0) | int %}
   {% set var_pct = ((ch.var * 100) | round(1)) if ch.var is not none else 0 %}
   <div class="ch-row">
     <div class="ch-name">{{ ch.name }}</div>
-    <div class="ch-bar-wrap"><div class="ch-bar" style="width:{{ pct_w }}%"></div></div>
+    <div class="ch-bar-wrap">
+      <div class="ch-bar" style="width:{{ pct_w }}%"></div>
+      <div style="position:absolute;top:-3px;left:{{ stly_pct }}%;width:2px;height:12px;background:var(--blue);border-radius:1px;opacity:0.5"></div>
+    </div>
     <div class="ch-nights" style="min-width:52px">{{ ch.rev | kilo }}</div>
     <div style="font-family:var(--mono);font-size:9px;color:var(--grey-400);min-width:48px;text-align:right">{{ ch.rev_stly | kilo }}</div>
     <div style="text-align:right;min-width:52px;">
