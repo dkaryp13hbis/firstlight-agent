@@ -404,12 +404,15 @@
     <thead>
       <tr>
         <th></th>
+        <th colspan="2" style="color:var(--green)">Today</th>
         <th colspan="2" style="color:var(--blue)">{{ pu.date1d }}</th>
         <th colspan="2">{{ pu.date3d }}</th>
         <th colspan="2">{{ pu.date7d }}</th>
       </tr>
       <tr>
         <th></th>
+        <th style="font-size:7px;color:var(--green)">Booked</th>
+        <th style="font-size:7px;color:var(--red)">Cancel</th>
         <th style="font-size:7px;color:var(--blue)">Booked</th>
         <th style="font-size:7px;color:var(--red)">Cancel</th>
         <th style="font-size:7px">Booked</th>
@@ -421,6 +424,8 @@
     <tbody>
       <tr>
         <td>Room Nights</td>
+        <td><span class="pu-v" style="color:var(--green)">+{{ pu.today.roomNights }}</span></td>
+        <td><span class="pu-v red">-{{ pu.cancellationsToday }}</span></td>
         <td><span class="pu-v blue">+{{ pu.last1d.roomNights }}</span></td>
         <td><span class="pu-v red">-{{ pu.cancellations1d }}</span></td>
         <td><span class="pu-v">+{{ pu.last3d.roomNights }}</span></td>
@@ -430,6 +435,8 @@
       </tr>
       <tr>
         <td>Revenue</td>
+        <td><span class="pu-v" style="color:var(--green)">{{ pu.today.revenue | kilo }}</span></td>
+        <td><span class="pu-v red">-{{ pu.cancellationRevenueToday | kilo }}</span></td>
         <td><span class="pu-v blue">{{ pu.last1d.revenue | kilo }}</span></td>
         <td><span class="pu-v red">-{{ pu.cancellationRevenue | kilo }}</span></td>
         <td><span class="pu-v">{{ pu.last3d.revenue | kilo }}</span></td>

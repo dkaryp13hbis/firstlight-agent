@@ -419,6 +419,8 @@ def fetch_briefing_data(conn: pyodbc.Connection) -> dict[str, Any]:
             },
             "topMonth":           _month_abbr(top_month_num),
             "topMonthNights":     int(top_month_rn),
+            "cancellationsToday":        int(cancel_today_count),
+            "cancellationRevenueToday":  round(cancel_today_rev, 0),
             "cancellations1d":    int(cancel_1d_count),
             "cancellationRevenue": round(cancel_1d_rev, 0),
             "cancellations3d":       int(cancel_3d_count),
