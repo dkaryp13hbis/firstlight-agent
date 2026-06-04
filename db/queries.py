@@ -127,8 +127,8 @@ FROM (
 Q_PICKUP = """
 DECLARE @today         DATE = CAST(GETDATE() AS DATE);
 DECLARE @yesterday     DATE = DATEADD(DAY, -1, @today);
-DECLARE @three_ago     DATE = DATEADD(DAY, -3, @today);
-DECLARE @seven_ago     DATE = DATEADD(DAY, -7, @today);
+DECLARE @three_ago     DATE = DATEADD(DAY, -2, @today);
+DECLARE @seven_ago     DATE = DATEADD(DAY, -6, @today);
 
 WITH new_bookings AS (
     SELECT

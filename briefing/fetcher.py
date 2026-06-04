@@ -427,9 +427,9 @@ def fetch_briefing_data(conn: pyodbc.Connection) -> dict[str, Any]:
             "cancellationRevenue3d": round(cancel_3d_rev, 0),
             "cancellations7d":       int(cancel_7d_count),
             "cancellationRevenue7d": round(cancel_7d_rev, 0),
-            "date1d": today.strftime("%d/%m"),
-            "date3d": f"{(today - timedelta(days=3)).strftime('%d/%m')}–{today.strftime('%d/%m')}",
-            "date7d": f"{(today - timedelta(days=7)).strftime('%d/%m')}–{today.strftime('%d/%m')}",
+            "date1d": yesterday.strftime("%d/%m"),
+            "date3d": f"{(today - timedelta(days=2)).strftime('%d/%m')}–{today.strftime('%d/%m')}",
+            "date7d": f"{(today - timedelta(days=6)).strftime('%d/%m')}–{today.strftime('%d/%m')}",
         },
 
         "pace":        pace,
