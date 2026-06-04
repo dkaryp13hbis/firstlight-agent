@@ -1,6 +1,6 @@
 param()
 $ErrorActionPreference = "Stop"
-$INSTALL_DIR = "C:\FirstLight"
+$INSTALL_DIR = "C:\FirstLight\firstlight-agent-main"
 $AGENT_ZIP   = "https://github.com/dkaryp13hbis/firstlight-agent/archive/refs/heads/main.zip"
 
 function Log($msg) {
