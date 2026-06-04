@@ -232,12 +232,16 @@ def fetch_briefing_data(conn: pyodbc.Connection) -> dict[str, Any]:
     # ── Q3: Pickup ────────────────────────────────────────────────
     cur.execute(Q.Q_PICKUP, hotel_id, hotel_id)
     pu = _rows(cur)[0]
+    pickup_today_rn  = float(pu["pickup_today_rn"]  or 0)
+    pickup_today_rev = float(pu["pickup_today_rev"] or 0)
     pickup_1d_rn     = float(pu["pickup_1d_rn"]     or 0)
     pickup_1d_rev    = float(pu["pickup_1d_rev"]    or 0)
     pickup_3d_rn     = float(pu["pickup_3d_rn"]     or 0)
     pickup_3d_rev    = float(pu["pickup_3d_rev"]    or 0)
     pickup_7d_rn     = float(pu["pickup_7d_rn"]     or 0)
     pickup_7d_rev    = float(pu["pickup_7d_rev"]    or 0)
+    cancel_today_count = float(pu["cancel_today_count"] or 0)
+    cancel_today_rev   = float(pu["cancel_today_rev"]   or 0)
     cancel_1d_count  = float(pu["cancel_1d_count"]  or 0)
     cancel_1d_rev    = float(pu["cancel_1d_rev"]    or 0)
     cancel_3d_count  = float(pu["cancel_3d_count"]  or 0)
@@ -397,6 +401,10 @@ def fetch_briefing_data(conn: pyodbc.Connection) -> dict[str, Any]:
         },
 
         "pickup": {
+            "today": {
+                "roomNights": int(pickup_today_rn),
+                "revenue":    round(pickup_today_rev, 0),
+            },
             "last1d": {
                 "roomNights": int(pickup_1d_rn),
                 "revenue":    round(pickup_1d_rev, 0),

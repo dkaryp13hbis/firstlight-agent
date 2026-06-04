@@ -132,34 +132,37 @@ DECLARE @seven_ago     DATE = DATEADD(DAY, -7, @today);
 
 WITH new_bookings AS (
     SELECT
-        CAST(SystemDate AS DATE) AS book_date,
-        MONTH(date)              AS stay_month,
-        Occupancy                AS room_nights,
-        logis                    AS revenue
+        CAST(SystemDate AS DATE)                                         AS book_date,
+        MONTH(date)                                                      AS stay_month,
+        CASE WHEN h.reschar = 2
+             THEN CASE WHEN h.datumbis = h.date THEN 0 ELSE 1 END
+             ELSE h.Occupancy
+        END                                                              AS room_nights,
+        logis                                                            AS revenue
     FROM bidata.proteluser.Hitia h
     WHERE h.mpehotel = ?
-      AND h.reschar < 2
       AND {fake_rt}
-      AND h.date > @today
       AND CAST(h.SystemDate AS DATE) >= @seven_ago
 ),
 
 cancellations AS (
     SELECT
-        CAST(h.Canceled AS DATE)                             AS cancel_date,
-        MONTH(h.date)                                        AS stay_month,
-        CASE WHEN h.datumbis = h.date THEN 0 ELSE 1 END     AS room_nights,
-        h.logis                                              AS revenue
+        CAST(h.Canceled AS DATE)                         AS cancel_date,
+        MONTH(h.date)                                    AS stay_month,
+        CASE WHEN h.datumbis = h.date THEN 0 ELSE 1 END AS room_nights,
+        h.logis                                          AS revenue
     FROM bidata.proteluser.Hitia h
     WHERE h.mpehotel = ?
       AND h.reschar = 2
       AND {fake_rt}
-      AND h.date > @today
       AND CAST(h.Canceled AS DATE) >= @seven_ago
 )
 
 SELECT
-    -- Last 1 day
+    -- Today
+    SUM(CASE WHEN b.book_date = @today      THEN b.room_nights ELSE 0 END) AS pickup_today_rn,
+    SUM(CASE WHEN b.book_date = @today      THEN b.revenue     ELSE 0 END) AS pickup_today_rev,
+    -- Yesterday
     SUM(CASE WHEN b.book_date = @yesterday  THEN b.room_nights ELSE 0 END) AS pickup_1d_rn,
     SUM(CASE WHEN b.book_date = @yesterday  THEN b.revenue     ELSE 0 END) AS pickup_1d_rev,
     -- Last 3 days
@@ -168,15 +171,18 @@ SELECT
     -- Last 7 days
     SUM(b.room_nights)                                                       AS pickup_7d_rn,
     SUM(b.revenue)                                                           AS pickup_7d_rev,
-    -- Cancellations 1 day
-    (SELECT COUNT(*)     FROM cancellations WHERE cancel_date = @yesterday)  AS cancel_1d_count,
-    (SELECT SUM(revenue) FROM cancellations WHERE cancel_date = @yesterday)  AS cancel_1d_rev,
+    -- Cancellations today
+    (SELECT SUM(room_nights) FROM cancellations WHERE cancel_date = @today)      AS cancel_today_count,
+    (SELECT SUM(revenue)     FROM cancellations WHERE cancel_date = @today)      AS cancel_today_rev,
+    -- Cancellations yesterday
+    (SELECT SUM(room_nights) FROM cancellations WHERE cancel_date = @yesterday)  AS cancel_1d_count,
+    (SELECT SUM(revenue)     FROM cancellations WHERE cancel_date = @yesterday)  AS cancel_1d_rev,
     -- Cancellations 3 days
-    (SELECT COUNT(*)     FROM cancellations WHERE cancel_date >= @three_ago) AS cancel_3d_count,
-    (SELECT SUM(revenue) FROM cancellations WHERE cancel_date >= @three_ago) AS cancel_3d_rev,
+    (SELECT SUM(room_nights) FROM cancellations WHERE cancel_date >= @three_ago) AS cancel_3d_count,
+    (SELECT SUM(revenue)     FROM cancellations WHERE cancel_date >= @three_ago) AS cancel_3d_rev,
     -- Cancellations 7 days
-    (SELECT COUNT(*)     FROM cancellations)                                 AS cancel_7d_count,
-    (SELECT SUM(revenue) FROM cancellations)                                 AS cancel_7d_rev,
+    (SELECT SUM(room_nights) FROM cancellations)                                 AS cancel_7d_count,
+    (SELECT SUM(revenue)     FROM cancellations)                                 AS cancel_7d_rev,
     -- Top pickup month (7-day window)
     (SELECT TOP 1 stay_month       FROM new_bookings GROUP BY stay_month ORDER BY SUM(room_nights) DESC) AS top_month,
     (SELECT TOP 1 SUM(room_nights) FROM new_bookings GROUP BY stay_month ORDER BY SUM(room_nights) DESC) AS top_month_rn
