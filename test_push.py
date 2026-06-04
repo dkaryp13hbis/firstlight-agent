@@ -13,15 +13,17 @@ load_dotenv()
 import requests
 from pywebpush import webpush, WebPushException
 
-vapid_private = os.getenv("VAPID_PRIVATE_KEY", "")
-vapid_email   = os.getenv("VAPID_EMAIL", "mailto:dk@bi-automations.com")
-supabase_url  = os.getenv("SUPABASE_URL", "").rstrip("/")
-supabase_key  = os.getenv("SUPABASE_SERVICE_KEY", "")
+vapid_private     = os.getenv("VAPID_PRIVATE_KEY", "")
+vapid_email       = os.getenv("VAPID_EMAIL", "mailto:dk@bi-automations.com")
+supabase_url      = os.getenv("SUPABASE_URL", "").rstrip("/")
+supabase_key      = os.getenv("SUPABASE_SERVICE_KEY", "")
+supabase_hotel_id = os.getenv("SUPABASE_HOTEL_ID", "")
 
 missing = [k for k, v in {
-    "VAPID_PRIVATE_KEY":   vapid_private,
-    "SUPABASE_URL":        supabase_url,
+    "VAPID_PRIVATE_KEY":    vapid_private,
+    "SUPABASE_URL":         supabase_url,
     "SUPABASE_SERVICE_KEY": supabase_key,
+    "SUPABASE_HOTEL_ID":    supabase_hotel_id,
 }.items() if not v]
 
 if missing:
@@ -31,7 +33,7 @@ if missing:
 # Fetch all push subscriptions
 r = requests.get(
     f"{supabase_url}/rest/v1/push_subscriptions",
-    params={"select": "subscription,hotel_id"},
+    params={"hotel_id": f"eq.{supabase_hotel_id}", "select": "subscription,hotel_id"},
     headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
     timeout=10,
 )

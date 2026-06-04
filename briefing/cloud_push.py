@@ -49,13 +49,14 @@ def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str |
 
 
 def _send_push_notifications(ai: dict[str, Any], hotel_id: int) -> None:
-    vapid_private = os.getenv("VAPID_PRIVATE_KEY", "")
-    vapid_email   = os.getenv("VAPID_EMAIL", "mailto:dk@bi-automations.com")
-    supabase_url  = os.getenv("SUPABASE_URL", "").rstrip("/")
-    supabase_key  = os.getenv("SUPABASE_SERVICE_KEY", "")
+    vapid_private     = os.getenv("VAPID_PRIVATE_KEY", "")
+    vapid_email       = os.getenv("VAPID_EMAIL", "mailto:dk@bi-automations.com")
+    supabase_url      = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_key      = os.getenv("SUPABASE_SERVICE_KEY", "")
+    supabase_hotel_id = os.getenv("SUPABASE_HOTEL_ID", "")  # UUID from hotel_users table
 
-    if not all([vapid_private, supabase_url, supabase_key]):
-        print("[push] Skipped — VAPID_PRIVATE_KEY / SUPABASE_URL / SUPABASE_SERVICE_KEY not set.")
+    if not all([vapid_private, supabase_url, supabase_key, supabase_hotel_id]):
+        print("[push] Skipped — VAPID_PRIVATE_KEY / SUPABASE_URL / SUPABASE_SERVICE_KEY / SUPABASE_HOTEL_ID not set.")
         return
 
     try:
@@ -81,7 +82,7 @@ def _send_push_notifications(ai: dict[str, Any], hotel_id: int) -> None:
     try:
         r = requests.get(
             f"{supabase_url}/rest/v1/push_subscriptions",
-            params={"hotel_id": f"eq.{hotel_id}", "select": "subscription"},
+            params={"hotel_id": f"eq.{supabase_hotel_id}", "select": "subscription"},
             headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
             timeout=10,
         )
