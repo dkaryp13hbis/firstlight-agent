@@ -485,7 +485,9 @@ def generate_insights(data: dict[str, Any]) -> dict[str, Any]:
         return result
 
     except Exception as exc:
+        import traceback
         print(f"[analyst] Claude API error: {exc}")
+        traceback.print_exc()
         return {
             "executive_summary": "Data retrieved successfully. AI narrative unavailable.",
             "insights": [],
