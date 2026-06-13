@@ -8,6 +8,7 @@ Click "Refresh Data" in the bottom-right corner to regenerate the
 report from live Protel PMS data. The page auto-reloads when done.
 """
 
+import json
 import os
 import socketserver
 import subprocess
@@ -125,8 +126,26 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         global _refreshing
 
+        # ── /fetch ── called by Railway via Cloudflare Tunnel to get live SQL data
+        if self.path == "/fetch":
+            secret = os.getenv("BRIDGE_SECRET", "")
+            if secret and self.headers.get("x-bridge-secret") != secret:
+                self._send(401, "application/json", b'{"error":"unauthorized"}')
+                return
+            try:
+                from db.connection import get_connection
+                from briefing.fetcher import fetch_briefing_data
+                conn = get_connection()
+                data = fetch_briefing_data(conn)
+                conn.close()
+                body = json.dumps(data, default=str).encode()
+                self._send(200, "application/json", body)
+            except Exception as exc:
+                body = json.dumps({"error": str(exc)}).encode()
+                self._send(500, "application/json", body)
+
         # ── /status ── polled by loading page
-        if self.path == "/status":
+        elif self.path == "/status":
             with _lock:
                 r = _refreshing
             self._send(200, "application/json",
