@@ -263,12 +263,15 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.daemon:
-        # Headless mode: just poll for remote refresh commands
-        print("[firstlight] Daemon started — polling for refresh commands every 30 s")
+        # Headless mode: HTTP bridge on PORT + cloud-poll for refresh commands
+        srv = _ThreadingServer(("localhost", PORT), Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        print(f"[firstlight] Daemon started — bridge on localhost:{PORT}")
         if _CLOUD_POLL:
             _poll_commands()   # blocks forever
         else:
-            print("[firstlight] FIRSTLIGHT_API_URL/KEY not set — nothing to do.")
+            print("[firstlight] FIRSTLIGHT_API_URL/KEY not set — bridge only.")
+            threading.Event().wait()  # block forever so the bridge keeps running
     else:
         srv = _ThreadingServer(("localhost", PORT), Handler)
         url = f"http://localhost:{PORT}"
