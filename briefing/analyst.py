@@ -468,6 +468,9 @@ def generate_insights(data: dict[str, Any]) -> dict[str, Any]:
         )
         tool_use = next(b for b in response.content if b.type == "tool_use")
         result: dict[str, Any] = tool_use.input
+        print(f"[analyst] Raw response — exec_summary len={len(result.get('executive_summary',''))}, insights={len(result.get('insights',[]))}")
+        if not result.get("insights"):
+            print(f"[analyst] Summary: {result.get('executive_summary','')[:200]}")
         result.setdefault("executive_summary", "")
         result.setdefault("insights", [])
         for ins in result["insights"]:

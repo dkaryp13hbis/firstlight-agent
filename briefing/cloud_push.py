@@ -59,6 +59,16 @@ def _send_push_notifications(ai: dict[str, Any], hotel_id: int) -> None:
         print("[push] Skipped — VAPID_PRIVATE_KEY / SUPABASE_URL / SUPABASE_SERVICE_KEY / SUPABASE_HOTEL_ID not set.")
         return
 
+    # If VAPID_PRIVATE_KEY is a file path that doesn't exist (e.g. Windows path on Linux),
+    # treat the value as PEM content and write it to a temp file.
+    if not os.path.exists(vapid_private):
+        import tempfile
+        pem_content = vapid_private.replace("\\n", "\n")
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".pem", delete=False)
+        tmp.write(pem_content)
+        tmp.close()
+        vapid_private = tmp.name
+
     try:
         from pywebpush import webpush, WebPushException
     except ImportError:
