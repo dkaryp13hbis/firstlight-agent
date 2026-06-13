@@ -118,13 +118,18 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    # Daily scheduler — 06:00 UTC (adjust per hotel timezone later)
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(run_all_hotels, "cron", hour=6, minute=0)
-    scheduler.start()
-    log.info("[railway] Scheduler started — daily at 06:00 UTC")
-    log.info(f"[railway] Hotels configured: {[h['name'] for h in _get_hotels()]}")
+    import sys, traceback
+    try:
+        # Daily scheduler — 06:00 UTC (adjust per hotel timezone later)
+        scheduler = BackgroundScheduler()
+        scheduler.add_job(run_all_hotels, "cron", hour=6, minute=0)
+        scheduler.start()
+        log.info("[railway] Scheduler started — daily at 06:00 UTC")
+        log.info(f"[railway] Hotels configured: {[h['name'] for h in _get_hotels()]}")
 
-    port = int(os.getenv("PORT", "8080"))
-    log.info(f"[railway] HTTP server on port {port}")
-    HTTPServer(("0.0.0.0", port), Handler).serve_forever()
+        port = int(os.getenv("PORT", "8080"))
+        log.info(f"[railway] HTTP server on port {port}")
+        HTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    except Exception:
+        traceback.print_exc()
+        sys.exit(1)
