@@ -374,8 +374,13 @@ def _build_user_prompt(data: dict[str, Any]) -> str:
     pace_rows = "\n".join(pace_row(p) for p in data["pace"])
 
     # Channel rows
+    def _ch_var(v):
+        if v is None:
+            return "n/a"
+        return f"{'+' if v >= 0 else ''}{v*100:.1f}%"
+
     ch_rows = "\n".join(
-        f"| {c['name']} | €{c['rev']:,.0f} | €{c['rev_stly']:,.0f} | {'+' if c['var'] and c['var'] >= 0 else ''}{(c['var']*100):.1f}% | {c['nights']} rn |"
+        f"| {c['name']} | €{c['rev']:,.0f} | €{c['rev_stly']:,.0f} | {_ch_var(c.get('var'))} | {c['nights']} rn |"
         for c in data["topChannels"]
     )
 
