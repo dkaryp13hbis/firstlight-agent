@@ -62,6 +62,17 @@ money. Two rules:
    "Revenue down 32% — from both fewer rooms sold (occ -17.7%) AND lower ADR (-17.4%)."
    "Revenue up 20% — driven by volume; ADR is actually slightly lower than last year."
 
+## THREE PILLARS, ONE TARGET — REVENUE
+
+Every future month is judged on three things, in service of one target: revenue.
+1. Occupancy vs STLY — are we pacing ahead or behind on volume?
+2. ADR vs STLY — are we pricing ahead or behind?
+3. Distance from last year's FINAL revenue (and budget) — the actual target.
+Pillars 1 and 2 are INPUTS. Pillar 3 is the GOAL. Always land the insight on revenue:
+project the finish, then compare projected final revenue to last year's final revenue
+and to budget. Never stop at "occupancy is up" or "ADR is down" — say what it does to
+the money.
+
 ## WILL THIS MONTH BEAT THE BENCHMARK (forward view for future months)
 
 Occupancy and ADR vs STLY tell you pace and pricing stance. They do NOT tell you
@@ -70,9 +81,9 @@ the unsold rooms still need to earn. For each material future month:
 
 - Revenue OTB = room nights OTB × ADR OTB.
 - Benchmark = last year's FINAL revenue for that month (and budget target if given).
-- Projected final occupancy comes from PACE, never an assumed 100%. If OTB already
-  exceeds last year's FINAL occupancy, or pickup is well ahead, the month is heading
-  far above last year — say so.
+- Projected final occupancy comes from the REMAINING-PICKUP rule below — never an
+  assumed 100%, and never just "wherever OTB sits now". There is still a booking
+  window open.
 - Rooms still to sell = projected final room nights − room nights OTB.
 - Break-even ADR on remaining = (Benchmark − Revenue OTB) ÷ rooms still to sell.
 
@@ -89,8 +100,46 @@ Then read the break-even against the current ADR and classify:
 - Break-even ABOVE last year's FINAL ADR → benchmark is genuinely at risk. This is
   the only case that warrants a warning.
 
+Once you state a break-even rate, THAT is the decision number. Reference last year's
+FINAL ADR only as context — never let it become a second "target" the remaining rooms
+must hit. If the break-even is €400 and current ADR is €522, the month beats last year
+at any rate above €400; do not muddy that by saying new bookings must reach the €594
+final-LY rate.
+
 Always carry the assumption ("at a projected ~78% finish…") so the reader trusts the
 number instead of seeing false precision.
+
+## PROJECTING THE FINISH — ANCHOR ON LAST YEAR'S REMAINING PICKUP
+
+This is the most common projection error: seeing OTB already near Final LY and
+concluding the month will "finish close to last year". That is wrong. If you are
+already at last year's FINAL with weeks still to book, you are heading WELL ABOVE it.
+
+Use last year's back-half pickup as the anchor:
+- Last year's remaining pickup = (Occ Final LY − Occ STLY), in percentage POINTS.
+  That is how much occupancy last year still gained from this same point to month-end.
+- This year you start that same window from your current OTB — usually already ahead
+  of where last year was (STLY).
+- Project a RANGE, never a single fragile point estimate:
+  * Expected finish ≈ Occ OTB + last year's remaining pickup, adjusted for how this
+    year is pacing (ahead on pace → at or above last year's pickup).
+  * Floor / worst case ≈ Occ OTB + HALF of last year's remaining pickup. Never zero —
+    rooms will still come in.
+- State both ends and the assumption: "Last year picked up ~24 pts from here to
+  month-end. Even at half that, June finishes ~78% — above last year's 66.7% final."
+
+NEVER project a finish at or near Occ OTB just because OTB is close to Final LY.
+NEVER say a month will "finish close to last year" when OTB already equals or exceeds
+Final LY — that means it is set to beat last year, and the framing must change.
+
+## ONCE VOLUME IS SAFE, THE STORY IS RATE
+
+The moment the projected finish clears last year on occupancy, volume is a solved
+problem and occupancy is no longer the story. The only lever left that moves revenue
+is ADR on the remaining inventory and the channel/segment mix feeding it. Pivot the
+insight: stop reporting occupancy pace, and point at whether the rate on recent
+bookings is holding up, and which segments are setting it. Revenue is still the target
+— rate is now the path to it.
 
 ## THE ADR-GAP TRAP (read this before flagging any rate gap)
 
