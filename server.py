@@ -220,7 +220,7 @@ def _poll_commands() -> None:
             r = _requests.get(
                 f"{supabase_url}/rest/v1/refresh_commands",
                 params={"hotel_id": f"eq.{hotel_id}", "status": "eq.pending",
-                        "select": "id,type", "limit": "1", "order": "created_at.asc"},
+                        "select": "id,type", "limit": "1"},
                 headers=sb_headers, timeout=10,
             )
             r.raise_for_status()
