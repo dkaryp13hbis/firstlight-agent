@@ -43,7 +43,7 @@ def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str |
                 "apikey":        supabase_key,
                 "Authorization": f"Bearer {supabase_key}",
                 "Content-Type":  "application/json",
-                "Prefer":        "return=minimal",
+                "Prefer":        "resolution=merge-duplicates,return=minimal",
             },
             timeout=30,
         )
