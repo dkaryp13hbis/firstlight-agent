@@ -258,6 +258,7 @@ _TOOL: dict[str, Any] = {
             "executive_summary": {"type": "string"},
             "insights": {
                 "type": "array",
+                "minItems": 3,
                 "items": {
                     "type": "object",
                     "properties": {
@@ -448,7 +449,7 @@ def generate_insights(data: dict[str, Any]) -> dict[str, Any]:
     try:
         response = _get_client().messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=2500,
+            max_tokens=4096,
             temperature=0.3,
             system=[
                 {
