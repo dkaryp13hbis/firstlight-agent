@@ -21,25 +21,27 @@ log = logging.getLogger("railway")
 
 
 def _get_hotels() -> list[dict]:
-    """
-    Load hotel configs from env vars.
-    Each hotel is a dict with keys: name, bridge_url, bridge_secret,
-    total_rooms, recipient_email, recipient_name, supabase_hotel_id.
-    Add more hotels here or migrate to Supabase hotels table later.
-    """
-    hotels = []
-    # Hotel 1 — Pomegranate
-    if os.getenv("POME_BRIDGE_URL"):
-        hotels.append({
-            "name":             os.getenv("HOTEL_NAME", "Pomegranate"),
-            "total_rooms":      int(os.getenv("HOTEL_TOTAL_ROOMS", "167")),
-            "bridge_url":       os.getenv("POME_BRIDGE_URL"),
-            "bridge_secret":    os.getenv("POME_BRIDGE_SECRET", ""),
-            "recipient_email":  os.getenv("RECIPIENT_EMAIL", ""),
-            "recipient_name":   os.getenv("RECIPIENT_NAME", "General Manager"),
-            "supabase_hotel_id": os.getenv("SUPABASE_HOTEL_ID", ""),
-        })
-    return hotels
+    """Load active hotel configs from Supabase hotels table."""
+    import requests as _req
+    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
+    if not supabase_url or not supabase_key:
+        log.error("[hotels] SUPABASE_URL or SUPABASE_SERVICE_KEY not set")
+        return []
+    try:
+        resp = _req.get(
+            f"{supabase_url}/rest/v1/hotels",
+            params={"active": "eq.true", "select": "id,name,total_rooms,bridge_url,bridge_secret,recipient_email,recipient_name"},
+            headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        hotels = resp.json()
+        log.info(f"[hotels] Loaded {len(hotels)} active hotels from Supabase")
+        return hotels
+    except Exception as exc:
+        log.error(f"[hotels] Failed to load from Supabase: {exc}")
+        return []
 
 
 def process_hotel(hotel: dict) -> None:
@@ -54,8 +56,9 @@ def process_hotel(hotel: dict) -> None:
         import config
         config.HOTEL_NAME  = hotel["name"]
         config.TOTAL_ROOMS = hotel["total_rooms"]
-        config.RECIPIENT_EMAIL = hotel["recipient_email"]
-        config.RECIPIENT_NAME  = hotel["recipient_name"]
+        config.RECIPIENT_EMAIL = hotel.get("recipient_email", "")
+        config.RECIPIENT_NAME  = hotel.get("recipient_name", "General Manager")
+        os.environ["SUPABASE_HOTEL_ID"] = hotel["id"]  # used by cloud_push
 
         from briefing.analyst import generate_insights
         ai = generate_insights(data)
