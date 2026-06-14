@@ -193,27 +193,39 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _poll_commands() -> None:
-    """Background thread: checks Supabase for refresh commands every 30 s."""
-    api_url = os.getenv("FIRSTLIGHT_API_URL", "").rstrip("/")
-    api_key = os.getenv("FIRSTLIGHT_API_KEY", "")
-    if not api_url or not api_key:
-        print("[cloud-poll] Skipped — FIRSTLIGHT_API_URL / KEY not set.")
+    """Background thread: polls Supabase refresh_commands for this hotel every 30 s."""
+    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
+    hotel_id     = os.getenv("SUPABASE_HOTEL_ID", "")
+
+    if not all([supabase_url, supabase_key, hotel_id]):
+        print("[cloud-poll] Skipped — SUPABASE_URL / SUPABASE_SERVICE_KEY / SUPABASE_HOTEL_ID not set.")
         return
 
-    headers = {"x-api-key": api_key}
-    print("[cloud-poll] Started — polling every 30 s for remote refresh commands.")
+    sb_headers = {
+        "apikey":        supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Content-Type":  "application/json",
+    }
+    print(f"[cloud-poll] Started — polling every 30 s for hotel {hotel_id[:8]}…")
 
     while True:
         time.sleep(30)
         try:
-            r = _requests.get(f"{api_url}/commands/pending", headers=headers, timeout=10)
+            r = _requests.get(
+                f"{supabase_url}/rest/v1/refresh_commands",
+                params={"hotel_id": f"eq.{hotel_id}", "status": "eq.pending",
+                        "select": "id,type", "limit": "1", "order": "created_at.asc"},
+                headers=sb_headers, timeout=10,
+            )
             r.raise_for_status()
-            cmd = r.json().get("command")
-            if not cmd:
+            cmds = r.json()
+            if not cmds:
                 continue
 
+            cmd      = cmds[0]
             cmd_id   = cmd["id"]
-            cmd_type = cmd["type"]  # data_only | full_ai
+            cmd_type = cmd["type"]
             print(f"[cloud-poll] Got command: {cmd_type} ({cmd_id[:8]})")
 
             with _lock:
@@ -222,6 +234,14 @@ def _poll_commands() -> None:
                     print("[cloud-poll] Already refreshing — skipping.")
                     continue
                 _refreshing = True
+
+            # Mark running
+            _requests.patch(
+                f"{supabase_url}/rest/v1/refresh_commands",
+                params={"id": f"eq.{cmd_id}"},
+                json={"status": "running"},
+                headers=sb_headers, timeout=10,
+            )
 
             flag = "--no-api" if cmd_type == "data_only" else "--preview"
 
@@ -235,11 +255,11 @@ def _poll_commands() -> None:
                 with _lock:
                     _refreshing = False
                 try:
-                    _requests.post(
-                        f"{api_url}/commands/{cid}/complete",
-                        json={"success": True},
-                        headers=headers,
-                        timeout=10,
+                    _requests.patch(
+                        f"{supabase_url}/rest/v1/refresh_commands",
+                        params={"id": f"eq.{cid}"},
+                        json={"status": "done"},
+                        headers=sb_headers, timeout=10,
                     )
                 except Exception:
                     pass
