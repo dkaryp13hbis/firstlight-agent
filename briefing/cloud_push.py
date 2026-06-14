@@ -7,7 +7,7 @@ VAPID_EMAIL, SUPABASE_URL, and SUPABASE_SERVICE_KEY.
 
 import json
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import requests
@@ -16,34 +16,39 @@ import config
 
 
 def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str | None = None) -> bool:
-    api_url = os.getenv("FIRSTLIGHT_API_URL", "").rstrip("/")
-    api_key = os.getenv("FIRSTLIGHT_API_KEY", "")
+    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
+    hotel_id     = os.getenv("SUPABASE_HOTEL_ID", "")
 
-    if not api_url or not api_key:
-        print("[cloud] Skipped — FIRSTLIGHT_API_URL or FIRSTLIGHT_API_KEY not set.")
+    if not all([supabase_url, supabase_key, hotel_id]):
+        print("[cloud] Skipped — SUPABASE_URL / SUPABASE_SERVICE_KEY / SUPABASE_HOTEL_ID not set.")
         return False
 
     yesterday = date.today() - timedelta(days=1)
 
-    hotel_id = os.getenv("SUPABASE_HOTEL_ID", "")
-
     payload = {
-        "report_date_iso": str(yesterday),
-        "hotel_id": hotel_id,
-        "data": data,
-        "ai_insights": ai,
+        "hotel_id":     hotel_id,
+        "report_date":  str(yesterday),
+        "ai_insights":  ai,
         "rendered_html": rendered_html,
+        "generated_at": datetime.utcnow().isoformat(),
     }
 
     try:
+        # Upsert: update if (hotel_id, report_date) already exists, insert otherwise
         resp = requests.post(
-            f"{api_url}/briefing",
+            f"{supabase_url}/rest/v1/briefings",
             json=payload,
-            headers={"x-api-key": api_key},
+            headers={
+                "apikey":        supabase_key,
+                "Authorization": f"Bearer {supabase_key}",
+                "Content-Type":  "application/json",
+                "Prefer":        "resolution=merge-duplicates,return=minimal",
+            },
             timeout=30,
         )
         resp.raise_for_status()
-        print(f"[cloud] Pushed briefing for {yesterday} -> HTTP {resp.status_code}")
+        print(f"[cloud] Pushed briefing for {yesterday} (hotel {hotel_id[:8]}…) -> HTTP {resp.status_code}")
         _send_push_notifications(ai, config.HOTEL_ID)
         return True
     except requests.RequestException as exc:
