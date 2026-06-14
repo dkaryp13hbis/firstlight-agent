@@ -162,7 +162,7 @@ class Handler(BaseHTTPRequestHandler):
                 def _run() -> None:
                     global _refreshing
                     subprocess.run(
-                        [PYTHON, str(PROJECT_DIR / "main.py"), "--preview"],
+                        [PYTHON, str(PROJECT_DIR / "main.py"), "--no-api"],
                         cwd=str(PROJECT_DIR),
                         capture_output=True,
                     )

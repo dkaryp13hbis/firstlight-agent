@@ -47,7 +47,8 @@ def process_hotel(hotel: dict) -> None:
     try:
         from briefing.bridge_fetcher import fetch_from_bridge
         data = fetch_from_bridge(hotel["bridge_url"], hotel["bridge_secret"])
-        log.info(f"[processor] Data fetched for {hotel['name']}")
+        yd = data.get("yesterday", {})
+        log.info(f"[processor] Data fetched — yd_rev=€{yd.get('revenue',0):,.0f} occ={yd.get('occupancy',0)*100:.1f}% pace_months={len(data.get('pace',[]))} channels={len(data.get('topChannels',[]))}")
 
         # Override config for this hotel so analyst/mailer use correct values
         import config
