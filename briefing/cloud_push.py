@@ -86,7 +86,8 @@ def _send_push_notifications(ai: dict[str, Any], hotel_id: int) -> None:
         title = "FirstLight Morning Briefing"
         body  = (ai.get("executive_summary") or "Your morning briefing is ready.")[:120]
 
-    push_payload = json.dumps({"title": title, "body": body, "sectionId": "sec-ai"})
+    pwa_url = os.getenv("PWA_URL", "https://app.hbis.io")
+    push_payload = json.dumps({"title": title, "body": body, "sectionId": "sec-ai", "url": pwa_url})
 
     # Fetch all push subscriptions for this hotel from Supabase
     try:
