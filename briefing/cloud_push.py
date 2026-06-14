@@ -25,8 +25,11 @@ def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str |
 
     yesterday = date.today() - timedelta(days=1)
 
+    hotel_id = os.getenv("SUPABASE_HOTEL_ID", "")
+
     payload = {
         "report_date_iso": str(yesterday),
+        "hotel_id": hotel_id,
         "data": data,
         "ai_insights": ai,
         "rendered_html": rendered_html,
@@ -77,13 +80,14 @@ def _send_push_notifications(ai: dict[str, Any], hotel_id: int) -> None:
 
     # Build notification payload from top insight
     insights = ai.get("insights", [])
+    hotel_name = config.HOTEL_NAME or "Hotel"
     if insights:
         top = insights[0]
-        title = top.get("title", "FirstLight Morning Briefing")[:80]
+        title = f"{hotel_name} · {top.get('title', 'Morning Briefing')}"[:80]
         bullets = top.get("bullets", [])
         body  = bullets[0] if bullets else top.get("title", "")
     else:
-        title = "FirstLight Morning Briefing"
+        title = f"{hotel_name} · Morning Briefing"
         body  = (ai.get("executive_summary") or "Your morning briefing is ready.")[:120]
 
     pwa_url = os.getenv("PWA_URL", "https://app.hbis.io")
