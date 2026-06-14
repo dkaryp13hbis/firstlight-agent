@@ -193,13 +193,18 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _poll_commands() -> None:
-    """Background thread: polls Supabase refresh_commands for this hotel every 30 s."""
+    """Background thread: polls Supabase for refresh commands and delegates to Railway."""
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
     supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
     hotel_id     = os.getenv("SUPABASE_HOTEL_ID", "")
+    railway_url  = os.getenv("RAILWAY_URL", "").rstrip("/")
 
-    if not all([supabase_url, supabase_key, hotel_id]):
-        print("[cloud-poll] Skipped — SUPABASE_URL / SUPABASE_SERVICE_KEY / SUPABASE_HOTEL_ID not set.")
+    if not all([supabase_url, supabase_key, hotel_id, railway_url]):
+        missing = [k for k, v in {
+            "SUPABASE_URL": supabase_url, "SUPABASE_SERVICE_KEY": supabase_key,
+            "SUPABASE_HOTEL_ID": hotel_id, "RAILWAY_URL": railway_url,
+        }.items() if not v]
+        print(f"[cloud-poll] Skipped — missing: {', '.join(missing)}")
         return
 
     sb_headers = {
@@ -223,19 +228,11 @@ def _poll_commands() -> None:
             if not cmds:
                 continue
 
-            cmd      = cmds[0]
-            cmd_id   = cmd["id"]
-            cmd_type = cmd["type"]
+            cmd_id   = cmds[0]["id"]
+            cmd_type = cmds[0]["type"]
             print(f"[cloud-poll] Got command: {cmd_type} ({cmd_id[:8]})")
 
-            with _lock:
-                global _refreshing
-                if _refreshing:
-                    print("[cloud-poll] Already refreshing — skipping.")
-                    continue
-                _refreshing = True
-
-            # Mark running
+            # Mark running in Supabase so PWA shows spinner
             _requests.patch(
                 f"{supabase_url}/rest/v1/refresh_commands",
                 params={"id": f"eq.{cmd_id}"},
@@ -243,29 +240,13 @@ def _poll_commands() -> None:
                 headers=sb_headers, timeout=10,
             )
 
-            flag = "--no-api" if cmd_type == "data_only" else "--preview"
-
-            def _run(cid=cmd_id, f=flag):
-                global _refreshing
-                subprocess.run(
-                    [PYTHON, str(PROJECT_DIR / "main.py"), f],
-                    cwd=str(PROJECT_DIR),
-                    capture_output=True,
-                )
-                with _lock:
-                    _refreshing = False
-                try:
-                    _requests.patch(
-                        f"{supabase_url}/rest/v1/refresh_commands",
-                        params={"id": f"eq.{cid}"},
-                        json={"status": "done"},
-                        headers=sb_headers, timeout=10,
-                    )
-                except Exception:
-                    pass
-                print(f"[cloud-poll] Command {cid[:8]} done.")
-
-            threading.Thread(target=_run, daemon=True).start()
+            # Delegate to Railway — it fetches fresh data, generates insights, updates Supabase
+            _requests.get(
+                f"{railway_url}/trigger",
+                params={"hotel_id": hotel_id, "cmd_id": cmd_id},
+                timeout=15,
+            )
+            print(f"[cloud-poll] Delegated {cmd_id[:8]} to Railway.")
 
         except Exception as exc:
             print(f"[cloud-poll] Poll error: {exc}")

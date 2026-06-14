@@ -82,13 +82,37 @@ def process_hotel(hotel: dict) -> None:
         log.error(f"[processor] Failed for {hotel['name']}: {exc}", exc_info=True)
 
 
-def run_all_hotels() -> None:
+def _mark_cmd_done(cmd_id: str) -> None:
+    import requests as _req
+    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
+    if not supabase_url or not supabase_key or not cmd_id:
+        return
+    try:
+        _req.patch(
+            f"{supabase_url}/rest/v1/refresh_commands",
+            params={"id": f"eq.{cmd_id}"},
+            json={"status": "done"},
+            headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}",
+                     "Content-Type": "application/json"},
+            timeout=10,
+        )
+        log.info(f"[railway] Marked refresh command {cmd_id[:8]}… done")
+    except Exception as e:
+        log.warning(f"[railway] Failed to mark cmd done: {e}")
+
+
+def run_all_hotels(hotel_id_filter: str | None = None, cmd_id: str | None = None) -> None:
     hotels = _get_hotels()
+    if hotel_id_filter:
+        hotels = [h for h in hotels if h["id"] == hotel_id_filter]
     if not hotels:
         log.warning("[scheduler] No hotels configured.")
         return
     for hotel in hotels:
         process_hotel(hotel)
+    if cmd_id:
+        _mark_cmd_done(cmd_id)
 
 
 # ── Health check HTTP server ──────────────────────────────────────────────────
@@ -106,9 +130,16 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
 
-        elif self.path == "/trigger":
-            # Manual trigger — runs all hotels in background
-            threading.Thread(target=run_all_hotels, daemon=True).start()
+        elif self.path.startswith("/trigger"):
+            from urllib.parse import urlparse, parse_qs
+            qs = parse_qs(urlparse(self.path).query)
+            hotel_id = (qs.get("hotel_id") or [None])[0]
+            cmd_id   = (qs.get("cmd_id")   or [None])[0]
+            threading.Thread(
+                target=run_all_hotels,
+                kwargs={"hotel_id_filter": hotel_id, "cmd_id": cmd_id},
+                daemon=True,
+            ).start()
             body = b'{"status":"triggered"}'
             self.send_response(202)
             self.send_header("Content-Type", "application/json")
