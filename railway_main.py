@@ -19,6 +19,10 @@ from apscheduler.schedulers.background import BackgroundScheduler
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("railway")
 
+# Serialize hotel processing — prevents concurrent threads from clobbering
+# shared global config/env state (config.HOTEL_NAME, SUPABASE_HOTEL_ID, etc.)
+_process_lock = threading.Lock()
+
 
 def _get_hotels() -> list[dict]:
     """Load active hotel configs from Supabase hotels table."""
@@ -46,41 +50,40 @@ def _get_hotels() -> list[dict]:
 
 def process_hotel(hotel: dict) -> None:
     log.info(f"[processor] Starting: {hotel['name']}")
-    try:
-        from briefing.bridge_fetcher import fetch_from_bridge
-        data = fetch_from_bridge(hotel["bridge_url"], hotel["bridge_secret"])
-        data["hotel_name"] = hotel["name"]  # authoritative name from Supabase
-        yd = data.get("yesterday", {})
-        log.info(f"[processor] Data fetched — yd_rev=€{yd.get('revenue',0):,.0f} occ={yd.get('occupancy',0)*100:.1f}% pace_months={len(data.get('pace',[]))} channels={len(data.get('topChannels',[]))}")
+    with _process_lock:
+        try:
+            from briefing.bridge_fetcher import fetch_from_bridge
+            data = fetch_from_bridge(hotel["bridge_url"], hotel["bridge_secret"])
+            data["hotel_name"] = hotel["name"]  # authoritative name from Supabase
+            yd = data.get("yesterday", {})
+            log.info(f"[processor] Data fetched — yd_rev=€{yd.get('revenue',0):,.0f} occ={yd.get('occupancy',0)*100:.1f}% pace_months={len(data.get('pace',[]))} channels={len(data.get('topChannels',[]))}")
 
-        # Override config for this hotel so analyst/mailer use correct values
-        import config
-        config.HOTEL_NAME  = hotel["name"]
-        config.TOTAL_ROOMS = hotel["total_rooms"]
-        config.RECIPIENT_EMAIL = hotel.get("recipient_email", "")
-        config.RECIPIENT_NAME  = hotel.get("recipient_name", "General Manager")
-        os.environ["SUPABASE_HOTEL_ID"] = hotel["id"]  # used by cloud_push
+            import config
+            config.HOTEL_NAME     = hotel["name"]
+            config.TOTAL_ROOMS    = hotel["total_rooms"]
+            config.RECIPIENT_EMAIL = hotel.get("recipient_email", "")
+            config.RECIPIENT_NAME  = hotel.get("recipient_name", "General Manager")
 
-        from briefing.analyst import generate_insights
-        ai = generate_insights(data)
-        log.info(f"[processor] AI insights generated: {len(ai.get('insights', []))} insights")
+            from briefing.analyst import generate_insights
+            ai = generate_insights(data)
+            log.info(f"[processor] AI insights generated: {len(ai.get('insights', []))} insights")
 
-        from briefing.mailer import save_preview, send
-        preview_path = f"/tmp/{hotel['name'].lower()}_briefing.html"
-        save_preview(data, ai, preview_path)
-        rendered_html = Path(preview_path).read_text(encoding="utf-8")
+            from briefing.mailer import save_preview, send
+            preview_path = f"/tmp/{hotel['name'].lower().replace(' ', '_')}_briefing.html"
+            save_preview(data, ai, preview_path)
+            rendered_html = Path(preview_path).read_text(encoding="utf-8")
 
-        from briefing.cloud_push import push_to_cloud
-        push_to_cloud(data, ai, rendered_html=rendered_html)
+            from briefing.cloud_push import push_to_cloud
+            push_to_cloud(data, ai, rendered_html=rendered_html, hotel_id=hotel["id"])
 
-        if hotel["recipient_email"]:
-            send(data, ai)
-            log.info(f"[processor] Email sent to {hotel['recipient_email']}")
+            if hotel.get("recipient_email"):
+                send(data, ai)
+                log.info(f"[processor] Email sent to {hotel['recipient_email']}")
 
-        log.info(f"[processor] Done: {hotel['name']}")
+            log.info(f"[processor] Done: {hotel['name']}")
 
-    except Exception as exc:
-        log.error(f"[processor] Failed for {hotel['name']}: {exc}", exc_info=True)
+        except Exception as exc:
+            log.error(f"[processor] Failed for {hotel['name']}: {exc}", exc_info=True)
 
 
 def _mark_cmd_done(cmd_id: str) -> None:

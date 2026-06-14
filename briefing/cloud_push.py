@@ -15,10 +15,11 @@ import requests
 import config
 
 
-def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str | None = None) -> bool:
+def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str | None = None, hotel_id: str | None = None) -> bool:
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
     supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
-    hotel_id     = os.getenv("SUPABASE_HOTEL_ID", "")
+    if hotel_id is None:
+        hotel_id = os.getenv("SUPABASE_HOTEL_ID", "")
 
     if not all([supabase_url, supabase_key, hotel_id]):
         print("[cloud] Skipped — SUPABASE_URL / SUPABASE_SERVICE_KEY / SUPABASE_HOTEL_ID not set.")
@@ -49,19 +50,19 @@ def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str |
         )
         resp.raise_for_status()
         print(f"[cloud] Pushed briefing for {yesterday} (hotel {hotel_id[:8]}…) -> HTTP {resp.status_code}")
-        _send_push_notifications(ai, config.HOTEL_ID)
+        _send_push_notifications(ai, hotel_id, hotel_name=data.get("hotel_name") or config.HOTEL_NAME)
         return True
     except requests.RequestException as exc:
         print(f"[cloud] Push failed: {exc}")
         return False
 
 
-def _send_push_notifications(ai: dict[str, Any], hotel_id: int) -> None:
+def _send_push_notifications(ai: dict[str, Any], hotel_id: str, hotel_name: str | None = None) -> None:
     vapid_private     = os.getenv("VAPID_PRIVATE_KEY", "")
     vapid_email       = os.getenv("VAPID_EMAIL", "mailto:dk@bi-automations.com")
     supabase_url      = os.getenv("SUPABASE_URL", "").rstrip("/")
     supabase_key      = os.getenv("SUPABASE_SERVICE_KEY", "")
-    supabase_hotel_id = os.getenv("SUPABASE_HOTEL_ID", "")  # UUID from hotel_users table
+    supabase_hotel_id = hotel_id or os.getenv("SUPABASE_HOTEL_ID", "")
 
     if not all([vapid_private, supabase_url, supabase_key, supabase_hotel_id]):
         print("[push] Skipped — VAPID_PRIVATE_KEY / SUPABASE_URL / SUPABASE_SERVICE_KEY / SUPABASE_HOTEL_ID not set.")
@@ -85,7 +86,7 @@ def _send_push_notifications(ai: dict[str, Any], hotel_id: int) -> None:
 
     # Build notification payload from top insight
     insights = ai.get("insights", [])
-    hotel_name = config.HOTEL_NAME or "Hotel"
+    hotel_name = hotel_name or config.HOTEL_NAME or "Hotel"
     if insights:
         top = insights[0]
         title = f"{hotel_name} · {top.get('title', 'Morning Briefing')}"[:80]
