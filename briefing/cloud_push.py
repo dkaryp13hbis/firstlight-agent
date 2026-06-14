@@ -29,13 +29,13 @@ def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str |
     payload = {
         "hotel_id":     hotel_id,
         "report_date":  str(yesterday),
+        "data":         data,
         "ai_insights":  ai,
         "rendered_html": rendered_html,
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.utcnow().isoformat() + "Z",
     }
 
     try:
-        # Upsert: update if (hotel_id, report_date) already exists, insert otherwise
         resp = requests.post(
             f"{supabase_url}/rest/v1/briefings",
             json=payload,
@@ -43,7 +43,7 @@ def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str |
                 "apikey":        supabase_key,
                 "Authorization": f"Bearer {supabase_key}",
                 "Content-Type":  "application/json",
-                "Prefer":        "resolution=merge-duplicates,return=minimal",
+                "Prefer":        "return=minimal",
             },
             timeout=30,
         )
