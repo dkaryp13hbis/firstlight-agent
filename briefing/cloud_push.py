@@ -38,7 +38,7 @@ def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str |
 
     try:
         resp = requests.post(
-            f"{supabase_url}/rest/v1/briefings",
+            f"{supabase_url}/rest/v1/briefings?on_conflict=hotel_id,report_date",
             json=payload,
             headers={
                 "apikey":        supabase_key,
