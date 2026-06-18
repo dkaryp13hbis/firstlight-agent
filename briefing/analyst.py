@@ -255,9 +255,7 @@ Top pickup month (7 days): {pu['topMonth']} (+{pu['topMonthNights']} room nights
 """ + "\n".join(
         f"| {d['date']} {d['dow']} | {d['occ']*100:.0f}% | €{d['adr']:.0f} | €{d['rev']:,.0f} |"
         for d in data["next7days"]
-    ) + "\n\nNote: lead time, LOS, and segment data are not yet available in this feed. Focus only on what the numbers above reveal.
-
-Now analyze this data and return the JSON with executive_summary and 3-5 prioritized insights. Each insight must end with a single conclusion sentence — no bullet breakdowns."
+    ) + "\n\nNote: lead time, LOS, and segment data are not yet available in this feed. Focus only on what the numbers above reveal.\n\nNow analyze this data and return the JSON with executive_summary and 3-5 prioritized insights. Each insight must end with a single conclusion sentence — no bullet breakdowns."
 
 
 def generate_insights(data: dict[str, Any]) -> dict[str, Any]:
