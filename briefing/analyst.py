@@ -47,22 +47,29 @@ INSIGHT RULES
 - Rank by revenue impact and urgency
 - One insight = one lens. No repetition across cards.
 - Skip immaterial variances. Skip anything obvious.
-- Each insight ends with ONE conclusion — a specific, actionable statement with a number.
-  Not "consider reviewing rates." Say exactly what the situation implies.
 
 OUTPUT FORMAT (use submit_briefing tool):
-- title: lead with the €EUR number or key tension. Max 70 chars.
+- title: lead with the €EUR number or key tension. Use inline numbers with + or − sign.
+  Max 70 chars. Example: "August: −€400K risk, OTB 17pts behind STLY"
 - type: opportunity | warning | observation | monitor
-- kpis: max 2 chips — the two most important numbers (EUR variance, occ points, or ADR gap)
-  value in "TY vs LY" form, direction up/down/neutral
-- conclusion: ONE sentence. The AI-derived insight + what it means to act on. This is the
-  only text the user reads. Make it count. No "What changed / Why / Decision" breakdown.
-  Start with the situation, end with the implication or action.
+- kpis: exactly 2 chips — the two most important numbers for this insight.
+  value: the primary number (e.g. "+€17K", "€347 vs €365", "9 rooms"). Keep it short.
+  sub: one short delta line giving context (e.g. "+9.5% ahead of LY", "−€18 per room night", "2.6× the 7-day norm").
+  direction: up / down / neutral
+- findings: exactly 2 short bullet strings — WHAT the data shows and WHY it matters.
+  Each bullet max 25 words. Use **bold** for key terms and numbers.
+  First bullet: the pattern or fact. Second bullet: the risk or implication.
+- action: ONE sentence. The specific thing to review or protect, with a number if possible.
+  Use measured, professional language — avoid commanding verbs like "raise", "change",
+  "push", "force". Instead use: "worth reviewing", "consider protecting", "monitor closely",
+  "the data supports reviewing", "flag for attention", "a candidate for rate review".
+  Example: "August is a candidate for rate floor review toward €175+ — the OTB pace
+  suggests the market position supports it and each recovered room closes the gap."
 
-executive_summary: "Today: <single most urgent revenue action in one sentence>."
+executive_summary: "Today: <single most urgent revenue focus in one sentence>."
 
-TONE: sharp, direct, commercial. Zero filler. Write the conclusion a senior revenue
-manager would say out loud in a 30-second stand-up."""
+TONE: analytical, measured, commercial. Zero filler. Write like a senior revenue analyst
+presenting findings — precise numbers, clear observations, professional recommendations."""
 
 
 _STUB = {
@@ -88,20 +95,28 @@ _TOOL: dict[str, Any] = {
                         "title":      {"type": "string"},
                         "kpis": {
                             "type": "array",
+                            "minItems": 2,
                             "maxItems": 2,
                             "items": {
                                 "type": "object",
                                 "properties": {
                                     "label":     {"type": "string"},
                                     "value":     {"type": "string"},
+                                    "sub":       {"type": "string"},
                                     "direction": {"type": "string", "enum": ["up", "down", "neutral"]},
                                 },
-                                "required": ["label", "value", "direction"],
+                                "required": ["label", "value", "sub", "direction"],
                             },
                         },
-                        "conclusion": {"type": "string"},
+                        "findings": {
+                            "type": "array",
+                            "minItems": 2,
+                            "maxItems": 2,
+                            "items": {"type": "string"},
+                        },
+                        "action": {"type": "string"},
                     },
-                    "required": ["priority", "type", "title", "kpis", "conclusion"],
+                    "required": ["priority", "type", "title", "kpis", "findings", "action"],
                 },
             },
         },
@@ -297,7 +312,10 @@ def generate_insights(data: dict[str, Any]) -> dict[str, Any]:
         result.setdefault("insights", [])
         for ins in result["insights"]:
             ins.setdefault("kpis", [])
-            ins.setdefault("conclusion", ins.pop("recommendation", ins.pop("review_suggestion", "")))
+            for kpi in ins["kpis"]:
+                kpi.setdefault("sub", "")
+            ins.setdefault("findings", [ins.pop("conclusion", ins.pop("recommendation", ins.pop("review_suggestion", "")))])
+            ins.setdefault("action", "")
         # Cache to disk so --no-api preview mode can reuse last response
         try:
             from pathlib import Path as _Path

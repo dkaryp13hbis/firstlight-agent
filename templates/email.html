@@ -144,33 +144,44 @@
   .icard-badge.ic-pos  { background:rgba(46,124,247,.10); color:#1E6DD8; border:1px solid rgba(46,124,247,.22); }
   .icard-badge.ic-info { background:rgba(46,124,247,.08); color:#1E6DD8; border:1px solid rgba(46,124,247,.18); }
   .icard-badge.ic-mon  { background:rgba(124,91,255,.10); color:#6344D9; border:1px solid rgba(124,91,255,.22); }
-  .icard-kpis { display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
+  /* ── Metric chips ── */
+  .icard-kpis { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; }
   .kpi-chip {
-    background:#F4F7FC; border:1px solid rgba(10,31,77,.07); border-radius:10px;
-    padding:10px 13px; min-width:120px; flex:1;
+    background:#F4F7FC; border:1px solid rgba(10,31,77,.07); border-radius:12px;
+    padding:13px 15px;
   }
-  .kpi-label { font-family:var(--mono); font-size:9px; color:#8A93AE; text-transform:uppercase; letter-spacing:.10em; margin-bottom:5px; }
-  .kpi-val { font-family:var(--mono); font-weight:700; font-size:13px; color:#0A1F4D; line-height:1.35; }
+  .kpi-label { font-family:var(--mono); font-size:9px; color:#8A93AE; text-transform:uppercase; letter-spacing:.10em; margin-bottom:8px; }
+  .kpi-val {
+    font-family:var(--font-display,var(--mono)); font-weight:700; font-size:18px;
+    color:#0A1F4D; line-height:1.1; letter-spacing:-.015em;
+    display:flex; align-items:baseline; gap:6px; flex-wrap:wrap; margin-bottom:5px;
+  }
   .kpi-ty   { font-weight:700; }
   .kpi-ty.kup   { color:#1A7A50; }
   .kpi-ty.kdown { color:#B83A1B; }
-  .kpi-sep  { font-weight:400; color:#A0AAC0; font-size:11px; margin:0 2px; }
-  .kpi-ly   { color:#5A6486; font-weight:500; font-size:12px; }
-  .icard-bullets { margin-bottom:14px; }
-  .ibullet {
-    display:flex; gap:10px; align-items:flex-start;
-    font-size:12.5px; color:#2A3354; line-height:1.6; margin-bottom:6px;
+  .kpi-sep  { font-weight:400; color:#A0AAC0; font-size:11px; }
+  .kpi-ly   { color:#5A6486; font-weight:500; font-size:14px; }
+  .kpi-sub  { font-family:var(--mono); font-size:11px; color:#5A6486; }
+  .kpi-sub .kup   { color:#1A7A50; font-weight:600; }
+  .kpi-sub .kdown { color:#B83A1B; font-weight:600; }
+
+  /* ── Finding bullets ── */
+  .icard-findings { margin-bottom:16px; display:flex; flex-direction:column; gap:8px; }
+  .ifinding {
+    display:grid; grid-template-columns:6px 1fr; gap:11px; align-items:flex-start;
+    font-size:13px; color:#2A3354; line-height:1.6;
   }
-  .ibullet:last-child { margin-bottom:0; }
-  .ibullet::before {
+  .ifinding::before {
     content:""; width:6px; height:6px; border-radius:50%; background:#2E7CF7;
-    flex-shrink:0; margin-top:6px; box-shadow:0 0 0 3px rgba(46,124,247,.12);
+    flex-shrink:0; margin-top:7px; box-shadow:0 0 0 3px rgba(46,124,247,.12);
   }
-  .icard.ic-warn .ibullet::before { background:#C7411B; box-shadow:0 0 0 3px rgba(199,65,27,.12); }
+  .icard.ic-warn .ifinding::before { background:#C7411B; box-shadow:0 0 0 3px rgba(199,65,27,.12); }
+
+  /* ── Action box ── */
   .icard-action {
     background:linear-gradient(135deg,rgba(46,124,247,.06),rgba(86,255,196,.06));
     border:1px solid rgba(46,124,247,.14); border-radius:10px;
-    padding:12px 14px; display:flex; gap:11px; align-items:flex-start; margin-bottom:14px;
+    padding:13px 15px; display:flex; gap:12px; align-items:flex-start; margin-bottom:14px;
   }
   .icard.ic-warn .icard-action { background:linear-gradient(135deg,rgba(199,65,27,.05),rgba(224,168,46,.06)); border-color:rgba(199,65,27,.16); }
   .iaction-icon {
@@ -182,10 +193,18 @@
   .iaction-icon.ic-pos  { background:linear-gradient(135deg,#2E7CF7,#38E1F0); }
   .iaction-icon.ic-info { background:linear-gradient(135deg,#2E7CF7,#56FFC4); }
   .iaction-icon.ic-mon  { background:linear-gradient(135deg,#7C5BFF,#38E1F0); }
-  .iaction-text { font-size:12.5px; color:#2A3354; line-height:1.5; margin:0; padding-top:4px; }
+  .iaction-body { flex:1; }
+  .iaction-lead {
+    font-family:var(--mono); font-size:9px; text-transform:uppercase;
+    letter-spacing:.16em; color:#8A93AE; display:block; margin-bottom:3px;
+  }
+  .iaction-text { font-size:13px; color:#2A3354; line-height:1.5; margin:0; }
+  .iaction-text strong { color:#0A1F4D; font-weight:600; }
+
+  /* ── Card footer ── */
   .icard-foot {
     display:flex; align-items:center; gap:8px;
-    padding:12px 0; border-top:1px solid rgba(10,31,77,.07);
+    padding:12px 0 0; border-top:1px solid rgba(10,31,77,.07);
   }
   .icard-btn {
     display:inline-flex; align-items:center; gap:6px;
@@ -840,35 +859,34 @@
         <span class="kpi-ty {% if kpi.direction == 'up' %}kup{% elif kpi.direction == 'down' %}kdown{% endif %}">{{ parts[0] }}</span><span class="kpi-sep"> vs </span><span class="kpi-ly">{{ parts[1] }}</span>
       </div>
       {% else %}
-      <div class="kpi-val {% if kpi.direction == 'up' %}kup{% elif kpi.direction == 'down' %}kdown{% endif %}">{{ kpi.value | highlight | safe }}</div>
+      <div class="kpi-val">
+        <span class="kpi-ty {% if kpi.direction == 'up' %}kup{% elif kpi.direction == 'down' %}kdown{% endif %}">{{ kpi.value }}</span>
+      </div>
       {% endif %}
+      {% if kpi.sub %}<div class="kpi-sub">{{ kpi.sub }}</div>{% endif %}
     </div>
     {% endfor %}
   </div>
   {% endif %}
-  {% if ins.bullets %}
-  <div class="icard-bullets">
-    {% for b in ins.bullets %}
-    <div class="ibullet"><span>{{ b | highlight | safe }}</span></div>
+  {% set fin = ins.findings if ins.findings else ([ins.conclusion] if ins.conclusion else [ins.recommendation] if ins.recommendation else []) %}
+  {% if fin %}
+  <div class="icard-findings">
+    {% for f in fin %}
+    <div class="ifinding"><span>{{ f | highlight | safe }}</span></div>
     {% endfor %}
   </div>
   {% endif %}
-  {% if ins.recommendation %}
+  {% set act = ins.action if ins.action else (ins.recommendation if ins.recommendation else ins.review_suggestion if ins.review_suggestion else "") %}
+  {% if act %}
   <div class="icard-action">
     <div class="iaction-icon ic-{{ ic }}">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M5 19l2-2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     </div>
-    <p class="iaction-text">{{ ins.recommendation | highlight | safe }}</p>
+    <div class="iaction-body">
+      <span class="iaction-lead">Recommended action</span>
+      <p class="iaction-text">{{ act | highlight | safe }}</p>
+    </div>
   </div>
-  {% endif %}
-  {% if ins.body and not ins.bullets %}
-  <div style="font-size:12.5px;color:#2A3354;line-height:1.6;margin-bottom:10px">{{ ins.body | highlight | safe }}</div>
-  {% if ins.review_suggestion %}
-  <div class="icard-action">
-    <div class="iaction-icon ic-{{ ic }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
-    <p class="iaction-text">{{ ins.review_suggestion | highlight | safe }}</p>
-  </div>
-  {% endif %}
   {% endif %}
   </div>
 </div>
