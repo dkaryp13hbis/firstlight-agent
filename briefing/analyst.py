@@ -36,11 +36,16 @@ DEFINITIONS
 - Final LY = last year's actual closed result
 - OTB = current on-the-books
 
-PROJECTION RULES (apply these — do not just describe the data)
-- Project each future month: Expected finish = OTB occ + (Final LY occ - STLY occ)
-- If OTB already >= Final LY occ → month is SET TO BEAT last year → focus on rate upside
-- If behind: Break-even ADR = (Target Rev - OTB Rev) / Remaining Rooms → this is THE number
-- Cancellations: flag only if yesterday >= 2x the 7-day daily average
+PROJECTION RULES — READ CAREFULLY
+- The data table contains a pre-calculated "Proj Finish" column. USE THAT EXACT NUMBER.
+  Never recalculate projected occupancy yourself — any number you derive independently
+  will contradict the table and produce an inconsistent output.
+- If Proj Finish >= Final LY → month is SET TO BEAT last year → focus on rate upside.
+- If Proj Finish < Final LY → use "Rev Risk vs LY" from the table for the revenue gap.
+- Booking window matters: EARLY position (>90d to start) means remaining pickup LY was
+  large — a small OTB gap is often recoverable. CLOSE-IN (<30d) means what you see is
+  close to the final outcome — gaps are urgent.
+- Cancellations: flag only if yesterday >= 2x the 7-day daily average.
 
 INSIGHT RULES
 - 3 insights minimum, 5 maximum
@@ -69,7 +74,8 @@ OUTPUT FORMAT (use submit_briefing tool):
 executive_summary: "Today: <single most urgent revenue focus in one sentence>."
 
 TONE: analytical, measured, commercial. Zero filler. Write like a senior revenue analyst
-presenting findings — precise numbers, clear observations, professional recommendations."""
+presenting findings — precise numbers, clear observations, professional recommendations.
+Do NOT use markdown formatting. No asterisks, no **bold**, no *italic*. Plain text only."""
 
 
 _STUB = {
@@ -186,26 +192,65 @@ def _build_user_prompt(data: dict[str, Any]) -> str:
             f"cancellation alert on one day's count alone)"
         )
 
-    # Pace rows — include LY final ADR/revenue when available for the forward break-even
+    # Booking window helpers — pre-calculate all math so AI never re-derives numbers
+    import calendar as _cal
+    from datetime import date as _date, datetime as _dt
+
+    def _month_meta(month_str: str):
+        """Returns (days_to_start, days_to_end, days_in_month) from report_date."""
+        try:
+            report = _date.fromisoformat(data["report_date"])
+            dt = _dt.strptime(month_str, "%b %Y")
+            m_start = _date(dt.year, dt.month, 1)
+            days_in = _cal.monthrange(dt.year, dt.month)[1]
+            m_end   = _date(dt.year, dt.month, days_in)
+            return max(0, (m_start - report).days), max(0, (m_end - report).days), days_in
+        except Exception:
+            return None, None, 30
+
+    def _bw_label(days_to_start):
+        if days_to_start is None:
+            return "unknown"
+        if days_to_start > 90:
+            return f"EARLY ({days_to_start}d to 1st)"
+        if days_to_start > 30:
+            return f"MID ({days_to_start}d to 1st)"
+        return f"CLOSE-IN ({days_to_start}d to 1st)"
+
+    # Pace rows — all projections pre-calculated here; AI must use these exact values
     def pace_row(p):
-        vs = _fmt_pct(p['occ'] / p['stly'] - 1) if p['stly'] else 'n/a'
-        adr_final = p.get('adr_final_ly')
-        rev_final = p.get('rev_final_ly')
-        extra = ""
-        if adr_final is not None:
-            extra += f" | €{adr_final:.0f}"
+        occ      = p['occ']
+        stly     = p['stly']
+        final_ly = p['final']
+        # THE projection formula — computed once, AI must not re-derive
+        remaining_ly = final_ly - stly                   # pickup that happened after this date LY
+        projected    = min(max(occ + remaining_ly, 0), 1.0)
+        occ_gap      = projected - final_ly              # + = beating LY, - = behind LY
+
+        adr_final  = p.get('adr_final_ly')
+        rev_final  = p.get('rev_final_ly')
+        budget     = p.get('rev_budget')
+        days_to_start, _, days_in = _month_meta(p['month'])
+        bw = _bw_label(days_to_start)
+
+        # Revenue at risk vs Final LY (only if behind)
+        if rev_final and occ_gap < 0:
+            adr_ref = adr_final or p.get('adr', 0)
+            rev_risk = abs(occ_gap) * config.TOTAL_ROOMS * days_in * adr_ref
+            risk_str = f"-€{rev_risk:,.0f}"
+        elif rev_final and occ_gap >= 0:
+            risk_str = "BEATING LY"
         else:
-            extra += " | n/a"
-        if rev_final is not None:
-            extra += f" | €{rev_final:,.0f}"
-        else:
-            extra += " | n/a"
-        budget = p.get('rev_budget')
-        extra += f" | €{budget:,.0f}" if budget is not None else " | n/a"
+            risk_str = "n/a"
+
+        adr_final_s = f"€{adr_final:.0f}" if adr_final else "n/a"
+        rev_final_s = f"€{rev_final:,.0f}" if rev_final else "n/a"
+        budget_s    = f"€{budget:,.0f}" if budget else "n/a"
         return (
-            f"| {p['month']} | {p['occ']*100:.1f}% | {p['stly']*100:.1f}% | "
-            f"{p['final']*100:.1f}% | {vs} | {p.get('adr', 0):.0f} | "
-            f"{p.get('adr_stly', 0):.0f}{extra} |"
+            f"| {p['month']} | {occ*100:.1f}% | {stly*100:.1f}% | {final_ly*100:.1f}%"
+            f" | {remaining_ly*100:.1f}% | {projected*100:.1f}% | {occ_gap*100:+.1f}%"
+            f" | {p.get('adr', 0):.0f} | {adr_final_s}"
+            f" | {rev_final_s} | {budget_s} | {risk_str} | {bw} |"
         )
 
     pace_rows = "\n".join(pace_row(p) for p in data["pace"])
@@ -246,10 +291,15 @@ def _build_user_prompt(data: dict[str, Any]) -> str:
 | Room Nights | {mtd['roomNights']} | {mtd['roomNightsLY']} | {var(mtd['roomNights'], mtd['roomNightsLY'])} |
 
 ## ON THE BOOKS — PACE BY FUTURE MONTH
-(Use Occ STLY for occupancy pace. Use ADR Final LY / Rev Final LY / Budget for the
-forward revenue and break-even view. Project final occupancy from pace, never 100%.)
-| Month | Occ OTB | Occ STLY | Occ Final LY | vs STLY | ADR OTB | ADR STLY | ADR Final LY | Rev Final LY | Budget |
-|-------|---------|----------|--------------|---------|---------|----------|--------------|--------------|--------|
+IMPORTANT: The "Proj Finish" column is pre-calculated = OTB + (Final LY − STLY).
+Use this exact number in every KPI chip and finding. Never derive a different projected occupancy.
+"Rem Pickup LY" = how many occ-pts were picked up after this date last year (= Final LY − STLY).
+"Rev Risk vs LY" = revenue gap if projected finish < Final LY. "BEATING LY" means projected > Final LY.
+Booking window context: EARLY = >90d to month start (STLY comparison reliable, close-in pickup TBD).
+MID = 30–90d (trend is directional). CLOSE-IN = <30d (what you see is close to what you get).
+
+| Month | Occ OTB | Occ STLY | Occ Final LY | Rem Pickup LY | Proj Finish | vs Final LY | ADR OTB | ADR Final LY | Rev Final LY | Budget | Rev Risk vs LY | Booking Window |
+|-------|---------|----------|--------------|---------------|-------------|-------------|---------|--------------|--------------|--------|----------------|----------------|
 {pace_rows}
 
 ## PICKUP ACTIVITY (new bookings, future stay dates)
@@ -310,12 +360,20 @@ def generate_insights(data: dict[str, Any]) -> dict[str, Any]:
             print(f"[analyst] Summary: {result.get('executive_summary','')[:200]}")
         result.setdefault("executive_summary", "")
         result.setdefault("insights", [])
+        def _strip_md(s: str) -> str:
+            return s.replace("**", "").replace("*", "")
+
         for ins in result["insights"]:
+            ins["title"] = _strip_md(ins.get("title", ""))
             ins.setdefault("kpis", [])
             for kpi in ins["kpis"]:
                 kpi.setdefault("sub", "")
-            ins.setdefault("findings", [ins.pop("conclusion", ins.pop("recommendation", ins.pop("review_suggestion", "")))])
+                kpi["sub"] = _strip_md(kpi["sub"])
+            raw_findings = ins.pop("conclusion", ins.pop("recommendation", ins.pop("review_suggestion", "")))
+            ins.setdefault("findings", [raw_findings] if isinstance(raw_findings, str) else [])
+            ins["findings"] = [_strip_md(f) for f in ins["findings"]]
             ins.setdefault("action", "")
+            ins["action"] = _strip_md(ins["action"])
         # Cache to disk so --no-api preview mode can reuse last response
         try:
             from pathlib import Path as _Path
