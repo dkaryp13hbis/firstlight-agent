@@ -114,8 +114,8 @@
   /* Channels */
   .ch-row { display:flex; align-items:center; padding:7px 0; border-top:1px solid var(--grey-100); gap:10px; }
   .ch-row:first-child { border-top:none; }
-  .ch-name { font-weight:600; font-size:12px; flex:1; }
-  .ch-bar-wrap { flex:2; background:var(--grey-100); border-radius:4px; height:6px; overflow:visible; position:relative; }
+  .ch-name { font-weight:600; font-size:12px; flex:0 0 90px; min-width:0; }
+  .ch-bar-wrap { flex:1; background:var(--grey-100); border-radius:4px; height:6px; overflow:visible; position:relative; }
   .ch-bar { height:100%; background:var(--grad-cyan); border-radius:4px; }
   .ch-nights { font-family:var(--mono); font-size:10px; color:var(--grey-600); min-width:36px; text-align:right; }
   .badge-pos { background:var(--green-bg); color:var(--green); font-family:var(--mono); font-size:9px; font-weight:600; padding:2px 6px; border-radius:4px; }
@@ -503,7 +503,7 @@
 
 {# ── Compute chart layout variables ── #}
 {% set n_mo = data.pace | length %}
-{% set step = 480.0 / n_mo %}
+{% set step = 440.0 / n_mo %}
 {% set bot  = 115 %}
 {% set ch   = 101 %}
 {% set bw   = 12 if n_mo > 6 else 13 %}
@@ -526,16 +526,16 @@
     </div>
   </div>
   <svg viewBox="0 0 560 162" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
-    <line x1="40" y1="10"  x2="520" y2="10"  stroke="#E2E7F0" stroke-width="0.5"/>
-    <line x1="40" y1="45"  x2="520" y2="45"  stroke="#F0F2F7" stroke-width="0.5"/>
-    <line x1="40" y1="80"  x2="520" y2="80"  stroke="#F0F2F7" stroke-width="0.5"/>
-    <line x1="40" y1="115" x2="520" y2="115" stroke="#E2E7F0" stroke-width="0.5"/>
-    <text x="36" y="14"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (ns.max_rev) | kilo }}</text>
-    <text x="36" y="49"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (ns.max_rev * 0.67) | kilo }}</text>
-    <text x="36" y="84"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (ns.max_rev * 0.33) | kilo }}</text>
-    <text x="36" y="119" text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€0</text>
+    <line x1="80" y1="10"  x2="520" y2="10"  stroke="#E2E7F0" stroke-width="0.5"/>
+    <line x1="80" y1="45"  x2="520" y2="45"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="80" y1="80"  x2="520" y2="80"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="80" y1="115" x2="520" y2="115" stroke="#E2E7F0" stroke-width="0.5"/>
+    <text x="76" y="14"  text-anchor="end" font-size="8" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (ns.max_rev) | euro_full }}</text>
+    <text x="76" y="49"  text-anchor="end" font-size="8" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (ns.max_rev * 0.67) | euro_full }}</text>
+    <text x="76" y="84"  text-anchor="end" font-size="8" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (ns.max_rev * 0.33) | euro_full }}</text>
+    <text x="76" y="119" text-anchor="end" font-size="8" fill="#A0AAC0" font-family="IBM Plex Mono">€0</text>
     {% for p in data.pace %}
-      {% set xi = (40 + (loop.index0 + 0.5) * step) | round(1) %}
+      {% set xi = (80 + (loop.index0 + 0.5) * step) | round(1) %}
       {% set bh_ty   = [((p.rev       / ns.max_rev) * ch) | round(1), 1] | max %}
       {% set bh_stly = [((p.rev_stly  / ns.max_rev) * ch) | round(1), 0] | max %}
       {% set bh_fly  = [((p.rev_final / ns.max_rev) * ch) | round(1), 0] | max %}
@@ -543,7 +543,7 @@
       {% set y_stly = bot - bh_stly %}
       {% set ly_y   = bot - bh_fly  %}
       {% set vs = ((p.rev - p.rev_stly) / p.rev_stly * 100) | round(1) if p.rev_stly else 0 %}
-      <rect x="{{ xi - bw - 1 }}" y="{{ y_ty }}"   width="{{ bw }}" height="{{ bh_ty }}"   rx="1.5" fill="#0F2860"/>
+      <rect x="{{ xi - bw - 1 }}" y="{{ y_ty }}"   width="{{ bw }}" height="{{ bh_ty }}"   rx="1.5" fill="{{ '#1A7A50' if p.rev >= p.rev_final else '#0F2860' }}"/>
       <rect x="{{ xi + 1 }}"      y="{{ y_stly }}" width="{{ bw }}" height="{{ bh_stly }}" rx="1.5" fill="#CDD4E0"/>
       <line x1="{{ xi - bw - 3 }}" y1="{{ ly_y }}" x2="{{ xi + bw + 3 }}" y2="{{ ly_y }}" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
       <rect x="{{ xi - 18 }}" y="137" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
@@ -562,7 +562,7 @@
 {% endfor %}
 {% set occ_top = ((ns2.max_occ * 1.15) | round(1)) %}
 {% for p in data.pace %}
-  {% set xi    = (40 + (loop.index0 + 0.5) * step) | round(1) %}
+  {% set xi    = (80 + (loop.index0 + 0.5) * step) | round(1) %}
   {% set y_ty  = (bot - (p.occ   / occ_top) * ch) | round(1) %}
   {% set y_stly= (bot - (p.stly  / occ_top) * ch) | round(1) %}
   {% set y_fly = (bot - (p.final / occ_top) * ch) | round(1) %}
@@ -594,14 +594,14 @@
     </div>
   </div>
   <svg viewBox="0 0 560 162" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
-    <line x1="40" y1="10"  x2="520" y2="10"  stroke="#E2E7F0" stroke-width="0.5"/>
-    <line x1="40" y1="45"  x2="520" y2="45"  stroke="#F0F2F7" stroke-width="0.5"/>
-    <line x1="40" y1="80"  x2="520" y2="80"  stroke="#F0F2F7" stroke-width="0.5"/>
-    <line x1="40" y1="115" x2="520" y2="115" stroke="#E2E7F0" stroke-width="0.5"/>
-    <text x="36" y="14"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (occ_top * 100) | round(0) | int }}%</text>
-    <text x="36" y="49"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (occ_top * 67) | round(0) | int }}%</text>
-    <text x="36" y="84"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (occ_top * 33) | round(0) | int }}%</text>
-    <text x="36" y="119" text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">0%</text>
+    <line x1="80" y1="10"  x2="520" y2="10"  stroke="#E2E7F0" stroke-width="0.5"/>
+    <line x1="80" y1="45"  x2="520" y2="45"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="80" y1="80"  x2="520" y2="80"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="80" y1="115" x2="520" y2="115" stroke="#E2E7F0" stroke-width="0.5"/>
+    <text x="76" y="14"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (occ_top * 100) | round(0) | int }}%</text>
+    <text x="76" y="49"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (occ_top * 67) | round(0) | int }}%</text>
+    <text x="76" y="84"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (occ_top * 33) | round(0) | int }}%</text>
+    <text x="76" y="119" text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">0%</text>
     {# Smooth area fill #}
     <path d="{{ smooth_area }}" fill="rgba(15,40,96,0.07)"/>
     {# Final LY dashed line (linear reference) #}
@@ -611,14 +611,14 @@
     <path d="{{ ns2.smooth_ty   }}" fill="none" stroke="#0F2860" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
     {# Dots + labels #}
     {% for p in data.pace %}
-      {% set xi    = (40 + (loop.index0 + 0.5) * step) | round(1) %}
+      {% set xi    = (80 + (loop.index0 + 0.5) * step) | round(1) %}
       {% set y_ty  = (bot - (p.occ  / occ_top) * ch) | round(1) %}
       {% set y_stly= (bot - (p.stly / occ_top) * ch) | round(1) %}
       {% set vs = ((p.occ - p.stly) / p.stly * 100) | round(1) if p.stly else 0 %}
       <circle cx="{{ xi }}" cy="{{ y_stly }}" r="3" fill="#CDD4E0" stroke="#fff" stroke-width="1.5"/>
-      <circle cx="{{ xi }}" cy="{{ y_ty }}"   r="4" fill="#0F2860" stroke="#fff" stroke-width="1.5"/>
+      <circle cx="{{ xi }}" cy="{{ y_ty }}"   r="4" fill="{{ '#1A7A50' if p.occ >= p.final else '#0F2860' }}" stroke="#fff" stroke-width="1.5"/>
       <rect x="{{ xi - 16 }}" y="{{ y_ty - 20 }}" width="32" height="14" rx="3" fill="white"/>
-      <text x="{{ xi }}" y="{{ y_ty - 9 }}" text-anchor="middle" font-size="11" fill="#0F2860" font-family="IBM Plex Mono" font-weight="600">{{ (p.occ * 100) | round(0) | int }}%</text>
+      <text x="{{ xi }}" y="{{ y_ty - 9 }}" text-anchor="middle" font-size="11" fill="{{ '#1A7A50' if p.occ >= p.final else '#0F2860' }}" font-family="IBM Plex Mono" font-weight="600">{{ (p.occ * 100) | round(0) | int }}%</text>
       <rect x="{{ xi - 18 }}" y="137" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
       <text x="{{ xi }}" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">{{ p.month }}</text>
       <text x="{{ xi }}" y="146" text-anchor="middle" font-size="10" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="IBM Plex Mono" font-weight="600">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
@@ -644,16 +644,16 @@
     </div>
   </div>
   <svg viewBox="0 0 560 162" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
-    <line x1="40" y1="10"  x2="520" y2="10"  stroke="#E2E7F0" stroke-width="0.5"/>
-    <line x1="40" y1="45"  x2="520" y2="45"  stroke="#F0F2F7" stroke-width="0.5"/>
-    <line x1="40" y1="80"  x2="520" y2="80"  stroke="#F0F2F7" stroke-width="0.5"/>
-    <line x1="40" y1="115" x2="520" y2="115" stroke="#E2E7F0" stroke-width="0.5"/>
-    <text x="36" y="14"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€{{ ns3.max_adr | round(0) | int }}</text>
-    <text x="36" y="49"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€{{ (ns3.max_adr * 0.67) | round(0) | int }}</text>
-    <text x="36" y="84"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€{{ (ns3.max_adr * 0.33) | round(0) | int }}</text>
-    <text x="36" y="119" text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€0</text>
+    <line x1="80" y1="10"  x2="520" y2="10"  stroke="#E2E7F0" stroke-width="0.5"/>
+    <line x1="80" y1="45"  x2="520" y2="45"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="80" y1="80"  x2="520" y2="80"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="80" y1="115" x2="520" y2="115" stroke="#E2E7F0" stroke-width="0.5"/>
+    <text x="76" y="14"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€{{ ns3.max_adr | round(0) | int }}</text>
+    <text x="76" y="49"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€{{ (ns3.max_adr * 0.67) | round(0) | int }}</text>
+    <text x="76" y="84"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€{{ (ns3.max_adr * 0.33) | round(0) | int }}</text>
+    <text x="76" y="119" text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€0</text>
     {% for p in data.pace %}
-      {% set xi = (40 + (loop.index0 + 0.5) * step) | round(1) %}
+      {% set xi = (80 + (loop.index0 + 0.5) * step) | round(1) %}
       {% set bh_ty   = [((p.adr      / ns3.max_adr) * ch) | round(1), 1] | max %}
       {% set bh_stly = [((p.adr_stly / ns3.max_adr) * ch) | round(1), 0] | max %}
       {% set bh_fly  = [((p.adr_final_ly / ns3.max_adr) * ch) | round(1), 0] | max %}
@@ -661,7 +661,7 @@
       {% set y_stly = bot - bh_stly %}
       {% set ly_y   = bot - bh_fly  %}
       {% set vs = ((p.adr - p.adr_stly) / p.adr_stly * 100) | round(1) if p.adr_stly else 0 %}
-      <rect x="{{ xi - bw - 1 }}" y="{{ y_ty }}"   width="{{ bw }}" height="{{ bh_ty }}"   rx="1.5" fill="#0F2860"/>
+      <rect x="{{ xi - bw - 1 }}" y="{{ y_ty }}"   width="{{ bw }}" height="{{ bh_ty }}"   rx="1.5" fill="{{ '#1A7A50' if p.adr >= p.adr_final_ly else '#0F2860' }}"/>
       <rect x="{{ xi + 1 }}"      y="{{ y_stly }}" width="{{ bw }}" height="{{ bh_stly }}" rx="1.5" fill="#CDD4E0"/>
       <line x1="{{ xi - bw - 3 }}" y1="{{ ly_y }}" x2="{{ xi + bw + 3 }}" y2="{{ ly_y }}" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
       <rect x="{{ xi - 18 }}" y="137" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>

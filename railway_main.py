@@ -48,8 +48,30 @@ def _get_hotels() -> list[dict]:
         return []
 
 
-def process_hotel(hotel: dict) -> None:
+def _briefing_exists_today(hotel_id: str) -> bool:
+    """Returns True if a briefing for yesterday already exists in Supabase."""
+    import requests as _req
+    from datetime import date, timedelta
+    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
+    yesterday = str(date.today() - timedelta(days=1))
+    try:
+        r = _req.get(
+            f"{supabase_url}/rest/v1/briefings",
+            params={"hotel_id": f"eq.{hotel_id}", "report_date": f"eq.{yesterday}", "select": "id"},
+            headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
+            timeout=10,
+        )
+        return r.ok and len(r.json()) > 0
+    except Exception:
+        return False
+
+
+def process_hotel(hotel: dict, force: bool = False) -> None:
     log.info(f"[processor] Starting: {hotel['name']}")
+    if not force and _briefing_exists_today(hotel["id"]):
+        log.info(f"[processor] Skipped {hotel['name']} — briefing for today already exists.")
+        return
     with _process_lock:
         try:
             from briefing.bridge_fetcher import fetch_from_bridge
@@ -106,7 +128,7 @@ def _mark_cmd_done(cmd_id: str) -> None:
         log.warning(f"[railway] Failed to mark cmd done: {e}")
 
 
-def run_all_hotels(hotel_id_filter: str | None = None, cmd_id: str | None = None) -> None:
+def run_all_hotels(hotel_id_filter: str | None = None, cmd_id: str | None = None, force: bool = False) -> None:
     hotels = _get_hotels()
     if hotel_id_filter:
         hotels = [h for h in hotels if h["id"] == hotel_id_filter]
@@ -114,7 +136,7 @@ def run_all_hotels(hotel_id_filter: str | None = None, cmd_id: str | None = None
         log.warning("[scheduler] No hotels configured.")
         return
     for hotel in hotels:
-        process_hotel(hotel)
+        process_hotel(hotel, force=force)
     if cmd_id:
         _mark_cmd_done(cmd_id)
 
@@ -141,7 +163,7 @@ class Handler(BaseHTTPRequestHandler):
             cmd_id   = (qs.get("cmd_id")   or [None])[0]
             threading.Thread(
                 target=run_all_hotels,
-                kwargs={"hotel_id_filter": hotel_id, "cmd_id": cmd_id},
+                kwargs={"hotel_id_filter": hotel_id, "cmd_id": cmd_id, "force": True},
                 daemon=True,
             ).start()
             body = b'{"status":"triggered"}'
