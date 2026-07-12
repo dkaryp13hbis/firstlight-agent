@@ -3,6 +3,11 @@ Railway cloud processor entry point.
 - Serves HTTP health check on $PORT (required by Railway)
 - Runs daily hotel processing via APScheduler
 - Fetches data from hotel bridges (via Cloudflare Tunnel) instead of direct SQL
+
+Schedule (all times UTC, Greece is UTC+3 in summer):
+  06:00 UTC = 09:00 Greece — full briefing (AI insights + email + push)
+  11:00 UTC = 14:00 Greece — data-only refresh (reuse morning AI, push only)
+  17:00 UTC = 20:00 Greece — data-only refresh (reuse morning AI, push only)
 """
 import json
 import logging
@@ -67,28 +72,64 @@ def _briefing_exists_today(hotel_id: str) -> bool:
         return False
 
 
-def process_hotel(hotel: dict, force: bool = False) -> None:
-    log.info(f"[processor] Starting: {hotel['name']}")
-    if not force and _briefing_exists_today(hotel["id"]):
+def _get_existing_ai_insights(hotel_id: str) -> dict | None:
+    """Fetch the AI insights saved by this morning's full briefing run."""
+    import requests as _req
+    from datetime import date, timedelta
+    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
+    yesterday = str(date.today() - timedelta(days=1))
+    try:
+        r = _req.get(
+            f"{supabase_url}/rest/v1/briefings",
+            params={"hotel_id": f"eq.{hotel_id}", "report_date": f"eq.{yesterday}", "select": "ai_insights"},
+            headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
+            timeout=10,
+        )
+        if r.ok and r.json():
+            return r.json()[0].get("ai_insights")
+    except Exception:
+        pass
+    return None
+
+
+def process_hotel(hotel: dict, force: bool = False, data_only: bool = False) -> None:
+    log.info(f"[processor] Starting: {hotel['name']} (data_only={data_only})")
+
+    # Full briefing: skip if already done today (unless forced)
+    if not data_only and not force and _briefing_exists_today(hotel["id"]):
         log.info(f"[processor] Skipped {hotel['name']} — briefing for today already exists.")
         return
+
     with _process_lock:
         try:
             from briefing.bridge_fetcher import fetch_from_bridge
             data = fetch_from_bridge(hotel["bridge_url"], hotel["bridge_secret"])
-            data["hotel_name"] = hotel["name"]  # authoritative name from Supabase
+            data["hotel_name"] = hotel["name"]
             yd = data.get("yesterday", {})
             log.info(f"[processor] Data fetched — yd_rev=€{yd.get('revenue',0):,.0f} occ={yd.get('occupancy',0)*100:.1f}% pace_months={len(data.get('pace',[]))} channels={len(data.get('topChannels',[]))}")
 
+            if yd.get("revenue", 0) == 0 and yd.get("roomNights", 0) == 0:
+                log.warning(f"[processor] {hotel['name']} — data looks empty (rev=0, rn=0), skipping to avoid saving bad briefing.")
+                return
+
             import config
-            config.HOTEL_NAME     = hotel["name"]
-            config.TOTAL_ROOMS    = hotel["total_rooms"]
+            config.HOTEL_NAME      = hotel["name"]
+            config.TOTAL_ROOMS     = hotel["total_rooms"]
             config.RECIPIENT_EMAIL = hotel.get("recipient_email", "")
             config.RECIPIENT_NAME  = hotel.get("recipient_name", "General Manager")
 
-            from briefing.analyst import generate_insights
-            ai = generate_insights(data)
-            log.info(f"[processor] AI insights generated: {len(ai.get('insights', []))} insights")
+            if data_only:
+                # Reuse AI insights from the morning's full briefing — no Claude API call
+                ai = _get_existing_ai_insights(hotel["id"])
+                if not ai:
+                    log.warning(f"[processor] {hotel['name']} — no morning AI insights found, skipping data-only refresh.")
+                    return
+                log.info(f"[processor] Reusing morning AI insights ({len(ai.get('insights', []))} insights)")
+            else:
+                from briefing.analyst import generate_insights
+                ai = generate_insights(data)
+                log.info(f"[processor] AI insights generated: {len(ai.get('insights', []))} insights")
 
             from briefing.mailer import save_preview, send
             preview_path = f"/tmp/{hotel['name'].lower().replace(' ', '_')}_briefing.html"
@@ -98,7 +139,8 @@ def process_hotel(hotel: dict, force: bool = False) -> None:
             from briefing.cloud_push import push_to_cloud
             push_to_cloud(data, ai, rendered_html=rendered_html, hotel_id=hotel["id"])
 
-            if hotel.get("recipient_email"):
+            # Only send email on the morning full briefing
+            if not data_only and hotel.get("recipient_email"):
                 send(data, ai)
                 log.info(f"[processor] Email sent to {hotel['recipient_email']}")
 
@@ -128,7 +170,7 @@ def _mark_cmd_done(cmd_id: str) -> None:
         log.warning(f"[railway] Failed to mark cmd done: {e}")
 
 
-def run_all_hotels(hotel_id_filter: str | None = None, cmd_id: str | None = None, force: bool = False) -> None:
+def run_all_hotels(hotel_id_filter: str | None = None, cmd_id: str | None = None, force: bool = False, data_only: bool = False) -> None:
     hotels = _get_hotels()
     if hotel_id_filter:
         hotels = [h for h in hotels if h["id"] == hotel_id_filter]
@@ -136,7 +178,7 @@ def run_all_hotels(hotel_id_filter: str | None = None, cmd_id: str | None = None
         log.warning("[scheduler] No hotels configured.")
         return
     for hotel in hotels:
-        process_hotel(hotel, force=force)
+        process_hotel(hotel, force=force, data_only=data_only)
     if cmd_id:
         _mark_cmd_done(cmd_id)
 
@@ -159,11 +201,12 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.startswith("/trigger"):
             from urllib.parse import urlparse, parse_qs
             qs = parse_qs(urlparse(self.path).query)
-            hotel_id = (qs.get("hotel_id") or [None])[0]
-            cmd_id   = (qs.get("cmd_id")   or [None])[0]
+            hotel_id  = (qs.get("hotel_id")   or [None])[0]
+            cmd_id    = (qs.get("cmd_id")      or [None])[0]
+            data_only = (qs.get("data_only")   or ["false"])[0].lower() == "true"
             threading.Thread(
                 target=run_all_hotels,
-                kwargs={"hotel_id_filter": hotel_id, "cmd_id": cmd_id, "force": True},
+                kwargs={"hotel_id_filter": hotel_id, "cmd_id": cmd_id, "force": True, "data_only": data_only},
                 daemon=True,
             ).start()
             body = b'{"status":"triggered"}'
@@ -181,11 +224,15 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     import sys, traceback
     try:
-        # Daily scheduler — 06:00 UTC (adjust per hotel timezone later)
         scheduler = BackgroundScheduler()
+        # 06:00 UTC = 09:00 Greece — full briefing with AI insights + email
         scheduler.add_job(run_all_hotels, "cron", hour=6, minute=0)
+        # 11:00 UTC = 14:00 Greece — data refresh, reuse morning AI insights
+        scheduler.add_job(lambda: run_all_hotels(data_only=True), "cron", hour=11, minute=0)
+        # 17:00 UTC = 20:00 Greece — data refresh, reuse morning AI insights
+        scheduler.add_job(lambda: run_all_hotels(data_only=True), "cron", hour=17, minute=0)
         scheduler.start()
-        log.info("[railway] Scheduler started — daily at 06:00 UTC")
+        log.info("[railway] Scheduler started — 06:00 full briefing | 11:00 + 17:00 UTC data-only refresh")
         log.info(f"[railway] Hotels configured: {[h['name'] for h in _get_hotels()]}")
 
         port = int(os.getenv("PORT", "8080"))
