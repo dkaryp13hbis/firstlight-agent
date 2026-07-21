@@ -430,6 +430,174 @@ ORDER BY stay_year, stay_month, period, days_bucket DESC;
 """.format(fake_rt=_FAKE_RT_EXCLUDE)
 
 
+# ------------------------------------------------------------------
+# Q9: Daily net pickup — last 14 days by future stay month
+# Used to compute trailing mean, σ, and z-score for Signal 1 (Pickup).
+# Covers new bookings (SystemDate) minus cancellations (Canceled date).
+# Returns one row per (ref_date, stay_month, stay_year) combination.
+# ------------------------------------------------------------------
+
+Q_PICKUP_DAILY = """
+DECLARE @today        DATE = CAST(GETDATE() AS DATE);
+DECLARE @window_start DATE = DATEADD(DAY, -13, @today);  -- 14 days including today
+DECLARE @max_future   DATE = DATEADD(YEAR,  1, @today);  -- cap scan at 1 year out
+
+SELECT ref_date, stay_month, stay_year,
+       SUM(net_rn)  AS net_rn,
+       SUM(net_rev) AS net_rev
+FROM (
+    -- New bookings (positive contribution)
+    SELECT CAST(h.SystemDate AS DATE)  AS ref_date,
+           MONTH(h.date)               AS stay_month,
+           YEAR(h.date)                AS stay_year,
+           h.Occupancy                 AS net_rn,
+           h.logis                     AS net_rev
+    FROM bidata.proteluser.Hitia h
+    WHERE h.mpehotel = ?
+      AND h.reschar < 2
+      AND {fake_rt}
+      AND h.date  >  @today
+      AND h.date  <= @max_future
+      AND CAST(h.SystemDate AS DATE) BETWEEN @window_start AND @today
+
+    UNION ALL
+
+    -- Cancellations (negative contribution, tracked by Canceled date)
+    SELECT CAST(h.Canceled AS DATE),
+           MONTH(h.date),
+           YEAR(h.date),
+           -(CASE WHEN CAST(h.datumbis AS DATE) > CAST(h.date AS DATE) THEN 1 ELSE 0 END),
+           -h.logis
+    FROM bidata.proteluser.Hitia h
+    WHERE h.mpehotel = ?
+      AND h.reschar = 2
+      AND {fake_rt}
+      AND h.date  >  @today
+      AND h.date  <= @max_future
+      AND CAST(h.Canceled AS DATE) BETWEEN @window_start AND @today
+) t
+GROUP BY ref_date, stay_month, stay_year
+ORDER BY ref_date, stay_month;
+""".format(fake_rt=_FAKE_RT_EXCLUDE)
+
+
+# ------------------------------------------------------------------
+# Q10: OTB by stay date — next 90 days with STLY at same lead time
+# Used for Signal 2 (daily pace) and Signal 4 (soft/hot date detection).
+# LY dates are mapped to their TY equivalent via DATEADD(YEAR,1,…)
+# so the JOIN uses calendar-matched stay dates (e.g. Jul 22 2025 → Jul 22 2026).
+# ------------------------------------------------------------------
+
+Q_OTB_BY_DATE_90 = """
+DECLARE @today    DATE = CAST(GETDATE() AS DATE);
+DECLARE @horizon  DATE = DATEADD(DAY,  90, @today);
+DECLARE @stly_cap DATE = DATEADD(YEAR, -1, @today);
+DECLARE @ly_end   DATE = DATEADD(DAY,  90, @stly_cap);
+
+WITH ty_otb AS (
+    SELECT h.date            AS stay_date,
+           SUM(h.Occupancy)  AS rn_ty,
+           SUM(h.logis)      AS rev_ty
+    FROM bidata.proteluser.Hitia h
+    WHERE h.mpehotel = ?
+      AND h.reschar < 2
+      AND {fake_rt}
+      AND h.date >  @today
+      AND h.date <= @horizon
+    GROUP BY h.date
+),
+stly_otb AS (
+    -- Map LY stay date to its TY calendar equivalent for the JOIN
+    SELECT DATEADD(YEAR, 1, h.date)  AS stay_date_ty,
+           SUM(h.Occupancy)           AS rn_stly,
+           SUM(h.logis)               AS rev_stly
+    FROM bidata.proteluser.Hitia h
+    WHERE h.mpehotel = ?
+      AND (h.reschar < 2 OR (h.reschar = 2 AND CAST(h.Canceled AS DATE) > @stly_cap))
+      AND {fake_rt}
+      AND h.date >  @stly_cap
+      AND h.date <= @ly_end
+      AND CAST(h.SystemDate AS DATE) <= @stly_cap
+    GROUP BY DATEADD(YEAR, 1, h.date)
+)
+SELECT t.stay_date,
+       t.rn_ty,
+       t.rev_ty,
+       ISNULL(s.rn_stly,  0) AS rn_stly,
+       ISNULL(s.rev_stly, 0) AS rev_stly
+FROM ty_otb t
+LEFT JOIN stly_otb s ON s.stay_date_ty = t.stay_date
+ORDER BY t.stay_date;
+""".format(fake_rt=_FAKE_RT_EXCLUDE)
+
+
+# ------------------------------------------------------------------
+# Q11: Current month remaining nights — for Signal 5 month-end projection.
+# TY OTB tonight→EOM vs LY OTB at same lead time and LY final for those nights.
+# Formula in analyst: Proj = MTD_actual + OTB_remaining + (LY_final_rem - LY_stly_rem)
+# MTD_actual comes from Q_KPIS (rev_mtd_ty), only the remaining split is here.
+# ------------------------------------------------------------------
+
+Q_CURRENT_MONTH_REMAINING = """
+DECLARE @today    DATE = CAST(GETDATE() AS DATE);
+DECLARE @stly_cap DATE = DATEADD(YEAR, -1, @today);
+
+SELECT
+    -- TY OTB for remaining nights (tonight through current month end)
+    SUM(CASE WHEN YEAR(h.date)  = YEAR(@today)
+              AND MONTH(h.date) = MONTH(@today)
+              AND h.date >= @today
+              AND h.reschar < 2
+             THEN h.Occupancy ELSE 0 END)  AS rn_remaining_otb_ty,
+    SUM(CASE WHEN YEAR(h.date)  = YEAR(@today)
+              AND MONTH(h.date) = MONTH(@today)
+              AND h.date >= @today
+              AND h.reschar < 2
+             THEN h.logis ELSE 0 END)       AS rev_remaining_otb_ty,
+
+    -- LY OTB for equivalent remaining nights at same lead time (SystemDate <= stly_cap)
+    SUM(CASE WHEN YEAR(h.date)  = YEAR(@stly_cap)
+              AND MONTH(h.date) = MONTH(@stly_cap)
+              AND h.date >= @stly_cap
+              AND (h.reschar < 2 OR (h.reschar = 2 AND CAST(h.Canceled AS DATE) > @stly_cap))
+              AND CAST(h.SystemDate AS DATE) <= @stly_cap
+             THEN h.Occupancy ELSE 0 END)  AS rn_remaining_stly,
+    SUM(CASE WHEN YEAR(h.date)  = YEAR(@stly_cap)
+              AND MONTH(h.date) = MONTH(@stly_cap)
+              AND h.date >= @stly_cap
+              AND (h.reschar < 2 OR (h.reschar = 2 AND CAST(h.Canceled AS DATE) > @stly_cap))
+              AND CAST(h.SystemDate AS DATE) <= @stly_cap
+             THEN h.logis ELSE 0 END)       AS rev_remaining_stly,
+
+    -- LY final for equivalent remaining nights (no book-date cap)
+    SUM(CASE WHEN YEAR(h.date)  = YEAR(@stly_cap)
+              AND MONTH(h.date) = MONTH(@stly_cap)
+              AND h.date >= @stly_cap
+              AND h.reschar < 2
+             THEN h.Occupancy ELSE 0 END)  AS rn_remaining_final_ly,
+    SUM(CASE WHEN YEAR(h.date)  = YEAR(@stly_cap)
+              AND MONTH(h.date) = MONTH(@stly_cap)
+              AND h.date >= @stly_cap
+              AND h.reschar < 2
+             THEN h.logis ELSE 0 END)       AS rev_remaining_final_ly
+
+FROM bidata.proteluser.Hitia h
+WHERE h.mpehotel = ?
+  AND {fake_rt}
+  AND (
+      (h.reschar < 2
+       AND YEAR(h.date)  = YEAR(@today)
+       AND MONTH(h.date) = MONTH(@today)
+       AND h.date >= @today)
+      OR
+      ((h.reschar < 2 OR (h.reschar = 2 AND CAST(h.Canceled AS DATE) > @stly_cap))
+       AND YEAR(h.date)  = YEAR(@stly_cap)
+       AND MONTH(h.date) = MONTH(@stly_cap)
+       AND h.date >= @stly_cap)
+  );
+""".format(fake_rt=_FAKE_RT_EXCLUDE)
+
+
 Q_BOOKING_CURVE_FULL_MONTHS = """
 DECLARE @today    DATE = CAST(GETDATE() AS DATE);
 DECLARE @stly_cap DATE = DATEADD(YEAR, -1, @today);

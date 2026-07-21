@@ -281,6 +281,8 @@ def fetch_briefing_data(conn: pyodbc.Connection) -> dict[str, Any]:
             "rev_stly":  round(rev_stly, 0),
             "rev_final": round(rev_fly, 0),
             "rn":        int(rn_ty),
+            "rn_stly":   int(rn_stly),
+            "rn_final_ly": int(rn_fly),
             "adr":          _adr(rev_ty, rn_ty),
             "adr_stly":     _adr(rev_stly, rn_stly),
             "adr_final_ly": _adr(rev_fly, rn_fly),
@@ -367,6 +369,49 @@ def fetch_briefing_data(conn: pyodbc.Connection) -> dict[str, Any]:
     curve_full = _build_curve_months_by_bookmonth(fy_rows, stly_cap.month)
     curve_full["month_label"] = f"Full Year {today.year}"
 
+    # ── Q9: Daily pickup for last 14 days by future stay month ───
+    cur.execute(Q.Q_PICKUP_DAILY, hotel_id, hotel_id)
+    pickup_daily = []
+    for r in _rows(cur):
+        ref = r["ref_date"]
+        if hasattr(ref, "strftime"):
+            ref = ref.strftime("%Y-%m-%d")
+        pickup_daily.append({
+            "ref_date":   str(ref),
+            "stay_month": int(r["stay_month"]),
+            "stay_year":  int(r["stay_year"]),
+            "net_rn":     int(r["net_rn"]  or 0),
+            "net_rev":    round(float(r["net_rev"] or 0), 0),
+        })
+
+    # ── Q10: OTB by stay date — next 90 days ─────────────────────
+    cur.execute(Q.Q_OTB_BY_DATE_90, hotel_id, hotel_id)
+    otb_by_date = []
+    for r in _rows(cur):
+        sd = r["stay_date"]
+        if hasattr(sd, "strftime"):
+            sd = sd.strftime("%Y-%m-%d")
+        otb_by_date.append({
+            "stay_date": str(sd),
+            "rn_ty":     int(r["rn_ty"]    or 0),
+            "rev_ty":    round(float(r["rev_ty"]   or 0), 0),
+            "rn_stly":   int(r["rn_stly"]  or 0),
+            "rev_stly":  round(float(r["rev_stly"] or 0), 0),
+        })
+
+    # ── Q11: Current month remaining nights ───────────────────────
+    cur.execute(Q.Q_CURRENT_MONTH_REMAINING, hotel_id)
+    cm_rows = _rows(cur)
+    cm = cm_rows[0] if cm_rows else {}
+    current_month_remaining = {
+        "rn_remaining_otb_ty":    int(cm.get("rn_remaining_otb_ty",    0) or 0),
+        "rev_remaining_otb_ty":   round(float(cm.get("rev_remaining_otb_ty",   0) or 0), 0),
+        "rn_remaining_stly":      int(cm.get("rn_remaining_stly",      0) or 0),
+        "rev_remaining_stly":     round(float(cm.get("rev_remaining_stly",     0) or 0), 0),
+        "rn_remaining_final_ly":  int(cm.get("rn_remaining_final_ly",  0) or 0),
+        "rev_remaining_final_ly": round(float(cm.get("rev_remaining_final_ly", 0) or 0), 0),
+    }
+
     # ── Assemble payload ──────────────────────────────────────────
     return {
         "hotel_name": config.HOTEL_NAME,
@@ -434,6 +479,9 @@ def fetch_briefing_data(conn: pyodbc.Connection) -> dict[str, Any]:
 
         "pace":        pace,
         "pace_current": pace_current,
+        "pickup_daily": pickup_daily,
+        "otb_by_date": otb_by_date,
+        "current_month_remaining": current_month_remaining,
         "stly_occ_by_month": {
             m: _occ(rn_stly_by_month[m], inv_yday * calendar.monthrange(today.year - 1, m)[1])
             for m in range(1, 13)
