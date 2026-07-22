@@ -29,28 +29,85 @@ log = logging.getLogger("railway")
 _process_lock = threading.Lock()
 
 
+_HOTEL_COLS    = "id,name,total_rooms,bridge_url,bridge_secret,recipient_email,recipient_name"
+_HOTEL_COLS_V2 = _HOTEL_COLS + ",pms_type,pms_config"
+
+
 def _get_hotels() -> list[dict]:
-    """Load active hotel configs from Supabase hotels table."""
+    """Load active hotel configs from Supabase. Tries the tunnel-era columns
+    (pms_type/pms_config) first and falls back to the legacy column set if the
+    migration SQL hasn't run yet — briefings must never stop over a schema gap."""
     import requests as _req
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
     supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
     if not supabase_url or not supabase_key:
         log.error("[hotels] SUPABASE_URL or SUPABASE_SERVICE_KEY not set")
         return []
-    try:
-        resp = _req.get(
-            f"{supabase_url}/rest/v1/hotels",
-            params={"active": "eq.true", "select": "id,name,total_rooms,bridge_url,bridge_secret,recipient_email,recipient_name"},
-            headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        hotels = resp.json()
-        log.info(f"[hotels] Loaded {len(hotels)} active hotels from Supabase")
-        return hotels
-    except Exception as exc:
-        log.error(f"[hotels] Failed to load from Supabase: {exc}")
-        return []
+    headers = {"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"}
+    for cols in (_HOTEL_COLS_V2, _HOTEL_COLS):
+        try:
+            resp = _req.get(
+                f"{supabase_url}/rest/v1/hotels",
+                params={"active": "eq.true", "select": cols},
+                headers=headers, timeout=10,
+            )
+            if resp.status_code == 400 and cols == _HOTEL_COLS_V2:
+                log.warning("[hotels] pms_type/pms_config columns missing — using legacy column set.")
+                continue
+            resp.raise_for_status()
+            hotels = resp.json()
+            log.info(f"[hotels] Loaded {len(hotels)} active hotels from Supabase")
+            return hotels
+        except Exception as exc:
+            log.error(f"[hotels] Failed to load from Supabase ({cols.split(',')[-1]}): {exc}")
+    return []
+
+
+def _fetch_via_tunnel(hotel: dict, pms_cfg: dict) -> dict:
+    """Tunnel-direct fetch: open a cloudflared Access client to the hotel's SQL
+    port and run the PMS adapter's queries from the cloud."""
+    from db.tunnel import manager
+    from db.connection import connect_mssql
+    from db.adapters.base import get_adapter
+
+    sql = pms_cfg.get("sql") or {}
+    adapter = get_adapter(hotel.get("pms_type") or "protel_mssql")
+    with manager.acquire(
+        pms_cfg["tunnel_hostname"],
+        pms_cfg.get("cf_access_client_id", ""),
+        pms_cfg.get("cf_access_client_secret", ""),
+    ) as port:
+        conn = connect_mssql("127.0.0.1", port,
+                             sql["user"], sql["password"],
+                             sql.get("database", "bidata"))
+        try:
+            return adapter.fetch_snapshot(conn, {
+                "hotel_name":   hotel["name"],
+                "total_rooms":  hotel["total_rooms"],
+                "pms_hotel_id": sql.get("pms_hotel_id", 1),
+            })
+        finally:
+            conn.close()
+
+
+def _fetch_hotel_data(hotel: dict, run) -> dict:
+    """Fetch mode switch: tunnel-direct when configured, with automatic
+    fallback to the hotel bridge on any tunnel failure (pilot safety net)."""
+    from briefing.bridge_fetcher import fetch_from_bridge
+    pms_cfg = hotel.get("pms_config") or {}
+    if pms_cfg.get("fetch_mode") == "tunnel":
+        try:
+            data = _fetch_via_tunnel(hotel, pms_cfg)
+            run.record(fetch_path="tunnel")
+            return data
+        except Exception as exc:
+            log.warning(f"[processor] {hotel['name']} — tunnel fetch failed "
+                        f"({type(exc).__name__}: {exc}); falling back to bridge.")
+            run.record(fetch_path="tunnel_failed_bridge_fallback",
+                       tunnel_error=f"{type(exc).__name__}: {str(exc)[:300]}")
+    else:
+        run.record(fetch_path="bridge")
+    return fetch_from_bridge(hotel["bridge_url"], hotel["bridge_secret"])
 
 
 def _briefing_exists_today(hotel_id: str) -> bool:
@@ -107,9 +164,8 @@ def process_hotel(hotel: dict, force: bool = False, data_only: bool = False) -> 
     with _process_lock:
         run.start()
         try:
-            from briefing.bridge_fetcher import fetch_from_bridge
             with run.stage("fetch"):
-                data = fetch_from_bridge(hotel["bridge_url"], hotel["bridge_secret"])
+                data = _fetch_hotel_data(hotel, run)
             data["hotel_name"] = hotel["name"]
             yd = data.get("yesterday", {})
             log.info(f"[processor] Data fetched — yd_rev=€{yd.get('revenue',0):,.0f} occ={yd.get('occupancy',0)*100:.1f}% pace_months={len(data.get('pace',[]))} channels={len(data.get('topChannels',[]))}")

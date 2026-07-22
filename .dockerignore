@@ -1,0 +1,12 @@
+.env
+.git
+__pycache__
+*.pyc
+*.pyo
+*.pem
+ai_cache.json
+preview.html
+logs/
+*.log
+server_out.txt
+server_err.txt

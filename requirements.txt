@@ -4,3 +4,4 @@ python-dotenv==1.0.1
 requests==2.32.3
 pywebpush==2.0.0
 apscheduler==3.10.4
+pyodbc==5.2.0
