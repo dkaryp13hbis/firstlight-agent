@@ -413,7 +413,7 @@ def fetch_briefing_data(conn: pyodbc.Connection) -> dict[str, Any]:
     }
 
     # ── Assemble payload ──────────────────────────────────────────
-    return {
+    payload = {
         "hotel_name": config.HOTEL_NAME,
         "report_date": f"{yesterday.strftime('%A, %B')} {yesterday.day}, {yesterday.year}",
         "generated_at": datetime.now().strftime("%H:%M"),
@@ -494,3 +494,13 @@ def fetch_briefing_data(conn: pyodbc.Connection) -> dict[str, Any]:
             "full":    curve_full,
         },
     }
+
+    # Contract self-description — consumers gate publication on this
+    from db.contract import attach_data_quality
+    payload["total_rooms"] = config.TOTAL_ROOMS
+    dq = attach_data_quality(payload, config.TOTAL_ROOMS)
+    if not dq["complete"]:
+        print(f"[fetcher] DATA QUALITY WARNING — snapshot incomplete: "
+              f"missing={dq['missing_fields'][:5]} "
+              f"sanity_failed={[k for k, v in dq['sanity'].items() if not v]}")
+    return payload

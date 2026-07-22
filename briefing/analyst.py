@@ -1392,8 +1392,13 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None) -> dict
 
     try:
         # v4 path needs the new SQL payload fields; old-fetcher payloads → legacy.
-        has_new_data = bool(data.get("pickup_daily") or data.get("otb_by_date")
-                            or data.get("current_month_remaining"))
+        # The contract's data_quality block is authoritative when present.
+        dq = data.get("data_quality") or {}
+        if dq:
+            has_new_data = not dq.get("legacy_mode", False)
+        else:
+            has_new_data = bool(data.get("pickup_daily") or data.get("otb_by_date")
+                                or data.get("current_month_remaining"))
         if not has_new_data:
             print("[analyst] Payload has no new signal data (old fetcher on hotel server) "
                   "— using legacy prompt.")

@@ -109,9 +109,16 @@ def process_hotel(hotel: dict, force: bool = False, data_only: bool = False) -> 
             yd = data.get("yesterday", {})
             log.info(f"[processor] Data fetched — yd_rev=€{yd.get('revenue',0):,.0f} occ={yd.get('occupancy',0)*100:.1f}% pace_months={len(data.get('pace',[]))} channels={len(data.get('topChannels',[]))}")
 
-            if yd.get("revenue", 0) == 0 and yd.get("roomNights", 0) == 0:
-                log.warning(f"[processor] {hotel['name']} — data looks empty (rev=0, rn=0), skipping to avoid saving bad briefing.")
+            from db.contract import is_publishable
+            ok, reason = is_publishable(data, hotel.get("total_rooms"))
+            if not ok:
+                log.warning(f"[processor] {hotel['name']} — snapshot not publishable ({reason}); "
+                            f"keeping previous briefing.")
                 return
+            dq = data.get("data_quality") or {}
+            if dq.get("legacy_mode"):
+                log.info(f"[processor] {hotel['name']} — legacy-mode snapshot (old fetcher, "
+                         f"no signal fields).")
 
             import config
             config.HOTEL_NAME      = hotel["name"]
