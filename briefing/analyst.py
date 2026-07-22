@@ -23,6 +23,7 @@ import calendar as _cal
 import json
 import re
 import statistics
+import time as _time
 from datetime import date as _date, timedelta
 from typing import Any
 
@@ -31,9 +32,37 @@ import config
 
 _client = None
 _MODEL = "claude-sonnet-4-6"
+_PROMPT_VERSION = "cards-v1.2"
+
+# claude-sonnet-4-6 USD per million tokens (input / output / cache write 5m / cache read)
+_PRICE_IN, _PRICE_OUT, _PRICE_CW, _PRICE_CR = 3.00, 15.00, 3.75, 0.30
 
 # Significance floor (spec C2.2): candidates with less at stake are suppressed
 _STAKE_FLOOR_EUR = 1000
+
+
+def _usage_zero() -> dict:
+    return {"input_tokens": 0, "output_tokens": 0,
+            "cache_write_tokens": 0, "cache_read_tokens": 0}
+
+
+def _usage_add(total: dict, usage: Any) -> dict:
+    """Accumulate an API response's usage into a totals dict; returns the delta."""
+    delta = {
+        "input_tokens":       getattr(usage, "input_tokens", 0) or 0,
+        "output_tokens":      getattr(usage, "output_tokens", 0) or 0,
+        "cache_write_tokens": getattr(usage, "cache_creation_input_tokens", 0) or 0,
+        "cache_read_tokens":  getattr(usage, "cache_read_input_tokens", 0) or 0,
+    }
+    for k, v in delta.items():
+        total[k] += v
+    return delta
+
+
+def _estimate_cost_usd(u: dict) -> float:
+    return round((u["input_tokens"] * _PRICE_IN + u["output_tokens"] * _PRICE_OUT
+                  + u["cache_write_tokens"] * _PRICE_CW
+                  + u["cache_read_tokens"] * _PRICE_CR) / 1_000_000, 4)
 
 
 def _get_client() -> anthropic.Anthropic:
@@ -1253,14 +1282,31 @@ def _period_violations(card: dict, facts: dict) -> list[str]:
     return v
 
 
-def _narrate_card(wrapper: dict, fallback_card: dict) -> dict:
-    """One Claude call per card; validated; max 2 retries; then fallback."""
+def _narrate_card(wrapper: dict, fallback_card: dict, meta: dict | None = None) -> dict:
+    """One Claude call per card; validated; max 2 retries; then fallback.
+    When `meta` is given, appends a per-card audit entry (facts given, attempts,
+    validation problems, tokens, latency, fallback flag)."""
     haystack = json.dumps(wrapper, ensure_ascii=False)
     facts    = wrapper["insight"]["facts"]
     base_prompt = json.dumps(wrapper, ensure_ascii=False, indent=2)
     prompt = base_prompt
 
+    t0 = _time.monotonic()
+    audit = {
+        "card_id":   wrapper["insight"]["id"],
+        "tag":       wrapper["insight"]["tag"],
+        "signal":    wrapper["insight"]["signal"],
+        "score":     wrapper["insight"]["score"],
+        "facts":     facts,
+        "attempts":  0,
+        "validation_problems": [],
+        "fallback_used": False,
+        **_usage_zero(),
+    }
+
+    result_card = None
     for attempt in range(3):
+        audit["attempts"] = attempt + 1
         try:
             response = _get_client().messages.create(
                 model=_MODEL,
@@ -1272,25 +1318,42 @@ def _narrate_card(wrapper: dict, fallback_card: dict) -> dict:
                 tool_choice={"type": "tool", "name": "submit_card"},
                 messages=[{"role": "user", "content": prompt}],
             )
+            _usage_add(audit, response.usage)
             card = next(b for b in response.content if b.type == "tool_use").input
         except Exception as exc:
             print(f"[analyst] Card narration error (attempt {attempt + 1}): {exc}")
+            audit["validation_problems"].append(f"api_error: {str(exc)[:200]}")
             continue
 
         problems = (_bad_numbers(card, haystack)
                     + _style_violations(card)
                     + _period_violations(card, facts))
         if not problems:
-            return _harden_card(card, wrapper)
+            result_card = _harden_card(card, wrapper)
+            break
 
         print(f"[analyst] Card '{wrapper['insight']['id']}' attempt {attempt + 1} rejected: {problems}")
+        audit["validation_problems"].extend(str(p) for p in problems)
         prompt = (base_prompt +
                   "\n\nPREVIOUS ATTEMPT REJECTED for these violations:\n- "
                   + "\n- ".join(str(p) for p in problems)
                   + "\nFix every violation. Copy numbers character-for-character from the input only.")
 
-    print(f"[analyst] Card '{wrapper['insight']['id']}': validation failed twice — using templated fallback.")
-    return dict(fallback_card)
+    if result_card is None:
+        print(f"[analyst] Card '{wrapper['insight']['id']}': validation failed twice — using templated fallback.")
+        audit["fallback_used"] = True
+        result_card = dict(fallback_card)
+
+    audit["latency_ms"] = int((_time.monotonic() - t0) * 1000)
+    if meta is not None:
+        meta["cards_audit"].append(audit)
+        _usage_add_dict(meta["usage"], audit)
+    return result_card
+
+
+def _usage_add_dict(total: dict, other: dict) -> None:
+    for k in ("input_tokens", "output_tokens", "cache_write_tokens", "cache_read_tokens"):
+        total[k] += other.get(k, 0)
 
 
 def _harden_card(card: dict, wrapper: dict) -> dict:
@@ -1306,7 +1369,7 @@ def _harden_card(card: dict, wrapper: dict) -> dict:
     return card
 
 
-def _narrate_summary(hotel_name: str, cards: list[dict]) -> str:
+def _narrate_summary(hotel_name: str, cards: list[dict], meta: dict | None = None) -> str:
     fallback = f"Today's focus: {cards[0]['headline']}" if cards else ""
     if not cards:
         return fallback
@@ -1326,6 +1389,8 @@ def _narrate_summary(hotel_name: str, cards: list[dict]) -> str:
             tool_choice={"type": "tool", "name": "submit_summary"},
             messages=[{"role": "user", "content": prompt}],
         )
+        if meta is not None:
+            _usage_add(meta["usage"], response.usage)
         result = next(b for b in response.content if b.type == "tool_use").input
         summary = result.get("executive_summary", "")
         if summary and not _bad_numbers({"s": summary}, haystack) and len(summary.split()) <= 40:
@@ -1419,6 +1484,8 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None) -> dict
         hotel_name = data.get("hotel_name", config.HOTEL_NAME)
         briefing_date = _date.today().isoformat()
 
+        meta: dict[str, Any] = {"cards_audit": [], "usage": _usage_zero(),
+                                "model": _MODEL, "prompt_version": _PROMPT_VERSION}
         cards: list[dict] = []
         for cand in ranked[:5]:
             wrapper = {
@@ -1427,21 +1494,28 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None) -> dict
                 "capacity_rooms": config.TOTAL_ROOMS,
                 "insight":        cand["insight"],
             }
-            card = _narrate_card(wrapper, cand["fallback_card"])
+            card = _narrate_card(wrapper, cand["fallback_card"], meta=meta)
             cards.append(card)
             print(f"[analyst] Card {len(cards)}: [{card['tag']}] {card['headline'][:60]}")
 
-        summary = _narrate_summary(hotel_name, cards)
+        summary = _narrate_summary(hotel_name, cards, meta=meta)
+        meta["fallback_cards"] = sum(1 for a in meta["cards_audit"] if a["fallback_used"])
+        meta["estimated_cost_usd"] = _estimate_cost_usd(meta["usage"])
         result = {
             "executive_summary": summary,
             "insights": [_card_to_insight(c, i + 1) for i, c in enumerate(cards)],
+            "_meta": meta,
         }
-        print(f"[analyst] Narration complete: {len(cards)} cards")
+        print(f"[analyst] Narration complete: {len(cards)} cards "
+              f"({meta['fallback_cards']} fallback) — "
+              f"{meta['usage']['input_tokens']}+{meta['usage']['output_tokens']} tokens, "
+              f"~${meta['estimated_cost_usd']}")
 
         try:
             from pathlib import Path as _Path
+            cacheable = {k: v for k, v in result.items() if k != "_meta"}
             _Path("ai_cache.json").write_text(
-                json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
+                json.dumps(cacheable, ensure_ascii=False, indent=2), encoding="utf-8"
             )
         except Exception:
             pass
@@ -1602,10 +1676,16 @@ Generate 3-5 insights using the submit_briefing tool."""
             ins.setdefault("kpis", [])
             ins.setdefault("findings", [])
             ins.setdefault("action", "")
+        usage = _usage_zero()
+        _usage_add(usage, response.usage)
+        result["_meta"] = {"cards_audit": [], "usage": usage, "model": _MODEL,
+                           "prompt_version": "legacy-v1", "fallback_cards": 0,
+                           "estimated_cost_usd": _estimate_cost_usd(usage), "legacy": True}
         try:
             from pathlib import Path as _Path
+            cacheable = {k: v for k, v in result.items() if k != "_meta"}
             _Path("ai_cache.json").write_text(
-                json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
+                json.dumps(cacheable, ensure_ascii=False, indent=2), encoding="utf-8"
             )
         except Exception:
             pass

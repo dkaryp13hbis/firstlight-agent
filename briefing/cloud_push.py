@@ -15,7 +15,8 @@ import requests
 import config
 
 
-def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str | None = None, hotel_id: str | None = None) -> bool:
+def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str | None = None,
+                  hotel_id: str | None = None, source_run_id: str | None = None) -> bool:
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
     supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
     if hotel_id is None:
@@ -27,14 +28,21 @@ def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str |
 
     yesterday = date.today() - timedelta(days=1)
 
+    # Never persist analyst audit metadata into the customer-facing briefing
+    ai = {k: v for k, v in ai.items() if k != "_meta"}
+
     payload = {
         "hotel_id":     hotel_id,
         "report_date":  str(yesterday),
         "data":         data,
         "ai_insights":  ai,
-        "rendered_html": rendered_html,
         "generated_at": datetime.utcnow().isoformat() + "Z",
     }
+    # JSON is canonical; HTML is only stored if a caller explicitly provides it
+    if rendered_html is not None:
+        payload["rendered_html"] = rendered_html
+    if source_run_id is not None:
+        payload["source_run_id"] = source_run_id
 
     try:
         resp = requests.post(

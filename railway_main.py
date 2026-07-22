@@ -101,21 +101,28 @@ def process_hotel(hotel: dict, force: bool = False, data_only: bool = False) -> 
         log.info(f"[processor] Skipped {hotel['name']} — briefing for today already exists.")
         return
 
+    from briefing.run_log import RunLogger
+    run = RunLogger(hotel["id"], "data_only" if data_only else "full")
+
     with _process_lock:
+        run.start()
         try:
             from briefing.bridge_fetcher import fetch_from_bridge
-            data = fetch_from_bridge(hotel["bridge_url"], hotel["bridge_secret"])
+            with run.stage("fetch"):
+                data = fetch_from_bridge(hotel["bridge_url"], hotel["bridge_secret"])
             data["hotel_name"] = hotel["name"]
             yd = data.get("yesterday", {})
             log.info(f"[processor] Data fetched — yd_rev=€{yd.get('revenue',0):,.0f} occ={yd.get('occupancy',0)*100:.1f}% pace_months={len(data.get('pace',[]))} channels={len(data.get('topChannels',[]))}")
 
             from db.contract import is_publishable
             ok, reason = is_publishable(data, hotel.get("total_rooms"))
+            dq = data.get("data_quality") or {}
+            run.record(data_quality=dq or None, rows_fetched=dq.get("rows_fetched"))
             if not ok:
                 log.warning(f"[processor] {hotel['name']} — snapshot not publishable ({reason}); "
                             f"keeping previous briefing.")
+                run.finish("failed", error_type="data_quality", error_message=reason)
                 return
-            dq = data.get("data_quality") or {}
             if dq.get("legacy_mode"):
                 log.info(f"[processor] {hotel['name']} — legacy-mode snapshot (old fetcher, "
                          f"no signal fields).")
@@ -126,35 +133,53 @@ def process_hotel(hotel: dict, force: bool = False, data_only: bool = False) -> 
             config.RECIPIENT_EMAIL = hotel.get("recipient_email", "")
             config.RECIPIENT_NAME  = hotel.get("recipient_name", "General Manager")
 
+            degraded = False
             if data_only:
                 # Reuse AI insights from the morning's full briefing — no Claude API call
                 ai = _get_existing_ai_insights(hotel["id"])
                 if not ai:
                     log.warning(f"[processor] {hotel['name']} — no morning AI insights found, skipping data-only refresh.")
+                    run.finish("failed", error_type="no_morning_ai",
+                               error_message="no AI insights from morning run to reuse")
                     return
                 log.info(f"[processor] Reusing morning AI insights ({len(ai.get('insights', []))} insights)")
             else:
                 from briefing.analyst import generate_insights
-                ai = generate_insights(data, hotel_id=hotel["id"])
+                with run.stage("ai"):
+                    ai = generate_insights(data, hotel_id=hotel["id"])
+                meta = ai.pop("_meta", None)
+                if meta:
+                    usage = meta.get("usage", {})
+                    run.record(
+                        cards_audit=meta.get("cards_audit"),
+                        input_tokens=usage.get("input_tokens"),
+                        output_tokens=usage.get("output_tokens"),
+                        cache_read_tokens=usage.get("cache_read_tokens"),
+                        cache_write_tokens=usage.get("cache_write_tokens"),
+                        estimated_cost_usd=meta.get("estimated_cost_usd"),
+                        model=meta.get("model"),
+                        prompt_version=meta.get("prompt_version"),
+                    )
+                    degraded = meta.get("fallback_cards", 0) > 0
                 log.info(f"[processor] AI insights generated: {len(ai.get('insights', []))} insights")
 
-            from briefing.mailer import save_preview, send
-            preview_path = f"/tmp/{hotel['name'].lower().replace(' ', '_')}_briefing.html"
-            save_preview(data, ai, preview_path)
-            rendered_html = Path(preview_path).read_text(encoding="utf-8")
-
+            # JSON is canonical — HTML renders on demand, nothing stored (Step 3)
             from briefing.cloud_push import push_to_cloud
-            push_to_cloud(data, ai, rendered_html=rendered_html, hotel_id=hotel["id"])
+            with run.stage("publish"):
+                push_to_cloud(data, ai, hotel_id=hotel["id"], source_run_id=run.run_id)
 
-            # Only send email on the morning full briefing
+            # Only send email on the morning full briefing (renders transiently)
             if not data_only and hotel.get("recipient_email"):
+                from briefing.mailer import send
                 send(data, ai)
                 log.info(f"[processor] Email sent to {hotel['recipient_email']}")
 
+            run.finish("degraded" if degraded else "success")
             log.info(f"[processor] Done: {hotel['name']}")
 
         except Exception as exc:
             log.error(f"[processor] Failed for {hotel['name']}: {exc}", exc_info=True)
+            run.finish("failed", error_type=type(exc).__name__, error_message=exc)
 
 
 def _mark_cmd_done(cmd_id: str) -> None:
