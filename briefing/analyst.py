@@ -1206,6 +1206,16 @@ def generate_insights(data: dict[str, Any]) -> dict[str, Any]:
         return _STUB
 
     try:
+        # The v3 path needs the new SQL payload fields. Without them only the
+        # future-month projection can fire (it uses old pace fields), which
+        # produces a thin 1-card briefing — use the legacy 3-5 insight path instead.
+        has_new_data = bool(data.get("pickup_daily") or data.get("otb_by_date")
+                            or data.get("current_month_remaining"))
+        if not has_new_data:
+            print("[analyst] Payload has no new signal data (old fetcher on hotel server) "
+                  "— using legacy prompt.")
+            return _legacy_generate(data)
+
         computed = _compute_signals(data)
         ranked   = computed["ranked"]
         print(f"[analyst] Compute: {len(ranked)} ranked signals, "
