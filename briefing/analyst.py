@@ -1,19 +1,22 @@
 """
-AI Analyst — Daily Briefing Generator (v3)
+AI Analyst — Daily Briefing Generator (v4)
 
-Implements ai-insight-cards-spec v1.1:
-  Layer A (_compute_signals): deterministic compute — all math happens here. Each
-      candidate insight is a full narration-contract object: facts pre-formatted as
-      display strings, value_at_stake with its calc, cause hypotheses with confidence,
-      an action directive enum, and a templated fallback card.
+Implements ai-insight-cards-spec v1.2:
+  Layer A (_compute_signals): deterministic compute.
+    - Facts are period-scoped display strings: {"value": "...", "period": "..."}
+    - Hard gates: pickup needs |z| >= 2; other signals need >= 10% deviation
+    - Significance floor: value at stake below floor -> suppressed
+    - Occupancy/revenue projections exposed ONLY as bands (point +/-2), never a point
+    - Global ranking: no per-month cards; same-story candidates merge before ranking
+    - Novelty gate: same card id in the last 3 days without >=10% worsening -> watchlist
+    - No calc, no figure: value_at_stake never ships without value_at_stake_calc
 
-  Layer B (generate_insights): narration — ONE Claude call per card. A numeric
-      validator rejects any output number not present verbatim in the input facts
-      (max 2 retries, then the deterministic fallback card ships instead).
+  Layer B: ONE Claude call per card. Validator rejects: numbers not verbatim in
+  input facts; word-cap violations; imperative action openers; full-month/remaining
+  period blends in one sentence. Max 2 retries, then deterministic fallback card.
 
-Output keeps the legacy fields (title/kpis/findings/action) alongside the new card
-anatomy (headline/evidence/what_happened/why_it_matters/recommended_action/by_when/
-at_stake) so the current PWA renders unchanged until it adopts the new layout.
+Output keeps legacy fields (title/kpis/findings/action) alongside the new card
+anatomy so the current PWA renders unchanged.
 """
 
 import calendar as _cal
@@ -29,6 +32,9 @@ import config
 _client = None
 _MODEL = "claude-sonnet-4-6"
 
+# Significance floor (spec C2.2): candidates with less at stake are suppressed
+_STAKE_FLOOR_EUR = 1000
+
 
 def _get_client() -> anthropic.Anthropic:
     global _client
@@ -37,7 +43,7 @@ def _get_client() -> anthropic.Anthropic:
     return _client
 
 
-# ─── Display-string formatters (all facts are FINAL display strings) ──────────
+# ─── Display-string formatters ────────────────────────────────────────────────
 
 def _eur(x: float) -> str:
     x = round(float(x))
@@ -64,6 +70,23 @@ def _pts_signed(x: float, dec: int = 1) -> str:
 def _rn_signed(x: float) -> str:
     n = int(round(x))
     return ("+" if n >= 0 else "−") + f"{abs(n)} rn"
+
+
+def _occ_band(point_pct: float) -> str:
+    """Occupancy projection as a +/-2pt band. The point is never exposed."""
+    lo = max(0, int(round(point_pct)) - 2)
+    hi = min(100, int(round(point_pct)) + 2)
+    return f"{lo}–{hi}%"
+
+
+def _rev_band(point: float) -> tuple[str, float, float]:
+    """Revenue projection as a +/-2% band. Returns (display, lo, hi)."""
+    lo, hi = point * 0.98, point * 1.02
+    return f"{_eur(lo)}–{_eur(hi)}", lo, hi
+
+
+def _fact(value: str, period: str) -> dict:
+    return {"value": value, "period": period}
 
 
 # ─── Scoring helpers ──────────────────────────────────────────────────────────
@@ -103,25 +126,31 @@ def _month_bounds(year: int, month: int) -> tuple[_date, _date]:
     return _date(year, month, 1), _date(year, month, last)
 
 
+def _parse_eur(s: str) -> float:
+    digits = re.sub(r"[^\d]", "", s or "")
+    return float(digits) if digits else 0.0
+
+
 # ─── Layer A: main compute function ──────────────────────────────────────────
 
-def _compute_signals(data: dict) -> dict:
+def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
     """
-    Returns {"ranked": [insight_input, ...], "watchlist": [...], "headline": {...}}.
-    Each ranked entry is the FULL narration input contract (spec §2) plus
-    tag/score/title_hint at top level and a deterministic fallback_card.
+    Returns {"ranked": [...], "watchlist": [...], "headline": {...}}.
+    Ranked entries carry the full narration input contract + fallback_card.
     """
     today = _date.today()
     yesterday = today - timedelta(days=1)
     total_rooms = config.TOTAL_ROOMS
 
     pace = data.get("pace", [])
+    cm   = data.get("current_month_remaining", {})
+    mtd  = data.get("mtd", {})
     rev_final_ly_total = sum(p.get("rev_final", 0) for p in pace)
     daily_rev_baseline = max(rev_final_ly_total / 365.0, 1.0)
 
     candidates: list[dict] = []
 
-    # ── Signal 1: Pickup z-score by stay month ────────────────────────────────
+    # ── Signal 1: Pickup z-score by stay month (hard gate: |z| >= 2) ─────────
     pickup_daily = data.get("pickup_daily", [])
     if pickup_daily:
         yesterday_str = yesterday.isoformat()
@@ -149,7 +178,8 @@ def _compute_signals(data: dict) -> dict:
             else:
                 z = (yday_rn - mean_rn) / max(abs(mean_rn) * 0.20, 1.0)
 
-            if abs(z) < 1.5 and abs(yday_rn) < 5:
+            # Spec C2.1: |z| < 2 never becomes a pickup card
+            if abs(z) < 2.0:
                 continue
 
             m_name      = _cal.month_abbr[sm]
@@ -161,7 +191,10 @@ def _compute_signals(data: dict) -> dict:
             pace_m = next((p for p in pace if p.get("month_num") == sm), None)
             adr_ly = pace_m.get("adr_final_ly", 150.0) if pace_m else 150.0
             gap_per_day  = abs(yday_rn - mean_rn)
-            rev_at_stake = gap_per_day * adr_ly * 7  # 7-day extrapolation
+            rev_at_stake = gap_per_day * adr_ly * 7
+
+            if rev_at_stake < _STAKE_FLOOR_EUR:
+                continue  # spec C2.2 significance floor
 
             R = min(rev_at_stake / daily_rev_baseline, 1.0)
             U = _urgency(days_to_start)
@@ -169,67 +202,67 @@ def _compute_signals(data: dict) -> dict:
             C = _confidence(max(abs(yday_rn), abs(mean_rn)))
             score = _score_candidate(R, U, M, C=C)
 
-            # Spec: negative pickup is never a passive MONITOR
-            negative = yday_rn < 0 or z < 0
+            negative = z < 0
             tag = "ALERT" if negative else "OPPORTUNITY"
 
-            f_yday_net  = _rn_signed(yday_rn)
-            f_avg       = ("+" if mean_rn >= 0 else "−") + f"{abs(mean_rn):.1f} rn/day"
-            f_z         = ("+" if z >= 0 else "−") + f"{abs(z):.1f}"
-            f_yday_rev  = _eur_signed(yday_rev)
-            f_stake     = _eur(rev_at_stake)
-            f_stake_calc = (f"{gap_per_day:.1f} rn/day below avg × {_eur(adr_ly)} ADR × 7 days = {_eur(rev_at_stake)}"
-                            if negative else
-                            f"{gap_per_day:.1f} rn/day above avg × {_eur(adr_ly)} ADR × 7 days = {_eur(rev_at_stake)}")
+            f_yday_net = _rn_signed(yday_rn)
+            f_avg      = ("+" if mean_rn >= 0 else "−") + f"{abs(mean_rn):.1f} rn/day"
+            f_z        = ("+" if z >= 0 else "−") + f"{abs(z):.1f}"
+            f_yday_rev = _eur_signed(yday_rev)
+            f_stake    = _eur(rev_at_stake)
+            f_calc     = (f"{gap_per_day:.1f} rn/day {'below' if negative else 'above'} avg "
+                          f"× {_eur(adr_ly)} ADR × 7 days = {_eur(rev_at_stake)}")
 
+            p_yday  = f"booked yesterday for {month_label}"
+            p_prior = f"prior 7 days for {month_label}"
+
+            facts = {
+                "month_label":   month_label,
+                "yday_net_rn":   _fact(f_yday_net, p_yday),
+                "trailing_avg":  _fact(f_avg, p_prior),
+                "z_score":       _fact(f_z, "vs prior 7 days"),
+                "yday_net_rev":  _fact(f_yday_rev, p_yday),
+                "value_at_stake":      f_stake,
+                "value_at_stake_calc": f_calc,
+            }
             if negative:
-                hypo = [{"text": f"Cancellations or a demand slowdown for {month_label} — a single source, rate code, or group may account for the swing", "confidence": "Low"}]
+                hypo = [{"text": f"Cancellations or a demand slowdown for {month_label} — a single source or rate code may account for the swing", "confidence": "Low"}]
                 directive = {
                     "type": "investigate_cancellations",
-                    "target": f"yesterday's {month_label} cancellations and new bookings by source and rate code",
-                    "deadline": "today — confirm whether the slowdown is one-off or a trend",
+                    "target": f"yesterday's {month_label} cancellations and bookings by source and rate code",
+                    "deadline": "today",
                     "trigger_if_monitor": None,
                 }
-                fb_headline = f"{month_label} pickup {'turned negative' if yday_rn < 0 else 'slowing'}: {f_yday_net} yesterday vs {f_avg} average"
-                fb_why = f"Likely cancellations or a demand slowdown for {month_label} — a single source, rate code, or group may account for the swing (confidence: Low)."
-                fb_action = f"Check yesterday's {month_label} cancellations and bookings for a common source or rate code."
-                fb_by_when = "Today — confirm whether the slowdown is one-off before the next briefing."
+                fb_headline = f"{month_label} pickup {'turned negative' if yday_rn < 0 else 'slowed sharply'} vs recent average"
+                fb_why = "Cancellations or a demand slowdown may be behind the swing; a single source or rate code could account for it (confidence: Low)."
+                fb_action = f"It may be worth checking yesterday's {month_label} cancellations for a common source or rate code."
+                fb_by_when = "Today — before the next briefing."
             else:
                 hypo = [{"text": f"Demand surge for {month_label} — possibly a campaign, event, or group materialising", "confidence": "Low"}]
                 directive = {
                     "type": "rate_review_up",
                     "target": f"open {month_label} nights riding the surge",
-                    "deadline": "within 2 days — capture the demand at higher rates while it lasts",
+                    "deadline": "within 2 days",
                     "trigger_if_monitor": None,
                 }
-                fb_headline = f"{month_label} pickup surge: {f_yday_net} yesterday vs {f_avg} average"
-                fb_why = f"Likely a demand surge for {month_label} — possibly a campaign, event, or group materialising (confidence: Low)."
-                fb_action = f"Review rates on open {month_label} nights — the surge supports testing a lift."
-                fb_by_when = "Within 2 days — while the surge lasts."
+                fb_headline = f"{month_label} pickup surging well above recent average"
+                fb_why = "A demand surge may be under way — possibly a campaign, event, or group materialising (confidence: Low)."
+                fb_action = f"The position could support a higher rate on open {month_label} nights."
+                fb_by_when = "Within 2 days, while the surge lasts."
 
-            facts = {
-                "month_label":     month_label,
-                "yday_net_rn":     f_yday_net,
-                "trailing_avg":    f_avg,
-                "z_score":         f_z,
-                "yday_net_rev":    f_yday_rev,
-                "days_to_start":   str(days_to_start),
-                "value_at_stake":  f_stake,
-                "value_at_stake_calc": f_stake_calc,
-            }
             fallback_card = {
                 "id": f"pickup_{m_name.lower()}_{sy}",
                 "tag": tag,
                 "headline": fb_headline,
                 "evidence": [
-                    {"label": "YESTERDAY NET", "value": f_yday_net, "sub": f"vs {f_avg} 7-day avg"},
+                    {"label": "YESTERDAY NET", "value": f_yday_net, "sub": f"vs {f_avg} prior 7 days"},
                     {"label": "REVENUE IMPACT", "value": f_yday_rev, "sub": f"z-score {f_z}"},
                 ],
                 "what_happened": f"Net pickup for {month_label} was {f_yday_net} yesterday against a 7-day average of {f_avg}.",
                 "why_it_matters": fb_why,
                 "recommended_action": fb_action,
                 "by_when": fb_by_when,
-                "at_stake": {"value": f_stake, "calc": f_stake_calc},
+                "at_stake": {"value": f_stake, "calc": f_calc},
             }
 
             candidates.append({
@@ -238,6 +271,7 @@ def _compute_signals(data: dict) -> dict:
                 "score":      round(score, 4),
                 "title_hint": fb_headline,
                 "month_num":  sm,
+                "stake_eur":  rev_at_stake,
                 "insight": {
                     "id": f"pickup_{m_name.lower()}_{sy}",
                     "tag": tag,
@@ -254,7 +288,7 @@ def _compute_signals(data: dict) -> dict:
                 "fallback_card": fallback_card,
             })
 
-    # ── Signal 2: Pace vs STLY by future month ────────────────────────────────
+    # ── Signal 2: Pace vs STLY by month (hard gate: |gap| >= 10%) ────────────
     for p in pace:
         sm = p.get("month_num", 0)
         if sm < today.month:
@@ -273,8 +307,8 @@ def _compute_signals(data: dict) -> dict:
 
         rn_gap  = rn_ty - rn_stly
         pct_gap = rn_gap / rn_stly
-        if abs(pct_gap) < 0.05 and abs(rn_gap) < 10:
-            continue
+        if abs(pct_gap) < 0.10:
+            continue  # spec C2.1 magnitude gate
 
         rev_ty       = p["rev"]
         rev_stly     = p.get("rev_stly", 0)
@@ -284,16 +318,27 @@ def _compute_signals(data: dict) -> dict:
         adr_final_ly = p.get("adr_final_ly", 150.0)
         adr_gap      = adr_ty - adr_final_ly
 
-        exp_remaining_rn  = max(0, rn_final_ly - rn_stly)
-        proj_rn           = rn_ty + exp_remaining_rn
-        cap_rn            = total_rooms * days_in
-        proj_occ          = proj_rn / cap_rn * 100 if cap_rn else 0.0
-        final_ly_occ      = p.get("final", 0) * 100
-        occ_delta         = proj_occ - final_ly_occ
-        open_rn           = max(0, cap_rn - rn_ty)
+        exp_remaining_rn = max(0, rn_final_ly - rn_stly)
+        proj_rn          = rn_ty + exp_remaining_rn
+        cap_rn           = total_rooms * days_in
+        proj_occ_point   = proj_rn / cap_rn * 100 if cap_rn else 0.0
+        final_ly_occ     = p.get("final", 0) * 100
+
+        m_name = _cal.month_abbr[sm]
+        if current_month:
+            rem_days   = max(1, (m_end - today).days + 1)
+            rem_otb_rn = cm.get("rn_remaining_otb_ty", 0) if cm else 0
+            open_rn    = max(0, total_rooms * rem_days - rem_otb_rn)
+            period_open = (f"remaining {m_name} "
+                           f"({today.strftime('%b')} {today.day}–{m_end.strftime('%b')} {m_end.day})")
+        else:
+            open_rn = max(0, cap_rn - rn_ty)
+            period_open = f"{m_name} full month"
 
         rev_delta    = rev_ty - rev_stly
         rev_at_stake = abs(rn_gap) * adr_final_ly
+        if rev_at_stake < _STAKE_FLOOR_EUR:
+            continue
 
         R = min(rev_at_stake / daily_rev_baseline, 1.0)
         U = _urgency(days_to_start)
@@ -301,111 +346,109 @@ def _compute_signals(data: dict) -> dict:
         C = _confidence(rn_stly)
         score = _score_candidate(R, U, M, C=C)
 
-        m_name       = _cal.month_abbr[sm]
         month_label  = f"{m_name} {today.year}"
-        period_label = f"remaining {today.strftime('%B')}" if current_month else month_label
+        p_full       = f"{m_name} full month"
+        p_vs_stly    = f"{m_name} full month, vs same time last year"
+        p_finish     = f"{m_name} month-end finish"
         ahead        = rn_gap > 0
         adr_dilution = ahead and adr_gap < -5
 
-        f_pct_gap    = _pct_signed(pct_gap * 100)
-        f_rev_delta  = _eur_signed(rev_delta)
-        f_rn_gap     = _rn_signed(rn_gap)
-        f_proj_occ   = _pct(proj_occ)
-        f_final_occ  = _pct(final_ly_occ)
-        f_occ_delta  = _pts_signed(occ_delta)
-        f_adr_otb    = _eur(adr_ty)
-        f_adr_fly    = _eur(adr_final_ly)
-        f_adr_gap    = _eur_signed(adr_gap)
-        f_open_rn    = f"{open_rn:,}"
+        f_pct_gap   = _pct_signed(pct_gap * 100)
+        f_rev_delta = _eur_signed(rev_delta)
+        f_rn_gap    = _rn_signed(rn_gap)
+        f_band      = _occ_band(proj_occ_point)
+        f_final_occ = _pct(final_ly_occ)
+        f_adr_otb   = _eur(adr_ty)
+        f_adr_fly   = _eur(adr_final_ly)
+        f_adr_gap   = _eur_signed(adr_gap)
+        f_open_rn   = f"{open_rn:,} rn"
 
         facts = {
-            "month_label":       month_label,
-            "pace_vs_stly":      f_pct_gap,
-            "rev_lead" if ahead else "rev_gap": f_rev_delta,
-            "rn_otb":            f"{rn_ty:,}",
-            "rn_stly":           f"{rn_stly:,}",
-            "rn_gap":            f_rn_gap,
-            "proj_finish_occ":   f_proj_occ,
-            "final_ly_occ":      f_final_occ,
-            "occ_delta_pts":     f_occ_delta,
-            "adr_otb":           f_adr_otb,
-            "adr_final_ly":      f_adr_fly,
-            "adr_delta":         f_adr_gap,
-            "open_room_nights_remaining": f_open_rn,
-            "booking_window_days_left":   str(window_left),
+            "month_label":     month_label,
+            "pace_vs_stly":    _fact(f_pct_gap, p_vs_stly),
+            ("rev_lead" if ahead else "rev_gap"): _fact(f_rev_delta, p_vs_stly),
+            "rn_otb":          _fact(f"{rn_ty:,} rn", p_full),
+            "rn_stly":         _fact(f"{rn_stly:,} rn", f"{m_name}, same time last year"),
+            "rn_gap":          _fact(f_rn_gap, p_vs_stly),
+            "proj_occ_band":   _fact(f_band, p_finish),
+            "final_ly_occ":    _fact(f_final_occ, f"{m_name} final last year"),
+            "adr_otb":         _fact(f_adr_otb, p_full),
+            "adr_final_ly":    _fact(f_adr_fly, f"{m_name} final last year"),
+            "adr_delta":       _fact(f_adr_gap, "OTB vs final last year"),
+            "open_room_nights": _fact(f_open_rn, period_open),
         }
 
         if adr_dilution:
             tag   = "OPPORTUNITY"
             stake = open_rn * abs(adr_gap)
-            f_stake      = _eur(stake)
-            f_stake_calc = f"{f_open_rn} open rn × {_eur(abs(adr_gap))} ADR gap = {_eur(stake)}"
+            f_stake = _eur(stake)
+            f_calc  = f"{open_rn:,} open rn × {_eur(abs(adr_gap))} ADR gap = {_eur(stake)}"
             facts["value_at_stake"]      = f_stake
-            facts["value_at_stake_calc"] = f_stake_calc
-            hypo = [{"text": "Early-season discounted rate codes still open despite compression", "confidence": "Medium"}]
+            facts["value_at_stake_calc"] = f_calc
+            hypo = [{"text": "Early-season discounted rate codes may still be open despite compression", "confidence": "Medium"}]
             directive = {
                 "type": "rate_review_up",
-                "target": f"{period_label} open nights, lowest rate codes",
-                "deadline": f"this week — window closes as {m_name} fills",
+                "target": f"lowest open rate codes, {period_open}",
+                "deadline": "this week",
                 "trigger_if_monitor": None,
             }
             fb = {
-                "headline": f"{m_name}: OTB {f_occ_delta} vs LY but ADR {f_adr_gap} eroding the upside",
+                "headline": f"{m_name} volume far ahead of last year, rates trailing",
                 "evidence": [
-                    {"label": "PROJ FINISH OCC", "value": f_proj_occ, "sub": f"{f_occ_delta} vs Final LY {f_final_occ}"},
-                    {"label": "ADR OTB VS FINAL LY", "value": f"{f_adr_otb} vs {f_adr_fly}", "sub": f"{f_adr_gap} per room night"},
+                    {"label": f"PACE ({p_full})", "value": f_pct_gap, "sub": "vs same time last year"},
+                    {"label": "ADR OTB vs FINAL LY", "value": f"{f_adr_otb} vs {f_adr_fly}", "sub": f"{f_adr_gap} per room night"},
                 ],
-                "what_happened": f"{m_name} is projected to finish at {f_proj_occ} occupancy, {f_occ_delta} vs Final LY — volume is not the problem.",
-                "why_it_matters": f"At {f_adr_gap} ADR vs Final LY, the rate gap is diluting a strong revenue beat. Likely early-season discounted rate codes still open despite compression (confidence: Medium).",
-                "recommended_action": f"Review rate floors on {period_label} open nights — close or lift the lowest rate codes; the occupancy lead supports it.",
-                "by_when": f"This week — the window closes as {m_name} fills ({window_left} days left).",
-                "at_stake": {"value": f_stake, "calc": f_stake_calc},
+                "what_happened": f"{m_name} full-month OTB is pacing {f_pct_gap} vs same time last year.",
+                "why_it_matters": f"ADR {f_adr_otb} trails final last year {f_adr_fly}; early-season rate codes may still be open (confidence: Medium).",
+                "recommended_action": f"Worth reviewing whether the lowest rate codes still need to be open for {m_name}.",
+                "by_when": f"This week — about {window_left} selling days left.",
+                "at_stake": {"value": f_stake, "calc": f_calc},
             }
         elif ahead:
             tag = "OPPORTUNITY"
-            hypo = [{"text": "Demand running above last year — remaining inventory likely underpriced for this demand level", "confidence": "Medium"}]
+            hypo = [{"text": "Demand running above last year — remaining inventory may be underpriced for this demand level", "confidence": "Medium"}]
             directive = {
                 "type": "rate_review_up",
-                "target": f"{period_label} nights — close lowest rate codes, test a lift on peak nights",
-                "deadline": "next 2–3 days, before close-in bookings fill the gap at current rates",
+                "target": f"{m_name} open nights — lowest codes and peak nights",
+                "deadline": "next 2–3 days",
                 "trigger_if_monitor": None,
             }
             fb = {
-                "headline": f"{m_name} pacing {f_pct_gap} ahead of LY — remaining nights can carry higher rates",
+                "headline": f"{m_name} pacing {f_pct_gap} ahead of same time last year",
                 "evidence": [
-                    {"label": "PACE VS STLY", "value": f_pct_gap, "sub": f"{f_rev_delta} revenue lead"},
-                    {"label": "OPEN RN REMAINING", "value": f"{f_open_rn} rn", "sub": f"{window_left} days of window left"},
+                    {"label": f"PACE ({p_full})", "value": f_pct_gap, "sub": "vs same time last year"},
+                    {"label": "REVENUE LEAD", "value": f_rev_delta, "sub": "vs same time last year"},
                 ],
-                "what_happened": f"{m_name} OTB revenue is {f_rev_delta} vs the same time last year, {f_pct_gap}.",
-                "why_it_matters": f"Demand is running above last year with {window_left} selling days left — remaining inventory is likely underpriced for this demand level (confidence: Medium).",
-                "recommended_action": f"Review rates on {period_label} nights — close the lowest rate codes and test a lift on peak nights.",
-                "by_when": "Next 2–3 days, before close-in bookings fill the gap at current rates.",
+                "what_happened": f"{m_name} full-month OTB revenue is {f_rev_delta} vs same time last year.",
+                "why_it_matters": "Demand is running above last year; remaining inventory may be underpriced for this demand level (confidence: Medium).",
+                "recommended_action": f"The position could support a higher rate on {m_name} peak nights.",
+                "by_when": "Next 2–3 days.",
             }
         else:
             tag   = "ALERT"
             stake = abs(rn_gap) * adr_final_ly
-            f_stake      = _eur(stake)
-            f_stake_calc = f"{abs(rn_gap):,} rn gap × {f_adr_fly} Final LY ADR = {_eur(stake)}"
+            f_stake = _eur(stake)
+            f_calc  = f"{abs(rn_gap):,} rn gap × {f_adr_fly} final LY ADR = {_eur(stake)}"
             facts["value_at_stake"]      = f_stake
-            facts["value_at_stake_calc"] = f_stake_calc
+            facts["value_at_stake_calc"] = f_calc
             hypo = [{"text": "Demand softness or channel shift vs last year — source-level comparison needed to isolate the driver", "confidence": "Low"}]
             directive = {
                 "type": "open_promo",
-                "target": f"{month_label} soft nights — targeted offer or rate action",
-                "deadline": f"within 7 days — {window_left} days of booking window remain",
+                "target": f"{m_name} soft nights",
+                "deadline": "within 7 days",
                 "trigger_if_monitor": None,
             }
             fb = {
-                "headline": f"{m_name} pacing {f_pct_gap} behind LY — {f_stake} at stake",
+                "headline": f"{m_name} pacing {f_pct_gap} behind same time last year",
                 "evidence": [
-                    {"label": "PACE VS STLY", "value": f_pct_gap, "sub": f"{f_rev_delta} revenue"},
-                    {"label": "ROOM NIGHTS", "value": f"{rn_ty:,} vs {rn_stly:,}", "sub": f"{f_rn_gap} vs STLY"},
+                    {"label": f"PACE ({p_full})", "value": f_pct_gap, "sub": "vs same time last year"},
+                    {"label": "ROOM NIGHTS", "value": f"{rn_ty:,} vs {rn_stly:,}", "sub": f"{f_rn_gap} vs same time last year"},
                 ],
-                "what_happened": f"{m_name} OTB is {f_rn_gap} vs the same time last year ({rn_ty:,} vs {rn_stly:,} room nights).",
-                "why_it_matters": "May reflect demand softness or a channel shift vs last year — a source-level comparison is needed to isolate the driver (confidence: Low).",
-                "recommended_action": f"Consider a targeted offer or rate action on {month_label} soft nights.",
-                "by_when": f"Within 7 days — {window_left} days of booking window remain.",
-                "at_stake": {"value": f_stake, "calc": f_stake_calc},
+                "what_happened": f"{m_name} full-month OTB stands {f_rn_gap} behind same time last year.",
+                "why_it_matters": "Demand softness or a channel shift may explain the gap; a source-level comparison would isolate the driver (confidence: Low).",
+                "recommended_action": f"Consider a targeted offer on {m_name} soft nights if the gap persists.",
+                "by_when": "Within 7 days.",
+                "at_stake": {"value": f_stake, "calc": f_calc},
             }
 
         fb["id"]  = f"pace_{m_name.lower()}_{today.year}"
@@ -417,12 +460,14 @@ def _compute_signals(data: dict) -> dict:
             "score":      round(score, 4),
             "title_hint": fb["headline"],
             "month_num":  sm,
+            "stake_eur":  facts.get("value_at_stake") and _parse_eur(facts["value_at_stake"]) or 0,
             "insight": {
                 "id": fb["id"],
                 "tag": tag,
                 "score": round(score, 4),
                 "signal": "pace",
-                "stay_period": {"from": max(m_start, today).isoformat(), "to": m_end.isoformat(), "label": period_label},
+                "stay_period": {"from": max(m_start, today).isoformat(), "to": m_end.isoformat(),
+                                "label": period_open if current_month else month_label},
                 "days_to_nearest_arrival": days_to_start,
                 "booking_window_days_left": window_left,
                 "facts": facts,
@@ -479,114 +524,119 @@ def _compute_signals(data: dict) -> dict:
             avg_gap_pp  = statistics.mean(abs(d["gap_pp"]) for d in top_soft)
             gap_rn_total = sum(max(0, d["gap_rn"]) for d in top_soft)
 
-            # ADR reference: OTB ADR of the majority month, else 130
             months = [d["date"].month for d in top_soft]
             major_month = max(set(months), key=months.count)
             pace_m  = next((p for p in pace if p.get("month_num") == major_month), None)
-            adr_ref = pace_m.get("adr", 0) or pace_m.get("adr_final_ly", 130.0) if pace_m else 130.0
+            adr_ref = (pace_m.get("adr", 0) or pace_m.get("adr_final_ly", 130.0)) if pace_m else 130.0
 
-            stake        = gap_rn_total * adr_ref
-            f_stake      = _eur(stake)
-            f_stake_calc = f"{gap_rn_total} rn gap × {_eur(adr_ref)} ADR = {_eur(stake)}"
+            stake = gap_rn_total * adr_ref
+            if stake >= _STAKE_FLOOR_EUR:
+                f_stake = _eur(stake)
+                f_calc  = f"{gap_rn_total} rn gap × {_eur(adr_ref)} ADR = {_eur(stake)}"
 
-            R = min(stake / daily_rev_baseline, 1.0)
-            M = _magnitude_pct(avg_gap_pp / 100)
-            score = _score_candidate(R, avg_urgency, M, C=0.85)
+                R = min(stake / daily_rev_baseline, 1.0)
+                M = _magnitude_pct(avg_gap_pp / 100)
+                score = _score_candidate(R, avg_urgency, M, C=0.85)
 
-            sorted_by_gap = sorted(top_soft, key=lambda d: d["gap_pp"])
-            softest = sorted_by_gap[:2]
-            date_labels = ", ".join(d["label"] for d in top_soft)
-            f_avg_gap   = _pts_signed(-avg_gap_pp)
+                first_lbl = top_soft[0]["label"]
+                last_lbl  = top_soft[-1]["label"]
+                date_range = f"{first_lbl}–{last_lbl}" if len(top_soft) > 1 else first_lbl
+                f_avg_gap = _pts_signed(-avg_gap_pp)
+                p_dates   = f"stay dates {date_range}"
 
-            facts = {
-                "dates":            date_labels,
-                "count":            str(len(top_soft)),
-                "avg_gap_pts":      f_avg_gap,
-                "softest_dates":    " · ".join(f"{d['label']} ({_pts_signed(d['gap_pp'])})" for d in softest),
-                "per_date":         [
-                    {"date": d["label"], "dow": d["dow"], "occ_otb": _pct(d["occ_ty"], 0),
-                     "occ_stly": _pct(d["occ_stly"], 0), "gap": _pts_signed(d["gap_pp"])}
-                    for d in top_soft
-                ],
-                "nearest_date":     top_soft[0]["label"],
-                "nearest_days_out": str(top_soft[0]["days_out"]),
-                "value_at_stake":   f_stake,
-                "value_at_stake_calc": f_stake_calc,
-            }
-            fb = {
-                "id": f"soft_dates_{_cal.month_abbr[major_month].lower()}",
-                "tag": "ALERT",
-                "headline": f"{len(top_soft)} nights {f_avg_gap} behind LY — rate action window closing",
-                "evidence": [
-                    {"label": "SOFTEST", "value": facts["softest_dates"], "sub": "vs same time LY"},
-                    {"label": "AVG GAP", "value": f"{f_avg_gap} vs STLY", "sub": f"{f_stake} at risk"},
-                ],
-                "what_happened": f"{len(top_soft)} stay dates ({date_labels}) are pacing an average {f_avg_gap} behind the same time last year.",
-                "why_it_matters": "May reflect genuine demand softness on these dates rather than a one-off (confidence: Medium).",
-                "recommended_action": f"Consider a targeted rate reduction or package on the soft dates; prioritise {facts['softest_dates'].split(' · ')[0]} (largest gap).",
-                "by_when": f"Within 7 days — the typical booking window for these dates is closing.",
-                "at_stake": {"value": f_stake, "calc": f_stake_calc},
-            }
-            candidates.append({
-                "signal":     "soft_dates",
-                "tag":        "ALERT",
-                "score":      round(score, 4),
-                "title_hint": fb["headline"],
-                "month_num":  major_month,
-                "insight": {
-                    "id": fb["id"],
+                sorted_by_gap = sorted(top_soft, key=lambda d: d["gap_pp"])
+                softest_str = " · ".join(f"{d['label']} ({_pts_signed(d['gap_pp'])})" for d in sorted_by_gap[:2])
+
+                facts = {
+                    "date_range":    date_range,
+                    "count":         str(len(top_soft)),
+                    "avg_gap_pts":   _fact(f_avg_gap, f"{p_dates}, vs same time last year"),
+                    "softest_dates": _fact(softest_str, "vs same time last year"),
+                    "per_date": [
+                        {"date": d["label"], "dow": d["dow"], "occ_otb": _pct(d["occ_ty"], 0),
+                         "occ_same_time_ly": _pct(d["occ_stly"], 0), "gap": _pts_signed(d["gap_pp"])}
+                        for d in top_soft
+                    ],
+                    "nearest_days_out": str(top_soft[0]["days_out"]),
+                    "value_at_stake":      f_stake,
+                    "value_at_stake_calc": f_calc,
+                }
+                fb = {
+                    "id": f"soft_dates_{_cal.month_abbr[major_month].lower()}",
                     "tag": "ALERT",
-                    "score": round(score, 4),
-                    "signal": "soft_dates",
-                    "stay_period": {"from": top_soft[0]["date"].isoformat(), "to": top_soft[-1]["date"].isoformat(), "label": date_labels},
-                    "days_to_nearest_arrival": top_soft[0]["days_out"],
-                    "booking_window_days_left": top_soft[0]["days_out"],
-                    "facts": facts,
-                    "cause_hypotheses": [{"text": "Demand softness concentrated on these dates — check for LY events or group business that has not repeated", "confidence": "Medium"}],
-                    "action_directives": {
-                        "type": "rate_review_down",
-                        "target": f"soft dates {date_labels}, largest gaps first",
-                        "deadline": "within 7 days — booking window closing",
-                        "trigger_if_monitor": None,
+                    "headline": f"{len(top_soft)} nights pacing {f_avg_gap} behind same time last year",
+                    "evidence": [
+                        {"label": "SOFTEST DATES", "value": softest_str, "sub": "vs same time last year"},
+                        {"label": f"AVG GAP ({date_range})", "value": f_avg_gap, "sub": f"{f_stake} at stake"},
+                    ],
+                    "what_happened": f"{len(top_soft)} stay dates between {first_lbl} and {last_lbl} average {f_avg_gap} vs same time last year.",
+                    "why_it_matters": "These dates trail last year's booking position; if the gap persists the revenue at stake grows (confidence: Medium).",
+                    "recommended_action": f"A softer rate or package could help {date_range} if the trend continues.",
+                    "by_when": "Within 7 days — window closing.",
+                    "at_stake": {"value": f_stake, "calc": f_calc},
+                }
+                candidates.append({
+                    "signal":     "soft_dates",
+                    "tag":        "ALERT",
+                    "score":      round(score, 4),
+                    "title_hint": fb["headline"],
+                    "month_num":  major_month,
+                    "stake_eur":  stake,
+                    "insight": {
+                        "id": fb["id"],
+                        "tag": "ALERT",
+                        "score": round(score, 4),
+                        "signal": "soft_dates",
+                        "stay_period": {"from": top_soft[0]["date"].isoformat(), "to": top_soft[-1]["date"].isoformat(), "label": date_range},
+                        "days_to_nearest_arrival": top_soft[0]["days_out"],
+                        "booking_window_days_left": top_soft[0]["days_out"],
+                        "facts": facts,
+                        "cause_hypotheses": [{"text": "Demand softness concentrated on these dates — check for last-year events or groups that have not repeated", "confidence": "Medium"}],
+                        "action_directives": {
+                            "type": "rate_review_down",
+                            "target": f"soft dates {date_range}, largest gaps first",
+                            "deadline": "within 7 days",
+                            "trigger_if_monitor": None,
+                        },
+                        "history": {"first_raised": None, "previously_advised": None},
                     },
-                    "history": {"first_raised": None, "previously_advised": None},
-                },
-                "fallback_card": fb,
-            })
+                    "fallback_card": fb,
+                })
 
         if hot_dates:
             hot_dates.sort(key=lambda x: x["days_out"])
             top_hot     = hot_dates[:3]
             avg_urgency = statistics.mean(_urgency(d["days_out"]) for d in top_hot)
-            date_labels = ", ".join(d["label"] for d in top_hot)
             nearest     = top_hot[0]
+            first_lbl, last_lbl = top_hot[0]["label"], top_hot[-1]["label"]
+            date_range = f"{first_lbl}–{last_lbl}" if len(top_hot) > 1 else first_lbl
             score = _score_candidate(0.5, avg_urgency, 0.7, C=0.9)
 
             facts = {
-                "dates": date_labels,
-                "count": str(len(top_hot)),
+                "date_range": date_range,
+                "count":      str(len(top_hot)),
                 "per_date": [
                     {"date": d["label"], "dow": d["dow"], "occ_otb": _pct(d["occ_ty"], 0),
                      "rooms_left": str(d["rooms_left"])}
                     for d in top_hot
                 ],
-                "nearest_date":      nearest["label"],
-                "nearest_days_out":  str(nearest["days_out"]),
-                "nearest_occ":       _pct(nearest["occ_ty"], 0),
-                "nearest_rooms_left": str(nearest["rooms_left"]),
+                "nearest_date":       nearest["label"],
+                "nearest_days_out":   str(nearest["days_out"]),
+                "nearest_occ":        _fact(_pct(nearest["occ_ty"], 0), f"stay date {nearest['label']}, OTB now"),
+                "nearest_rooms_left": _fact(str(nearest["rooms_left"]), f"stay date {nearest['label']}"),
             }
             fb = {
                 "id": "hot_dates_near_full",
                 "tag": "OPPORTUNITY",
-                "headline": f"{date_labels} near sell-out — last rooms selling at everyday rates",
+                "headline": f"{date_range} near sell-out, last rooms at everyday rates",
                 "evidence": [
                     {"label": f"{nearest['label'].upper()} ({nearest['dow'].upper()})", "value": f"{_pct(nearest['occ_ty'], 0)} occ", "sub": f"{nearest['rooms_left']} rooms left"},
-                    {"label": "NEAR-FULL DATES", "value": " · ".join(_pct(d["occ_ty"], 0) for d in top_hot), "sub": date_labels},
+                    {"label": "NEAR-FULL DATES", "value": " · ".join(_pct(d["occ_ty"], 0) for d in top_hot), "sub": date_range},
                 ],
-                "what_happened": f"{len(top_hot)} nights ({date_labels}) are near sell-out with only a handful of rooms left, still selling at unchanged rates.",
-                "why_it_matters": "Compression this close-in means the remaining rooms would very likely sell at a higher price — every unlifted euro is left on the table (confidence: High).",
-                "recommended_action": f"Raise BAR and close discounted rate codes on {date_labels} for the remaining rooms.",
-                "by_when": f"Today — {nearest['label']} is {nearest['days_out']} day(s) out; the window is hours, not days.",
+                "what_happened": f"{len(top_hot)} nights ({date_range}) are close to selling out at unchanged rates.",
+                "why_it_matters": "Close-in compression suggests the remaining rooms would sell at a higher price (confidence: High).",
+                "recommended_action": f"The position could support a higher rate on {date_range}; worth reviewing open discount codes.",
+                "by_when": f"Today — {nearest['label']} is {nearest['days_out']} days out.",
             }
             candidates.append({
                 "signal":     "hot_dates",
@@ -594,20 +644,21 @@ def _compute_signals(data: dict) -> dict:
                 "score":      round(score, 4),
                 "title_hint": fb["headline"],
                 "month_num":  top_hot[0]["date"].month,
+                "stake_eur":  0,
                 "insight": {
                     "id": fb["id"],
                     "tag": "OPPORTUNITY",
                     "score": round(score, 4),
                     "signal": "hot_dates",
-                    "stay_period": {"from": top_hot[0]["date"].isoformat(), "to": top_hot[-1]["date"].isoformat(), "label": date_labels},
+                    "stay_period": {"from": top_hot[0]["date"].isoformat(), "to": top_hot[-1]["date"].isoformat(), "label": date_range},
                     "days_to_nearest_arrival": nearest["days_out"],
                     "booking_window_days_left": nearest["days_out"],
                     "facts": facts,
                     "cause_hypotheses": [{"text": "Close-in compression — demand exceeding remaining supply on these dates", "confidence": "High"}],
                     "action_directives": {
                         "type": "close_discounts",
-                        "target": f"remaining rooms on {date_labels} — raise BAR, close discounted codes",
-                        "deadline": f"today — {nearest['label']} is {nearest['days_out']} day(s) out",
+                        "target": f"remaining rooms on {date_range}",
+                        "deadline": f"today — {nearest['label']} is {nearest['days_out']} days out",
                         "trigger_if_monitor": None,
                     },
                     "history": {"first_raised": None, "previously_advised": None},
@@ -615,17 +666,25 @@ def _compute_signals(data: dict) -> dict:
                 "fallback_card": fb,
             })
 
-    # ── Signal 5: Month-end revenue projection ────────────────────────────────
-    cm  = data.get("current_month_remaining", {})
-    mtd = data.get("mtd", {})
-
+    # ── Signal 5: Month-end revenue projection (gate: >= 10% deviation) ──────
     if cm:
         rev_mtd          = float(mtd.get("revenue", 0))
+        rn_rem_otb       = cm.get("rn_remaining_otb_ty", 0)
         rev_rem_otb      = cm.get("rev_remaining_otb_ty", 0)
         rev_rem_final_ly = cm.get("rev_remaining_final_ly", 0)
         rev_rem_stly     = cm.get("rev_remaining_stly", 0)
         exp_rem_pickup   = max(0, rev_rem_final_ly - rev_rem_stly)
         proj_rev         = rev_mtd + rev_rem_otb + exp_rem_pickup
+
+        _, m_end  = _month_bounds(today.year, today.month)
+        days_left = max(0, (m_end - today).days)
+        rem_days_incl = max(1, (m_end - today).days + 1)
+
+        # Spec D1 sanity: remaining OTB rn must fit remaining capacity
+        sane = rn_rem_otb <= total_rooms * rem_days_incl
+        if not sane:
+            print(f"[analyst] DATA ALERT: remaining rn {rn_rem_otb} exceeds capacity "
+                  f"{total_rooms}×{rem_days_incl} — projection card blocked.")
 
         curr_pace    = next((p for p in pace if p.get("month_num") == today.month), None)
         rev_final_ly = curr_pace.get("rev_final", 0) if curr_pace else 0
@@ -634,76 +693,78 @@ def _compute_signals(data: dict) -> dict:
         vs_final_ly_pct = ((proj_rev - rev_final_ly) / rev_final_ly * 100) if rev_final_ly > 0 else None
         vs_budget_pct   = ((proj_rev - rev_budget) / rev_budget * 100) if rev_budget > 0 else None
         vs_pct    = vs_budget_pct if vs_budget_pct is not None else (vs_final_ly_pct or 0)
-        ref_label = "budget" if vs_budget_pct is not None else "Final LY"
+        ref_label = "budget" if vs_budget_pct is not None else "final last year"
 
-        if abs(vs_pct) >= 3:
-            month_name  = today.strftime("%B")
-            _, m_end    = _month_bounds(today.year, today.month)
-            days_left   = max(0, (m_end - today).days)
-            behind      = vs_pct < 0
-            # Spec: an on-track/ahead projection is a position to defend → MONITOR
+        if sane and abs(vs_pct) >= 10:
+            month_name = today.strftime("%B")
+            behind     = vs_pct < 0
             tag = "ALERT" if behind else "MONITOR"
 
             ref   = rev_budget if rev_budget > 0 else rev_final_ly
             R     = min(abs(proj_rev - ref) / daily_rev_baseline, 1.0)
             score = _score_candidate(R, _urgency(0), _magnitude_pct(vs_pct / 100), C=0.85)
 
-            f_proj    = _eur(proj_rev)
-            f_vs      = _pct_signed(vs_pct)
+            band_str, band_lo, band_hi = _rev_band(proj_rev)
+            vs_lo = (band_lo - ref) / ref * 100 if ref else 0
+            vs_hi = (band_hi - ref) / ref * 100 if ref else 0
+            f_vs_band = f"{_pct_signed(vs_lo, 0)} to {_pct_signed(vs_hi, 0)}"
             f_rem_otb = _eur(rev_rem_otb)
+            p_finish  = f"{month_name} month-end finish"
 
             facts = {
-                "month_label":     f"{month_name} {today.year}",
-                "proj_revenue":    f_proj,
-                "vs_ref":          f_vs,
-                "ref_label":       ref_label,
-                "rev_mtd":         _eur(rev_mtd),
-                "remaining_otb":   f_rem_otb,
-                "exp_rem_pickup":  _eur(exp_rem_pickup),
-                "days_left":       str(days_left),
+                "month_label":    f"{month_name} {today.year}",
+                "proj_rev_band":  _fact(band_str, p_finish),
+                "vs_ref_band":    _fact(f_vs_band, f"{p_finish}, vs {ref_label}"),
+                "ref_label":      ref_label,
+                "rev_mtd":        _fact(_eur(rev_mtd), f"{month_name} month to date"),
+                "remaining_otb":  _fact(f_rem_otb, f"remaining {month_name}, on the books"),
+                "days_left":      str(days_left),
             }
             if behind:
-                stake = abs(proj_rev - ref)
-                f_stake = _eur(stake)
-                facts["value_at_stake"]      = f_stake
-                facts["value_at_stake_calc"] = f"{ref_label} {_eur(ref)} − projected {f_proj} = {f_stake} shortfall"
+                stake  = max(0, ref - band_hi)
+                if stake >= _STAKE_FLOOR_EUR:
+                    f_stake = _eur(stake)
+                    f_calc  = f"{ref_label} {_eur(ref)} − upper projection {_eur(band_hi)} = {_eur(stake)}"
+                    facts["value_at_stake"]      = f_stake
+                    facts["value_at_stake_calc"] = f_calc
                 hypo = [{"text": "Remaining-month OTB pacing below last year's close-in pickup", "confidence": "Medium"}]
                 directive = {
                     "type": "open_promo",
-                    "target": f"remaining {month_name} nights — close-in offer or rate action",
-                    "deadline": f"within 2–3 days — {days_left} days left in the month",
+                    "target": f"remaining {month_name} nights",
+                    "deadline": "within 2–3 days",
                     "trigger_if_monitor": None,
                 }
                 fb = {
-                    "headline": f"{month_name} projected {f_vs} vs {ref_label} — {f_stake} shortfall forming",
+                    "headline": f"{month_name} projected around {f_vs_band} vs {ref_label}",
                     "evidence": [
-                        {"label": "PROJECTED REVENUE", "value": f_proj, "sub": f"{f_vs} vs {ref_label}"},
+                        {"label": "PROJECTED FINISH", "value": band_str, "sub": f"{f_vs_band} vs {ref_label}"},
                         {"label": "REMAINING OTB", "value": f_rem_otb, "sub": f"{days_left} days left"},
                     ],
-                    "what_happened": f"Month-end projection is {f_proj}, {f_vs} vs {ref_label}.",
-                    "why_it_matters": f"Remaining-month OTB may be pacing below last year's close-in pickup (confidence: Medium).",
-                    "recommended_action": f"Consider a close-in offer or rate action on remaining {month_name} nights.",
-                    "by_when": f"Within 2–3 days — {days_left} days left in the month.",
-                    "at_stake": {"value": f_stake, "calc": facts["value_at_stake_calc"]},
+                    "what_happened": f"Month-end revenue is projected in the range of {band_str}.",
+                    "why_it_matters": "Remaining-month bookings may be pacing below last year's close-in pickup (confidence: Medium).",
+                    "recommended_action": f"Consider a close-in offer on remaining {month_name} nights.",
+                    "by_when": f"Within 2–3 days; {days_left} days left.",
                 }
+                if "value_at_stake" in facts:
+                    fb["at_stake"] = {"value": facts["value_at_stake"], "calc": facts["value_at_stake_calc"]}
             else:
                 hypo = [{"text": "Cancellations in the remaining days are the main risk to the finish", "confidence": "High"}]
                 directive = {
                     "type": "monitor_only",
-                    "target": f"remaining {month_name} OTB — protect the projected finish",
+                    "target": f"remaining {month_name} OTB",
                     "deadline": "daily until month close",
                     "trigger_if_monitor": f"cancellations exceed the trailing baseline on any remaining {month_name} date",
                 }
                 fb = {
-                    "headline": f"{month_name} projected to close {f_vs} vs {ref_label} — on track, protect the finish",
+                    "headline": f"{month_name} on track to finish around {f_vs_band} vs {ref_label}",
                     "evidence": [
-                        {"label": "PROJECTED REVENUE", "value": f_proj, "sub": f"{f_vs} vs {ref_label}"},
+                        {"label": "PROJECTED FINISH", "value": band_str, "sub": f"{f_vs_band} vs {ref_label}"},
                         {"label": "REMAINING OTB", "value": f_rem_otb, "sub": "not yet realised"},
                     ],
-                    "what_happened": f"Month-end projection is {f_proj}, {f_vs} vs {ref_label}.",
-                    "why_it_matters": f"{f_rem_otb} of that is still on the books, not realised — cancellations in the last {days_left} days are the main risk to the finish (confidence: High).",
-                    "recommended_action": "No action yet — hold rates and watch cancellations daily.",
-                    "by_when": f"No action yet — recheck daily until month close. Trigger: cancellations exceed the trailing baseline on any remaining {month_name} date.",
+                    "what_happened": f"Month-end revenue is projected in the range of {band_str}.",
+                    "why_it_matters": f"{f_rem_otb} is still on the books, not realised; cancellations in the final {days_left} days are the main risk (confidence: High).",
+                    "recommended_action": "No action suggested — worth watching cancellations daily.",
+                    "by_when": "Daily until month close; trigger: cancellations above baseline.",
                 }
 
             fb["id"]  = f"proj_{month_name.lower()}_{today.year}"
@@ -714,6 +775,7 @@ def _compute_signals(data: dict) -> dict:
                 "score":      round(score, 4),
                 "title_hint": fb["headline"],
                 "month_num":  today.month,
+                "stake_eur":  _parse_eur(facts.get("value_at_stake", "")),
                 "insight": {
                     "id": fb["id"],
                     "tag": tag,
@@ -730,7 +792,7 @@ def _compute_signals(data: dict) -> dict:
                 "fallback_card": fb,
             })
 
-    # Future months projection
+    # Future months projection (gate: >= 10% deviation)
     for p in pace:
         sm = p.get("month_num", 0)
         if sm <= today.month:
@@ -749,10 +811,10 @@ def _compute_signals(data: dict) -> dict:
         if rev_budget > 0:
             vs_pct, ref_label, ref = (proj_rev - rev_budget) / rev_budget * 100, "budget", rev_budget
         elif rev_final_ly > 0:
-            vs_pct, ref_label, ref = (proj_rev - rev_final_ly) / rev_final_ly * 100, "Final LY", rev_final_ly
+            vs_pct, ref_label, ref = (proj_rev - rev_final_ly) / rev_final_ly * 100, "final last year", rev_final_ly
         else:
             continue
-        if abs(vs_pct) < 5:
+        if abs(vs_pct) < 10:
             continue
 
         m_start, m_end = _month_bounds(today.year, sm)
@@ -763,69 +825,72 @@ def _compute_signals(data: dict) -> dict:
         behind = vs_pct < 0
         tag    = "ALERT" if behind else "OPPORTUNITY"
 
-        rn_ty_m = p.get("rn", 0)
         R     = min(abs(proj_rev - ref) / daily_rev_baseline, 1.0)
         score = _score_candidate(R, _urgency(days_to_start), _magnitude_pct(vs_pct / 100), C=0.8)
 
-        f_proj = _eur(proj_rev)
-        f_vs   = _pct_signed(vs_pct)
-        f_otb  = _eur(rev_ty)
+        band_str, band_lo, band_hi = _rev_band(proj_rev)
+        vs_lo = (band_lo - ref) / ref * 100 if ref else 0
+        vs_hi = (band_hi - ref) / ref * 100 if ref else 0
+        f_vs_band = f"{_pct_signed(vs_lo, 0)} to {_pct_signed(vs_hi, 0)}"
+        p_full   = f"{m_name} full month"
+        p_finish = f"{m_name} month-end finish"
+
         facts = {
-            "month_label":    month_label,
-            "proj_revenue":   f_proj,
-            "vs_ref":         f_vs,
-            "ref_label":      ref_label,
-            "rev_otb":        f_otb,
-            "exp_rem_pickup": _eur(exp_pickup),
-            "adr_otb":        _eur(p.get("adr", 0)),
-            "adr_final_ly":   _eur(p.get("adr_final_ly", 0)),
-            "occ_otb":        _pct(p.get("occ", 0) * 100),
-            "occ_stly":       _pct(p.get("stly", 0) * 100),
-            "final_ly_occ":   _pct(p.get("final", 0) * 100),
-            "days_to_start":  str(days_to_start),
+            "month_label":   month_label,
+            "proj_rev_band": _fact(band_str, p_finish),
+            "vs_ref_band":   _fact(f_vs_band, f"{p_finish}, vs {ref_label}"),
+            "ref_label":     ref_label,
+            "rev_otb":       _fact(_eur(rev_ty), f"{p_full}, on the books now"),
+            "adr_otb":       _fact(_eur(p.get("adr", 0)), f"{p_full}, OTB"),
+            "adr_final_ly":  _fact(_eur(p.get("adr_final_ly", 0)), f"{m_name} final last year"),
+            "occ_otb":       _fact(_pct(p.get("occ", 0) * 100), f"{p_full}, OTB now"),
+            "occ_same_time_ly": _fact(_pct(p.get("stly", 0) * 100), f"{m_name}, same time last year"),
+            "final_ly_occ":  _fact(_pct(p.get("final", 0) * 100), f"{m_name} final last year"),
+            "days_to_start": str(days_to_start),
         }
         if behind:
-            stake   = abs(proj_rev - ref)
-            f_stake = _eur(stake)
-            facts["value_at_stake"]      = f_stake
-            facts["value_at_stake_calc"] = f"{ref_label} {_eur(ref)} − projected {f_proj} = {f_stake} shortfall"
+            stake = max(0, ref - band_hi)
+            if stake >= _STAKE_FLOOR_EUR:
+                facts["value_at_stake"]      = _eur(stake)
+                facts["value_at_stake_calc"] = f"{ref_label} {_eur(ref)} − upper projection {_eur(band_hi)} = {_eur(stake)}"
             hypo = [{"text": "Booking pace behind last year — group or contracted business may not have re-materialised", "confidence": "Low"}]
             directive = {
                 "type": "open_promo",
-                "target": f"{month_label} — demand-building offer while the booking window is open",
-                "deadline": f"within 7 days — {days_to_start} days to month start",
+                "target": f"{month_label} demand-building offer",
+                "deadline": "within 7 days",
                 "trigger_if_monitor": None,
             }
             fb = {
-                "headline": f"{m_name} projected {f_vs} vs {ref_label} — {f_stake} shortfall forming",
+                "headline": f"{m_name} projected around {f_vs_band} vs {ref_label}",
                 "evidence": [
-                    {"label": "PROJ REVENUE", "value": f_proj, "sub": f"{f_vs} vs {ref_label}"},
-                    {"label": "OTB VS STLY OCC", "value": f"{facts['occ_otb']} vs {facts['occ_stly']}", "sub": f"Final LY {facts['final_ly_occ']}"},
+                    {"label": "PROJECTED FINISH", "value": band_str, "sub": f"{f_vs_band} vs {ref_label}"},
+                    {"label": "OCC OTB vs SAME TIME LY", "value": f"{facts['occ_otb']['value']} vs {facts['occ_same_time_ly']['value']}", "sub": f"final last year {facts['final_ly_occ']['value']}"},
                 ],
-                "what_happened": f"{m_name} is projecting {f_proj}, {f_vs} vs {ref_label}.",
-                "why_it_matters": "Booking pace is behind last year — group or contracted business may not have re-materialised (confidence: Low).",
-                "recommended_action": f"Consider a demand-building offer for {month_label} while the booking window is open.",
-                "by_when": f"Within 7 days — {days_to_start} days to month start.",
-                "at_stake": {"value": f_stake, "calc": facts["value_at_stake_calc"]},
+                "what_happened": f"{m_name} is projecting in the range of {band_str}.",
+                "why_it_matters": "Booking pace trails last year; group or contracted business may not have re-materialised (confidence: Low).",
+                "recommended_action": f"If the trend continues, an option is a demand-building offer for {m_name}.",
+                "by_when": f"Within 7 days; {days_to_start} days to month start.",
             }
+            if "value_at_stake" in facts:
+                fb["at_stake"] = {"value": facts["value_at_stake"], "calc": facts["value_at_stake_calc"]}
         else:
-            hypo = [{"text": "Volume position secured ahead of last year — early rate floors will anchor the final ADR", "confidence": "Medium"}]
+            hypo = [{"text": "Volume position ahead of last year — early rate floors will anchor the final ADR", "confidence": "Medium"}]
             directive = {
                 "type": "rate_review_up",
-                "target": f"{month_label} rate floors — protect or lift while demand is ahead",
-                "deadline": f"this week — early-window pricing anchors the {m_name} close",
+                "target": f"{month_label} rate floors",
+                "deadline": "this week",
                 "trigger_if_monitor": None,
             }
             fb = {
-                "headline": f"{m_name} projected {f_vs} vs {ref_label} — rate upside with volume secured",
+                "headline": f"{m_name} projecting around {f_vs_band} vs {ref_label}",
                 "evidence": [
-                    {"label": "PROJ REVENUE", "value": f_proj, "sub": f"{f_vs} vs {ref_label}"},
-                    {"label": "ADR OTB VS FINAL LY", "value": f"{facts['adr_otb']} vs {facts['adr_final_ly']}", "sub": f"OTB occ {facts['occ_otb']}"},
+                    {"label": "PROJECTED FINISH", "value": band_str, "sub": f"{f_vs_band} vs {ref_label}"},
+                    {"label": "ADR OTB vs FINAL LY", "value": f"{facts['adr_otb']['value']} vs {facts['adr_final_ly']['value']}", "sub": f"OTB occ {facts['occ_otb']['value']}"},
                 ],
-                "what_happened": f"{m_name} is projecting {f_proj}, {f_vs} vs {ref_label}.",
-                "why_it_matters": "The volume position is secured ahead of last year — early rate floors will anchor the final ADR outcome (confidence: Medium).",
-                "recommended_action": f"Review {month_label} rate floors — protect or lift while demand runs ahead.",
-                "by_when": f"This week — early-window pricing anchors the {m_name} close.",
+                "what_happened": f"{m_name} is projecting in the range of {band_str}.",
+                "why_it_matters": "The volume position is ahead of last year; early rate floors will anchor the final ADR outcome (confidence: Medium).",
+                "recommended_action": f"It may be worth reviewing {m_name} rate floors while demand runs ahead.",
+                "by_when": "This week.",
             }
         fb["id"]  = f"proj_{m_name.lower()}_{today.year}"
         fb["tag"] = tag
@@ -835,6 +900,7 @@ def _compute_signals(data: dict) -> dict:
             "score":      round(score, 4),
             "title_hint": fb["headline"],
             "month_num":  sm,
+            "stake_eur":  _parse_eur(facts.get("value_at_stake", "")),
             "insight": {
                 "id": fb["id"],
                 "tag": tag,
@@ -851,28 +917,19 @@ def _compute_signals(data: dict) -> dict:
             "fallback_card": fb,
         })
 
-    # ── Merge gate: pickup ALERT + soft dates in the same month → one story ──
-    candidates = _merge_same_dates(candidates)
+    # ── Merge gates (spec C1/C2.4): same story or same dates → one card ──────
+    candidates = _merge_same_month_story(candidates)
+    candidates = _merge_pickup_soft(candidates)
 
-    # ── Rank + hard gates ─────────────────────────────────────────────────────
+    # ── Novelty gate (spec C2.3): raised recently without worsening → demote ─
+    demoted: list[dict] = []
+    if hotel_id:
+        candidates, demoted = _novelty_gate(candidates, hotel_id)
+
+    # ── Global ranking — top 5-6 across ALL periods, no per-month quota ──────
     candidates.sort(key=lambda c: c["score"], reverse=True)
-
-    seen_signals: set[str] = set()
-    seen_months:  set[int] = set()
-    ranked:    list[dict] = []
-    watchlist: list[dict] = []
-
-    for c in candidates:
-        sig = c["signal"]
-        month_level = sig in ("pace", "projection")
-        duplicate_month = month_level and c.get("month_num") in seen_months
-        if sig not in seen_signals and not duplicate_month and c["score"] >= 0.08:
-            ranked.append(c)
-            seen_signals.add(sig)
-            if month_level and c.get("month_num") is not None:
-                seen_months.add(c["month_num"])
-        else:
-            watchlist.append(c)
+    ranked    = [c for c in candidates if c["score"] >= 0.08][:6]
+    watchlist = [c for c in candidates if c not in ranked] + demoted
 
     # ── Headline KPIs ─────────────────────────────────────────────────────────
     yd = data.get("yesterday", {})
@@ -907,14 +964,40 @@ def _compute_signals(data: dict) -> dict:
     }
 
     return {
-        "ranked":    ranked[:6],
+        "ranked":    ranked,
         "watchlist": watchlist,
         "headline":  headline,
     }
 
 
-def _merge_same_dates(candidates: list[dict]) -> list[dict]:
-    """Spec §6 gate: cards pointing at the same stay dates merge into one story."""
+def _merge_same_month_story(candidates: list[dict]) -> list[dict]:
+    """Pace + projection for the same month tell one story — merge into the
+    higher-scored candidate, folding in the other's key facts."""
+    by_month: dict[int, dict] = {}
+    result: list[dict] = []
+    month_level = [c for c in candidates if c["signal"] in ("pace", "projection")]
+    others      = [c for c in candidates if c["signal"] not in ("pace", "projection")]
+
+    for c in month_level:
+        m = c.get("month_num")
+        if m in by_month:
+            keep, drop = (by_month[m], c) if by_month[m]["score"] >= c["score"] else (c, by_month[m])
+            prefix = drop["signal"]
+            for k, v in drop["insight"]["facts"].items():
+                if k in ("month_label",) or k.startswith("value_at_stake"):
+                    continue
+                keep["insight"]["facts"].setdefault(f"{prefix}_{k}", v)
+            by_month[m] = keep
+        else:
+            by_month[m] = c
+
+    result.extend(by_month.values())
+    result.extend(others)
+    return result
+
+
+def _merge_pickup_soft(candidates: list[dict]) -> list[dict]:
+    """Pickup ALERT + soft dates in the same month → one softening story."""
     pickup_alerts = [c for c in candidates if c["signal"] == "pickup" and c["tag"] == "ALERT"]
     soft_cands    = [c for c in candidates if c["signal"] == "soft_dates"]
     if not pickup_alerts or not soft_cands:
@@ -927,32 +1010,33 @@ def _merge_same_dates(candidates: list[dict]) -> list[dict]:
 
     pf, sf = pick["insight"]["facts"], soft["insight"]["facts"]
     month_label = pf["month_label"]
+    m_short = month_label.split()[0]
     score = round(min(1.0, max(pick["score"], soft["score"]) + 0.05), 4)
 
     facts = {
-        "month_label":          month_label,
-        "pickup_yday_net_rn":   pf["yday_net_rn"],
-        "pickup_trailing_avg":  pf["trailing_avg"],
-        "pickup_z_score":       pf["z_score"],
-        "soft_dates":           sf["dates"],
-        "soft_count":           sf["count"],
-        "soft_avg_gap_pts":     sf["avg_gap_pts"],
-        "softest_dates":        sf["softest_dates"],
-        "value_at_stake":       sf["value_at_stake"],
-        "value_at_stake_calc":  sf["value_at_stake_calc"],
+        "month_label":         month_label,
+        "pickup_yday_net_rn":  pf["yday_net_rn"],
+        "pickup_trailing_avg": pf["trailing_avg"],
+        "pickup_z_score":      pf["z_score"],
+        "soft_date_range":     sf["date_range"],
+        "soft_count":          sf["count"],
+        "soft_avg_gap_pts":    sf["avg_gap_pts"],
+        "softest_dates":       sf["softest_dates"],
+        "value_at_stake":      sf["value_at_stake"],
+        "value_at_stake_calc": sf["value_at_stake_calc"],
     }
     fb = {
-        "id": f"softening_{month_label.split()[0].lower()}",
+        "id": f"softening_{m_short.lower()}",
         "tag": "ALERT",
-        "headline": f"{month_label.split()[0]} is softening: pickup {pf['yday_net_rn']} + {sf['count']} dates {sf['avg_gap_pts']} behind LY",
+        "headline": f"{m_short} softening: pickup and pace gap point the same way",
         "evidence": [
-            {"label": "YESTERDAY NET", "value": pf["yday_net_rn"], "sub": f"vs {pf['trailing_avg']} 7-day avg"},
-            {"label": "SOFT DATES", "value": f"{sf['count']} nights {sf['avg_gap_pts']}", "sub": sf["dates"]},
+            {"label": "YESTERDAY NET", "value": pf["yday_net_rn"]["value"], "sub": f"vs {pf['trailing_avg']['value']} prior 7 days"},
+            {"label": f"SOFT DATES ({sf['date_range']})", "value": f"{sf['count']} nights {sf['avg_gap_pts']['value']}", "sub": "vs same time last year"},
         ],
-        "what_happened": f"Net pickup for {month_label} was {pf['yday_net_rn']} yesterday, and {sf['count']} stay dates ({sf['dates']}) pace an average {sf['avg_gap_pts']} behind the same time last year.",
-        "why_it_matters": "The cancellation slowdown and the pace gap point at the same dates — the two signals reinforce each other: this demand is genuinely soft, not a one-off (confidence: Medium).",
-        "recommended_action": f"Check the {month_label} cancellations for a common source or rate code; if broad, prepare a targeted offer on the soft dates.",
-        "by_when": "Investigate today; decide on an offer within 3–4 days if pickup stays below average.",
+        "what_happened": f"{month_label} pickup was {pf['yday_net_rn']['value']} yesterday and {sf['count']} stay dates trail same time last year.",
+        "why_it_matters": "Two independent signals point at the same dates, so this looks like genuine softness rather than a one-off (confidence: Medium).",
+        "recommended_action": f"Worth checking {m_short} cancellations for a common source; a targeted offer is an option.",
+        "by_when": "Investigate today; offer decision within 3–4 days.",
         "at_stake": {"value": sf["value_at_stake"], "calc": sf["value_at_stake_calc"]},
     }
     merged = {
@@ -961,6 +1045,7 @@ def _merge_same_dates(candidates: list[dict]) -> list[dict]:
         "score":      score,
         "title_hint": fb["headline"],
         "month_num":  soft.get("month_num"),
+        "stake_eur":  soft.get("stake_eur", 0),
         "insight": {
             "id": fb["id"],
             "tag": "ALERT",
@@ -970,7 +1055,7 @@ def _merge_same_dates(candidates: list[dict]) -> list[dict]:
             "days_to_nearest_arrival": soft["insight"]["days_to_nearest_arrival"],
             "booking_window_days_left": soft["insight"]["booking_window_days_left"],
             "facts": facts,
-            "cause_hypotheses": [{"text": "Cancellations and the pace gap point at the same dates — demand is genuinely softening rather than a one-off", "confidence": "Medium"}],
+            "cause_hypotheses": [{"text": "Cancellations and the pace gap point at the same dates — demand genuinely softening rather than a one-off", "confidence": "Medium"}],
             "action_directives": {
                 "type": "investigate_cancellations",
                 "target": f"{month_label} cancellations by source and rate code; targeted offer on soft dates if broad",
@@ -982,6 +1067,51 @@ def _merge_same_dates(candidates: list[dict]) -> list[dict]:
         "fallback_card": fb,
     }
     return [c for c in candidates if c is not pick and c is not soft] + [merged]
+
+
+def _novelty_gate(candidates: list[dict], hotel_id: str) -> tuple[list[dict], list[dict]]:
+    """Spec C2.3: same card id raised in the last 3 days without the value at
+    stake worsening >= 10% → demote to watchlist. Fails open on any error."""
+    import os
+    import requests as _req
+    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
+    if not supabase_url or not supabase_key:
+        return candidates, []
+    try:
+        since = str(_date.today() - timedelta(days=3))
+        r = _req.get(
+            f"{supabase_url}/rest/v1/briefings",
+            params={"hotel_id": f"eq.{hotel_id}", "report_date": f"gte.{since}",
+                    "select": "ai_insights,report_date"},
+            headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        prev_stakes: dict[str, float] = {}
+        for row in r.json():
+            for ins in (row.get("ai_insights") or {}).get("insights", []):
+                cid = ins.get("id")
+                if cid:
+                    stake = _parse_eur((ins.get("at_stake") or {}).get("value", ""))
+                    prev_stakes[cid] = max(prev_stakes.get(cid, 0), stake)
+    except Exception as exc:
+        print(f"[analyst] Novelty gate skipped (lookup failed): {exc}")
+        return candidates, []
+
+    kept, demoted = [], []
+    for c in candidates:
+        cid = c["insight"]["id"]
+        if cid in prev_stakes:
+            old, new = prev_stakes[cid], c.get("stake_eur", 0)
+            if old > 0 and new < old * 1.10:
+                demoted.append(c)
+                continue
+        kept.append(c)
+    if demoted:
+        print(f"[analyst] Novelty gate: {len(demoted)} repeat card(s) → watchlist: "
+              f"{[d['insight']['id'] for d in demoted]}")
+    return kept, demoted
 
 
 # ─── Layer B: narration ──────────────────────────────────────────────────────
@@ -1004,15 +1134,26 @@ STRICT RULES
    (confidence: X). If cause_hypotheses is empty, write "Cause unclear
    from available data" (confidence: Low).
 6. recommended_action: rephrase action_directives naturally. Suggest,
-   never command ("Consider...", "Review..."). Never state a specific price
-   unless it appears in facts.
-7. by_when: always present. For tag MONITOR use: "No action yet -
-   recheck [date]. Trigger: [trigger_if_monitor]."
+   never command. Never state a specific price unless it appears in facts.
+7. by_when: always present. For tag MONITOR include the recheck cadence
+   and trigger briefly.
 8. at_stake: copy value and calc verbatim from facts. If absent, omit
    the field entirely - never invent a value.
 9. Audience: a general manager without a revenue background must
    understand every sentence. No jargon without a plain-language anchor.
-10. Language: write in English."""
+10. Language: write in English.
+11. Actions are light suggestions. Never use imperative verbs (change,
+    remove, increase, decrease, cut, raise, close, open, act) as the
+    instruction itself. Use: "Consider...", "It may be worth...",
+    "The position could support...". Vary openers across cards.
+12. Length caps: headline <=12 words; what_happened <=20; why_it_matters
+    <=35; recommended_action <=25; by_when <=10. Shorter is better.
+13. Occupancy/revenue projections: only use the low-high band provided
+    ("around 91-95%"). Never present a single-point projection or the
+    words "will finish at".
+14. Every fact carries a "period" label. Attach every number only to the
+    period named in its fact. Never blend full-month and remaining-period
+    numbers in one sentence."""
 
 _CARD_TOOL: dict[str, Any] = {
     "name": "submit_card",
@@ -1062,16 +1203,60 @@ _SUMMARY_TOOL: dict[str, Any] = {
 
 _NUM_TOKEN = re.compile(r"\d(?:[\d,\.]*\d)?")
 
+_BANNED_IMPERATIVES = {"change", "remove", "increase", "decrease", "cut",
+                       "raise", "close", "open", "act", "lower", "lift"}
+
+_WORD_CAPS = {"headline": 12, "what_happened": 20, "why_it_matters": 35,
+              "recommended_action": 25, "by_when": 10}
+
 
 def _bad_numbers(card_out: dict, haystack: str) -> list[str]:
-    """Every number token in the output must appear verbatim in the input JSON."""
     out_text = json.dumps(card_out, ensure_ascii=False)
     return sorted({tok for tok in _NUM_TOKEN.findall(out_text) if tok not in haystack})
 
 
+def _style_violations(card: dict) -> list[str]:
+    """Spec B1/B2: word caps + banned imperative action openers."""
+    v = []
+    for field, cap in _WORD_CAPS.items():
+        text = card.get(field, "")
+        if text and len(text.split()) > cap:
+            v.append(f"{field} is {len(text.split())} words (max {cap})")
+    first = card.get("recommended_action", "").strip().split(" ")[0].lower().strip(",.:;")
+    if first in _BANNED_IMPERATIVES:
+        v.append(f"recommended_action starts with imperative '{first}' — use a soft opener (Consider…, It may be worth…)")
+    return v
+
+
+def _period_violations(card: dict, facts: dict) -> list[str]:
+    """Spec D1: a sentence must not blend full-month and remaining-period numbers."""
+    tok_periods: dict[str, set] = {}
+    for f in facts.values():
+        if isinstance(f, dict) and "value" in f:
+            period = (f.get("period") or "").lower()
+            kind = "remaining" if "remaining" in period else ("full" if "full" in period else "")
+            if not kind:
+                continue
+            for t in _NUM_TOKEN.findall(str(f["value"])):
+                tok_periods.setdefault(t, set()).add(kind)
+
+    v = []
+    text = " ".join(str(card.get(k, "")) for k in ("headline", "what_happened", "why_it_matters"))
+    for sentence in re.split(r"(?<=[.;])\s+", text):
+        kinds = set()
+        for t in _NUM_TOKEN.findall(sentence):
+            p = tok_periods.get(t)
+            if p and len(p) == 1:
+                kinds |= p
+        if len(kinds) > 1:
+            v.append(f"sentence blends full-month and remaining-period numbers: '{sentence[:80]}'")
+    return v
+
+
 def _narrate_card(wrapper: dict, fallback_card: dict) -> dict:
-    """One Claude call per card. Numeric validator; max 2 retries; then fallback."""
+    """One Claude call per card; validated; max 2 retries; then fallback."""
     haystack = json.dumps(wrapper, ensure_ascii=False)
+    facts    = wrapper["insight"]["facts"]
     base_prompt = json.dumps(wrapper, ensure_ascii=False, indent=2)
     prompt = base_prompt
 
@@ -1092,27 +1277,29 @@ def _narrate_card(wrapper: dict, fallback_card: dict) -> dict:
             print(f"[analyst] Card narration error (attempt {attempt + 1}): {exc}")
             continue
 
-        bad = _bad_numbers(card, haystack)
-        if not bad:
+        problems = (_bad_numbers(card, haystack)
+                    + _style_violations(card)
+                    + _period_violations(card, facts))
+        if not problems:
             return _harden_card(card, wrapper)
 
-        print(f"[analyst] Card '{wrapper['insight']['id']}' attempt {attempt + 1}: "
-              f"numbers not in facts: {bad} — retrying")
+        print(f"[analyst] Card '{wrapper['insight']['id']}' attempt {attempt + 1} rejected: {problems}")
         prompt = (base_prompt +
-                  f"\n\nPREVIOUS ATTEMPT REJECTED. These numbers do not appear in the input JSON: "
-                  f"{', '.join(bad)}. Copy every number character-for-character from the input only.")
+                  "\n\nPREVIOUS ATTEMPT REJECTED for these violations:\n- "
+                  + "\n- ".join(str(p) for p in problems)
+                  + "\nFix every violation. Copy numbers character-for-character from the input only.")
 
     print(f"[analyst] Card '{wrapper['insight']['id']}': validation failed twice — using templated fallback.")
     return dict(fallback_card)
 
 
 def _harden_card(card: dict, wrapper: dict) -> dict:
-    """Post-process: id/tag/at_stake are authoritative from the compute layer."""
+    """id/tag/at_stake are authoritative from the compute layer."""
     insight = wrapper["insight"]
     facts   = insight["facts"]
     card["id"]  = insight["id"]
     card["tag"] = insight["tag"]
-    if "value_at_stake" in facts:
+    if "value_at_stake" in facts and "value_at_stake_calc" in facts:
         card["at_stake"] = {"value": facts["value_at_stake"], "calc": facts["value_at_stake_calc"]}
     else:
         card.pop("at_stake", None)
@@ -1120,17 +1307,16 @@ def _harden_card(card: dict, wrapper: dict) -> dict:
 
 
 def _narrate_summary(hotel_name: str, cards: list[dict]) -> str:
-    """One-sentence executive summary from the narrated cards. Validated; template fallback."""
     fallback = f"Today's focus: {cards[0]['headline']}" if cards else ""
     if not cards:
         return fallback
     digest = [{"tag": c["tag"], "headline": c["headline"],
-               "at_stake": c.get("at_stake", {}).get("value")} for c in cards[:3]]
+               "at_stake": (c.get("at_stake") or {}).get("value")} for c in cards[:3]]
     haystack = json.dumps(digest, ensure_ascii=False)
     prompt = (f"Hotel: {hotel_name}. Top insights this morning:\n"
               f"{json.dumps(digest, ensure_ascii=False, indent=2)}\n\n"
-              "Write ONE sentence (max 40 words) naming the single most urgent revenue focus today. "
-              "Use ONLY numbers that appear verbatim above — never compute or estimate.")
+              "Write ONE sentence (max 35 words) naming the single most urgent revenue focus today. "
+              "Soft, advisory tone — no imperatives. Use ONLY numbers that appear verbatim above.")
     try:
         response = _get_client().messages.create(
             model=_MODEL,
@@ -1142,7 +1328,7 @@ def _narrate_summary(hotel_name: str, cards: list[dict]) -> str:
         )
         result = next(b for b in response.content if b.type == "tool_use").input
         summary = result.get("executive_summary", "")
-        if summary and not _bad_numbers({"s": summary}, haystack):
+        if summary and not _bad_numbers({"s": summary}, haystack) and len(summary.split()) <= 40:
             return summary
     except Exception as exc:
         print(f"[analyst] Summary narration error: {exc}")
@@ -1154,7 +1340,7 @@ def _narrate_summary(hotel_name: str, cards: list[dict]) -> str:
 _TAG_TO_TYPE = {"ALERT": "warning", "OPPORTUNITY": "opportunity", "MONITOR": "monitor"}
 
 
-def _evidence_direction(ev: dict, tag: str) -> str:
+def _evidence_direction(ev: dict) -> str:
     s = ev.get("value", "") + " " + ev.get("sub", "")
     if "−" in s or "-€" in s:
         return "down"
@@ -1164,14 +1350,13 @@ def _evidence_direction(ev: dict, tag: str) -> str:
 
 
 def _card_to_insight(card: dict, priority: int) -> dict:
-    """Card (new anatomy) → insight object carrying BOTH new and legacy fields."""
     action = card["recommended_action"]
     if card.get("by_when"):
         action += f" By when: {card['by_when']}"
     if card.get("at_stake"):
         action += f" At stake: {card['at_stake']['value']}."
     return {
-        # New card anatomy (spec v1.1)
+        # New card anatomy (spec v1.2)
         "id":                 card["id"],
         "tag":                card["tag"],
         "headline":           card["headline"],
@@ -1187,7 +1372,7 @@ def _card_to_insight(card: dict, priority: int) -> dict:
         "title":    card["headline"],
         "kpis": [
             {"label": ev["label"], "value": ev["value"], "sub": ev.get("sub", ""),
-             "direction": _evidence_direction(ev, card["tag"])}
+             "direction": _evidence_direction(ev)}
             for ev in card["evidence"][:2]
         ],
         "findings": [card["what_happened"], card["why_it_matters"]],
@@ -1200,15 +1385,13 @@ _STUB = {"executive_summary": "", "insights": []}
 
 # ─── Layer B: entry point ────────────────────────────────────────────────────
 
-def generate_insights(data: dict[str, Any]) -> dict[str, Any]:
+def generate_insights(data: dict[str, Any], hotel_id: str | None = None) -> dict[str, Any]:
     if not config.ANTHROPIC_API_KEY:
         print("[analyst] No ANTHROPIC_API_KEY — skipping AI insights.")
         return _STUB
 
     try:
-        # The v3 path needs the new SQL payload fields. Without them only the
-        # future-month projection can fire (it uses old pace fields), which
-        # produces a thin 1-card briefing — use the legacy 3-5 insight path instead.
+        # v4 path needs the new SQL payload fields; old-fetcher payloads → legacy.
         has_new_data = bool(data.get("pickup_daily") or data.get("otb_by_date")
                             or data.get("current_month_remaining"))
         if not has_new_data:
@@ -1216,7 +1399,11 @@ def generate_insights(data: dict[str, Any]) -> dict[str, Any]:
                   "— using legacy prompt.")
             return _legacy_generate(data)
 
-        computed = _compute_signals(data)
+        if hotel_id is None:
+            import os
+            hotel_id = os.getenv("SUPABASE_HOTEL_ID") or None
+
+        computed = _compute_signals(data, hotel_id=hotel_id)
         ranked   = computed["ranked"]
         print(f"[analyst] Compute: {len(ranked)} ranked signals, "
               f"{len(computed['watchlist'])} watchlist")
@@ -1326,7 +1513,7 @@ Type: warning | opportunity | observation | monitor.
 Title: lead with EUR number. Max 70 chars.
 KPIs: exactly 2 chips with value and sub delta.
 Findings: exactly 2 bullets (max 25 words each). Plain text only, no markdown.
-Action: one professional sentence."""
+Action: one sentence, soft advisory tone ("Consider...", "It may be worth...") — never imperative."""
 
     yd  = data["yesterday"]
     mtd = data["mtd"]

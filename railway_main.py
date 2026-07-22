@@ -128,7 +128,7 @@ def process_hotel(hotel: dict, force: bool = False, data_only: bool = False) -> 
                 log.info(f"[processor] Reusing morning AI insights ({len(ai.get('insights', []))} insights)")
             else:
                 from briefing.analyst import generate_insights
-                ai = generate_insights(data)
+                ai = generate_insights(data, hotel_id=hotel["id"])
                 log.info(f"[processor] AI insights generated: {len(ai.get('insights', []))} insights")
 
             from briefing.mailer import save_preview, send
