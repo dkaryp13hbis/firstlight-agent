@@ -957,7 +957,18 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
 
     # ── Global ranking — top 5-6 across ALL periods, no per-month quota ──────
     candidates.sort(key=lambda c: c["score"], reverse=True)
-    ranked    = [c for c in candidates if c["score"] >= 0.08][:6]
+    ranked = [c for c in candidates if c["score"] >= 0.08][:6]
+
+    # Novelty must not thin the briefing below 3 cards — promote the strongest
+    # demoted candidates back until the floor is met.
+    if len(ranked) < 3 and demoted:
+        demoted.sort(key=lambda c: c["score"], reverse=True)
+        while len(ranked) < 3 and demoted and demoted[0]["score"] >= 0.08:
+            promoted = demoted.pop(0)
+            print(f"[analyst] Novelty backfill: {promoted['insight']['id']} promoted to meet 3-card floor")
+            ranked.append(promoted)
+        ranked.sort(key=lambda c: c["score"], reverse=True)
+
     watchlist = [c for c in candidates if c not in ranked] + demoted
 
     # ── Headline KPIs ─────────────────────────────────────────────────────────
@@ -1108,10 +1119,15 @@ def _novelty_gate(candidates: list[dict], hotel_id: str) -> tuple[list[dict], li
     if not supabase_url or not supabase_key:
         return candidates, []
     try:
-        since = str(_date.today() - timedelta(days=3))
+        # Day-over-day novelty ONLY: compare against briefings for PRIOR report
+        # dates, never the current one — otherwise a same-day manual refresh
+        # suppresses its own cards as "repeats" (incident 2026-07-23).
+        current_report = str(_date.today() - timedelta(days=1))
+        since = str(_date.today() - timedelta(days=4))
         r = _req.get(
             f"{supabase_url}/rest/v1/briefings",
-            params={"hotel_id": f"eq.{hotel_id}", "report_date": f"gte.{since}",
+            params={"hotel_id": f"eq.{hotel_id}",
+                    "and": f"(report_date.gte.{since},report_date.lt.{current_report})",
                     "select": "ai_insights,report_date"},
             headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
             timeout=10,
