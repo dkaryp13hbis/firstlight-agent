@@ -90,9 +90,20 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 | 5. Pipeline hardening | ✅ 2026-07-23 | see below | Per-hotel single-flight lock (concurrent refresh skipped); staged timeouts (warn 180s, hard-abandon 480s, env-tunable) via worker thread + first-finish-wins on RunLogger; retry ladder 5/15/45min for failed runs (dedup: retry skips if a briefing appeared meanwhile; no_morning_ai not retried); knobs REFRESH_CONCURRENCY (default 1 until config globals de-globalized — open item), CLAUDE_CONCURRENCY (semaphore in analyst), TUNNEL_CONCURRENCY; word-cap prompt tune (~80% targets, prompt cards-v1.2.1) to cut validation retries; `refresh_runs.attempt` column (schema-tolerant writes). 9 tests. SQL: `docs/sql/2026-07-23_step5_attempt.sql`. |
 
 ### Phase 2 — Pome pilot
-6. ⬜ Cloudflare: TCP route `sql-pome.hbis.io → 192.168.100.7:1433` + Access service token
-7. ⬜ One RDP visit: cloudflared config (bridge stays as fallback)
-8. ⬜ Run tunnel-direct ~1 week; watch refresh_runs
+6. ✅ 2026-07-23: Cloudflare TCP route `sql-pome.hbis.io → tcp://192.168.100.7:1433` on
+   existing FL_pome tunnel + Access app with Service Auth policy + service token
+   `railway-pome-sql` (per-hotel; in hotels.pms_config). Edge verified: no token → 403,
+   token → 200. NO hotel-server visit was needed (route added remotely to running tunnel).
+7. ✅ 2026-07-23 21:15 UTC — **FIRST TUNNEL-DIRECT BRIEFING**: fetch_path="tunnel",
+   fetch 7.9s (vs ~1-2s bridge; includes client spawn + Access handshake + 11 queries),
+   zero tunnel errors, no fallback. Railway queried Pome's SQL directly; no FirstLight
+   code involved at the hotel. Bridge stays armed as fallback.
+8. ⬜ Pilot week: watch refresh_runs (tunnel reliability, fallback count).
+   Conditions before Potidea/Phase 3: (a) create read-only SQL login `firstlight_ro`
+   on Pome's SQL Server and swap it into pms_config (currently sa — flagged);
+   (b) word-cap compliance: v1.2.1 tune insufficient — violations now near-misses
+   (cap+1..9 words); next: targeted retry feedback quoting offending field + budget,
+   or relax caps by ~3 words (product decision).
 
 ### Phase 3 — Complete
 9. ⬜ Potidea tunnel setup · 10. ⬜ **Delete code folders from both hotel servers** ·
