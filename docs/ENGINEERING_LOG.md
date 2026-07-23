@@ -188,6 +188,17 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 - PWA: the 3 OTB charts are too small — enlarge charts and axis/data labels
 - PWA multiproperty bug: switching hotel jumps straight to AI insights section —
   should reset scroll to top of the report (requested 2026-07-24)
+- 7-day history with day-over-day KPI deltas (requested 2026-07-24). Design:
+  NO new PMS queries — deltas come from stored daily snapshots (briefings has one
+  row per hotel per report_date already). Backend: (a) new `briefings.kpi_summary`
+  jsonb column (~200B: occupancy_today, rooms_otb, revenue_mtd, adr, pickup_7d),
+  populated by cloud_push at publish + SQL migration w/ index (hotel_id,
+  report_date); (b) `GET /briefing/history?hotel_id&days=7` returning slim rows
+  ONLY (never rendered_html — large-row lesson); PWA computes ▲▼ deltas
+  client-side. Phase 2: tap a day → full past briefing via `GET
+  /briefing/by-date` — depends on PWA render-from-data (avoids storing old HTML).
+  Manual refreshes overwrite the day's row → history shows final state per day;
+  failed mornings show as gaps.
 - PWA: render briefings from `data`/`ai_insights` JSON instead of `rendered_html` —
   PREREQUISITE for removing HTML storage (see 2026-07-23 incident); also permanently
   fixes the large-row 500 on `/briefing/latest`
