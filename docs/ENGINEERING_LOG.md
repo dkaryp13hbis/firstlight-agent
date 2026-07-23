@@ -181,6 +181,13 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 
 - PWA update to render the new card anatomy (BY WHEN box, tappable AT STAKE calc,
   evidence labels) — backend already ships the fields
+- PWA: language toggle — Greek / English (per-user preference; affects briefing
+  narration too, so backend prompt needs a language parameter)
+- PWA: text-size setting — whole-report scale selector, levels 1–5, like phone
+  accessibility font sizing (requested 2026-07-24)
+- PWA: the 3 OTB charts are too small — enlarge charts and axis/data labels
+- PWA multiproperty bug: switching hotel jumps straight to AI insights section —
+  should reset scroll to top of the report (requested 2026-07-24)
 - PWA: render briefings from `data`/`ai_insights` JSON instead of `rendered_html` —
   PREREQUISITE for removing HTML storage (see 2026-07-23 incident); also permanently
   fixes the large-row 500 on `/briefing/latest`
