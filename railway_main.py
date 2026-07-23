@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -328,6 +329,54 @@ def _process_hotel_locked(hotel: dict, run, force: bool, data_only: bool, result
         result["status"] = "failed"
 
 
+def _poll_refresh_commands() -> None:
+    """Cloud-side refresh-command poller — replaces the hotel daemon's role in
+    the PWA refresh flow, so hotel servers need to run NOTHING but cloudflared.
+    Claims commands atomically (status pending → running with a conditional
+    update), so it coexists safely with any hotel daemon still polling during
+    the transition — the per-hotel lock dedupes double delivery."""
+    import requests as _req
+    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
+    if not supabase_url or not supabase_key:
+        log.warning("[cmd-poll] SUPABASE env missing — cloud command poller disabled.")
+        return
+    headers = {"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}",
+               "Content-Type": "application/json"}
+    log.info("[cmd-poll] Cloud command poller started — every 30s.")
+    while True:
+        time.sleep(30)
+        try:
+            r = _req.get(
+                f"{supabase_url}/rest/v1/refresh_commands",
+                params={"status": "eq.pending", "select": "id,hotel_id,type",
+                        "order": "requested_at.asc", "limit": "3"},
+                headers=headers, timeout=10,
+            )
+            r.raise_for_status()
+            for cmd in r.json():
+                # Atomic claim: only wins while still pending
+                c = _req.patch(
+                    f"{supabase_url}/rest/v1/refresh_commands",
+                    params={"id": f"eq.{cmd['id']}", "status": "eq.pending"},
+                    json={"status": "running"},
+                    headers={**headers, "Prefer": "return=representation"},
+                    timeout=10,
+                )
+                if not c.ok or not c.json():
+                    continue  # a hotel daemon claimed it first — fine
+                log.info(f"[cmd-poll] Claimed command {cmd['id'][:8]}… "
+                         f"for hotel {cmd['hotel_id'][:8]}…")
+                threading.Thread(
+                    target=run_all_hotels,
+                    kwargs={"hotel_id_filter": cmd["hotel_id"], "cmd_id": cmd["id"],
+                            "force": True},
+                    daemon=True,
+                ).start()
+        except Exception as exc:
+            log.warning(f"[cmd-poll] Poll error: {exc}")
+
+
 def _mark_cmd_done(cmd_id: str) -> None:
     import requests as _req
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
@@ -405,15 +454,21 @@ if __name__ == "__main__":
     import sys, traceback
     try:
         scheduler = BackgroundScheduler()
-        # 06:00 UTC = 09:00 Greece — full briefing with AI insights + email
+        # 03:30 UTC = 06:30 Greece — full briefing (replaces the hotel Task
+        # Scheduler triggers so hotel servers can be decommissioned)
+        scheduler.add_job(run_all_hotels, "cron", hour=3, minute=30)
+        # 06:00 UTC = 09:00 Greece — catch-up full run (skips if briefing exists)
         scheduler.add_job(run_all_hotels, "cron", hour=6, minute=0)
         # 11:00 UTC = 14:00 Greece — data refresh, reuse morning AI insights
         scheduler.add_job(lambda: run_all_hotels(data_only=True), "cron", hour=11, minute=0)
         # 17:00 UTC = 20:00 Greece — data refresh, reuse morning AI insights
         scheduler.add_job(lambda: run_all_hotels(data_only=True), "cron", hour=17, minute=0)
         scheduler.start()
-        log.info("[railway] Scheduler started — 06:00 full briefing | 11:00 + 17:00 UTC data-only refresh")
+        log.info("[railway] Scheduler — 03:30 full | 06:00 catch-up | 11:00 + 17:00 UTC data-only")
         log.info(f"[railway] Hotels configured: {[h['name'] for h in _get_hotels()]}")
+
+        # Cloud-side refresh-command poller (hotel daemons no longer needed)
+        threading.Thread(target=_poll_refresh_commands, daemon=True).start()
 
         port = int(os.getenv("PORT", "8080"))
         log.info(f"[railway] HTTP server on port {port}")
