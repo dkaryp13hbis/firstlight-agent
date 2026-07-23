@@ -127,6 +127,9 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-07-24 | Claude runs ONCE per hotel per day (scheduled morning run only); data-only AND manual refreshes reuse the day's AI insights (`2b91f6e`) | Data barely moves intraday; per-refresh regeneration was pure cost. Hard-caps AI at ~€2-3/hotel/mo; manual refresh drops ~100s → ~10s. Fallback: refresh before any morning AI → generates fresh |
+| 2026-07-24 | Manual refreshes are silent — no email, no push (`5402b37`) | A debugging day sent the GM 6 briefing emails; notifications/email only from scheduled runs |
+| 2026-07-24 | Pome server decommissioned to cloudflared-only (`8e1329e`) | Cloud command poller + 03:30 UTC schedule replaced the daemon's last two roles; refresh-button test passed with zero hotel-side code |
 | 2026-07-22 | Tunnel-direct architecture: hotel servers keep ONLY cloudflared | Protect product IP (code/queries/keys off customer hardware); updates become git-push-only |
 | 2026-07-22 | NO watermarks / incremental ETL | We run stateless bounded aggregate queries, not a warehouse copy — watermarks add state-sync bugs for no gain |
 | 2026-07-22 | Keep per-card Claude calls (vs consolidating to 1–2) | Validator isolation: one bad card retries/falls back alone. Revisit only if measured cost/latency says so (Step 11) |
