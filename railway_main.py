@@ -275,17 +275,23 @@ def _process_hotel_locked(hotel: dict, run, force: bool, data_only: bool, result
         config.RECIPIENT_NAME  = hotel.get("recipient_name", "General Manager")
 
         degraded = False
-        if data_only:
-            # Reuse AI insights from the morning's full briefing — no Claude API call
+        ai = None
+        if data_only or manual:
+            # Data barely moves within a day — Claude runs ONCE per day on the
+            # scheduled morning briefing. Data-only refreshes and manual app
+            # refreshes reuse the morning's AI insights (fresh data, same story).
             ai = _get_existing_ai_insights(hotel["id"])
-            if not ai:
+            if ai:
+                log.info(f"[processor] Reusing today's AI insights ({len(ai.get('insights', []))} insights) — no Claude call")
+            elif data_only:
                 log.warning(f"[processor] {hotel['name']} — no morning AI insights found, skipping data-only refresh.")
                 run.finish("failed", error_type="no_morning_ai",
                            error_message="no AI insights from morning run to reuse")
                 result["status"] = "skipped"  # retrying cannot create morning AI
                 return
-            log.info(f"[processor] Reusing morning AI insights ({len(ai.get('insights', []))} insights)")
-        else:
+            else:
+                log.info(f"[processor] Manual refresh but no AI exists yet today — generating fresh.")
+        if ai is None:
             from briefing.analyst import generate_insights
             with run.stage("ai"):
                 ai = generate_insights(data, hotel_id=hotel["id"])
