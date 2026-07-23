@@ -219,10 +219,19 @@ def process_hotel(hotel: dict, force: bool = False, data_only: bool = False) -> 
                     degraded = meta.get("fallback_cards", 0) > 0
                 log.info(f"[processor] AI insights generated: {len(ai.get('insights', []))} insights")
 
-            # JSON is canonical — HTML renders on demand, nothing stored (Step 3)
+            # NOTE: the PWA renders briefings from rendered_html — storage must stay
+            # until the PWA is updated to render from data (learned 2026-07-23,
+            # incident: app showed "no briefing" when html was omitted).
+            from briefing.mailer import save_preview
+            with run.stage("render"):
+                preview_path = f"/tmp/{hotel['name'].lower().replace(' ', '_')}_briefing.html"
+                save_preview(data, ai, preview_path)
+                rendered_html = Path(preview_path).read_text(encoding="utf-8")
+
             from briefing.cloud_push import push_to_cloud
             with run.stage("publish"):
-                push_to_cloud(data, ai, hotel_id=hotel["id"], source_run_id=run.run_id)
+                push_to_cloud(data, ai, rendered_html=rendered_html,
+                              hotel_id=hotel["id"], source_run_id=run.run_id)
 
             # Only send email on the morning full briefing (renders transiently)
             if not data_only and hotel.get("recipient_email"):
