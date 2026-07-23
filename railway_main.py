@@ -24,9 +24,49 @@ from apscheduler.schedulers.background import BackgroundScheduler
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("railway")
 
-# Serialize hotel processing — prevents concurrent threads from clobbering
-# shared global config/env state (config.HOTEL_NAME, SUPABASE_HOTEL_ID, etc.)
-_process_lock = threading.Lock()
+# ── Concurrency controls (Step 5) ─────────────────────────────────────────────
+# REFRESH_CONCURRENCY: how many hotels may process at once. Default 1 because
+# config.HOTEL_NAME/TOTAL_ROOMS are process-wide globals mutated per hotel —
+# raise only after that state is passed per-call (open item for scale-up).
+_refresh_sem = threading.BoundedSemaphore(int(os.getenv("REFRESH_CONCURRENCY", "1")))
+
+# Per-hotel single-flight: a scheduled run and a manual refresh can never
+# process the same hotel simultaneously — the second is skipped.
+_hotel_locks: dict[str, threading.Lock] = {}
+_hotel_locks_guard = threading.Lock()
+
+# Staged timeouts per hotel run (reviewer spec: soft 2m expected, warn 3m, hard 8m)
+_SOFT_WARN_S    = int(os.getenv("RUN_WARN_S", "180"))
+_HARD_TIMEOUT_S = int(os.getenv("RUN_HARD_TIMEOUT_S", "480"))
+
+# Retry ladder for failed runs: attempt 2 after 5 min, 3 after 15, 4 after 45
+_RETRY_DELAYS_S = {2: 300, 3: 900, 4: 2700}
+
+
+def _get_hotel_lock(hotel_id: str) -> threading.Lock:
+    with _hotel_locks_guard:
+        return _hotel_locks.setdefault(hotel_id, threading.Lock())
+
+
+def _schedule_retry(hotel_id: str, data_only: bool, next_attempt: int) -> None:
+    delay = _RETRY_DELAYS_S.get(next_attempt)
+    if delay is None:
+        log.error(f"[retry] Giving up on hotel {hotel_id[:8]}… after {next_attempt - 1} attempts.")
+        return
+    log.info(f"[retry] Scheduling attempt {next_attempt} for hotel {hotel_id[:8]}… in {delay}s")
+    t = threading.Timer(delay, _retry_run, args=(hotel_id, data_only, next_attempt))
+    t.daemon = True
+    t.start()
+
+
+def _retry_run(hotel_id: str, data_only: bool, attempt: int) -> None:
+    hotels = [h for h in _get_hotels() if h["id"] == hotel_id]
+    if not hotels:
+        log.warning(f"[retry] Hotel {hotel_id[:8]}… no longer active — retry dropped.")
+        return
+    status = process_hotel(hotels[0], force=False, data_only=data_only, attempt=attempt)
+    if status == "failed":
+        _schedule_retry(hotel_id, data_only, attempt + 1)
 
 
 _HOTEL_COLS    = "id,name,total_rooms,bridge_url,bridge_secret,recipient_email,recipient_name"
@@ -150,101 +190,142 @@ def _get_existing_ai_insights(hotel_id: str) -> dict | None:
     return None
 
 
-def process_hotel(hotel: dict, force: bool = False, data_only: bool = False) -> None:
-    log.info(f"[processor] Starting: {hotel['name']} (data_only={data_only})")
+def process_hotel(hotel: dict, force: bool = False, data_only: bool = False,
+                  attempt: int = 1) -> str:
+    """Process one hotel. Returns final status: success | degraded | failed | skipped."""
+    log.info(f"[processor] Starting: {hotel['name']} (data_only={data_only}, attempt={attempt})")
 
     # Full briefing: skip if already done today (unless forced)
     if not data_only and not force and _briefing_exists_today(hotel["id"]):
         log.info(f"[processor] Skipped {hotel['name']} — briefing for today already exists.")
-        return
+        return "skipped"
 
+    # Per-hotel single-flight: never two refreshes for the same hotel at once
+    lock = _get_hotel_lock(hotel["id"])
+    if not lock.acquire(blocking=False):
+        log.info(f"[processor] Skipped {hotel['name']} — a refresh is already running.")
+        return "skipped"
+    try:
+        with _refresh_sem:
+            return _run_with_timeout(hotel, force, data_only, attempt)
+    finally:
+        lock.release()
+
+
+def _run_with_timeout(hotel: dict, force: bool, data_only: bool, attempt: int) -> str:
+    """Run the pipeline in a worker thread with staged timeouts: warn at
+    _SOFT_WARN_S, abandon at _HARD_TIMEOUT_S so one stuck hotel never blocks
+    the rest. RunLogger's first-finish-wins guard keeps the record consistent
+    if an abandoned worker completes later."""
     from briefing.run_log import RunLogger
-    run = RunLogger(hotel["id"], "data_only" if data_only else "full")
+    run = RunLogger(hotel["id"], "data_only" if data_only else "full", attempt=attempt)
+    run.start()
 
-    with _process_lock:
-        run.start()
-        try:
-            with run.stage("fetch"):
-                data = _fetch_hotel_data(hotel, run)
-            data["hotel_name"] = hotel["name"]
-            yd = data.get("yesterday", {})
-            log.info(f"[processor] Data fetched — yd_rev=€{yd.get('revenue',0):,.0f} occ={yd.get('occupancy',0)*100:.1f}% pace_months={len(data.get('pace',[]))} channels={len(data.get('topChannels',[]))}")
+    result: dict = {}
+    worker = threading.Thread(target=_process_hotel_locked,
+                              args=(hotel, run, force, data_only, result), daemon=True)
+    worker.start()
+    worker.join(_SOFT_WARN_S)
+    if worker.is_alive():
+        log.warning(f"[processor] {hotel['name']} — still running after {_SOFT_WARN_S}s (soft warn)")
+        run.timings["warned_slow"] = True
+        worker.join(max(1, _HARD_TIMEOUT_S - _SOFT_WARN_S))
+        if worker.is_alive():
+            log.error(f"[processor] {hotel['name']} — exceeded hard timeout "
+                      f"({_HARD_TIMEOUT_S}s); abandoning run.")
+            run.finish("failed", error_type="hard_timeout",
+                       error_message=f"run exceeded {_HARD_TIMEOUT_S}s")
+            return "failed"
+    return result.get("status", "failed")
 
-            from db.contract import is_publishable
-            ok, reason = is_publishable(data, hotel.get("total_rooms"))
-            dq = data.get("data_quality") or {}
-            run.record(data_quality=dq or None, rows_fetched=dq.get("rows_fetched"))
-            if not ok:
-                log.warning(f"[processor] {hotel['name']} — snapshot not publishable ({reason}); "
-                            f"keeping previous briefing.")
-                run.finish("failed", error_type="data_quality", error_message=reason)
+
+def _process_hotel_locked(hotel: dict, run, force: bool, data_only: bool, result: dict) -> None:
+    try:
+        with run.stage("fetch"):
+            data = _fetch_hotel_data(hotel, run)
+        data["hotel_name"] = hotel["name"]
+        yd = data.get("yesterday", {})
+        log.info(f"[processor] Data fetched — yd_rev=€{yd.get('revenue',0):,.0f} occ={yd.get('occupancy',0)*100:.1f}% pace_months={len(data.get('pace',[]))} channels={len(data.get('topChannels',[]))}")
+
+        from db.contract import is_publishable
+        ok, reason = is_publishable(data, hotel.get("total_rooms"))
+        dq = data.get("data_quality") or {}
+        run.record(data_quality=dq or None, rows_fetched=dq.get("rows_fetched"))
+        if not ok:
+            log.warning(f"[processor] {hotel['name']} — snapshot not publishable ({reason}); "
+                        f"keeping previous briefing.")
+            run.finish("failed", error_type="data_quality", error_message=reason)
+            result["status"] = "failed"  # retried — transient PMS states can clear
+            return
+        if dq.get("legacy_mode"):
+            log.info(f"[processor] {hotel['name']} — legacy-mode snapshot (old fetcher, "
+                     f"no signal fields).")
+
+        import config
+        config.HOTEL_NAME      = hotel["name"]
+        config.TOTAL_ROOMS     = hotel["total_rooms"]
+        config.RECIPIENT_EMAIL = hotel.get("recipient_email", "")
+        config.RECIPIENT_NAME  = hotel.get("recipient_name", "General Manager")
+
+        degraded = False
+        if data_only:
+            # Reuse AI insights from the morning's full briefing — no Claude API call
+            ai = _get_existing_ai_insights(hotel["id"])
+            if not ai:
+                log.warning(f"[processor] {hotel['name']} — no morning AI insights found, skipping data-only refresh.")
+                run.finish("failed", error_type="no_morning_ai",
+                           error_message="no AI insights from morning run to reuse")
+                result["status"] = "skipped"  # retrying cannot create morning AI
                 return
-            if dq.get("legacy_mode"):
-                log.info(f"[processor] {hotel['name']} — legacy-mode snapshot (old fetcher, "
-                         f"no signal fields).")
+            log.info(f"[processor] Reusing morning AI insights ({len(ai.get('insights', []))} insights)")
+        else:
+            from briefing.analyst import generate_insights
+            with run.stage("ai"):
+                ai = generate_insights(data, hotel_id=hotel["id"])
+            meta = ai.pop("_meta", None)
+            if meta:
+                usage = meta.get("usage", {})
+                run.record(
+                    cards_audit=meta.get("cards_audit"),
+                    input_tokens=usage.get("input_tokens"),
+                    output_tokens=usage.get("output_tokens"),
+                    cache_read_tokens=usage.get("cache_read_tokens"),
+                    cache_write_tokens=usage.get("cache_write_tokens"),
+                    estimated_cost_usd=meta.get("estimated_cost_usd"),
+                    model=meta.get("model"),
+                    prompt_version=meta.get("prompt_version"),
+                )
+                degraded = meta.get("fallback_cards", 0) > 0
+            log.info(f"[processor] AI insights generated: {len(ai.get('insights', []))} insights")
 
-            import config
-            config.HOTEL_NAME      = hotel["name"]
-            config.TOTAL_ROOMS     = hotel["total_rooms"]
-            config.RECIPIENT_EMAIL = hotel.get("recipient_email", "")
-            config.RECIPIENT_NAME  = hotel.get("recipient_name", "General Manager")
+        # NOTE: the PWA renders briefings from rendered_html — storage must stay
+        # until the PWA is updated to render from data (learned 2026-07-23,
+        # incident: app showed "no briefing" when html was omitted).
+        from briefing.mailer import save_preview
+        with run.stage("render"):
+            preview_path = f"/tmp/{hotel['name'].lower().replace(' ', '_')}_briefing.html"
+            save_preview(data, ai, preview_path)
+            rendered_html = Path(preview_path).read_text(encoding="utf-8")
 
-            degraded = False
-            if data_only:
-                # Reuse AI insights from the morning's full briefing — no Claude API call
-                ai = _get_existing_ai_insights(hotel["id"])
-                if not ai:
-                    log.warning(f"[processor] {hotel['name']} — no morning AI insights found, skipping data-only refresh.")
-                    run.finish("failed", error_type="no_morning_ai",
-                               error_message="no AI insights from morning run to reuse")
-                    return
-                log.info(f"[processor] Reusing morning AI insights ({len(ai.get('insights', []))} insights)")
-            else:
-                from briefing.analyst import generate_insights
-                with run.stage("ai"):
-                    ai = generate_insights(data, hotel_id=hotel["id"])
-                meta = ai.pop("_meta", None)
-                if meta:
-                    usage = meta.get("usage", {})
-                    run.record(
-                        cards_audit=meta.get("cards_audit"),
-                        input_tokens=usage.get("input_tokens"),
-                        output_tokens=usage.get("output_tokens"),
-                        cache_read_tokens=usage.get("cache_read_tokens"),
-                        cache_write_tokens=usage.get("cache_write_tokens"),
-                        estimated_cost_usd=meta.get("estimated_cost_usd"),
-                        model=meta.get("model"),
-                        prompt_version=meta.get("prompt_version"),
-                    )
-                    degraded = meta.get("fallback_cards", 0) > 0
-                log.info(f"[processor] AI insights generated: {len(ai.get('insights', []))} insights")
+        from briefing.cloud_push import push_to_cloud
+        with run.stage("publish"):
+            push_to_cloud(data, ai, rendered_html=rendered_html,
+                          hotel_id=hotel["id"], source_run_id=run.run_id)
 
-            # NOTE: the PWA renders briefings from rendered_html — storage must stay
-            # until the PWA is updated to render from data (learned 2026-07-23,
-            # incident: app showed "no briefing" when html was omitted).
-            from briefing.mailer import save_preview
-            with run.stage("render"):
-                preview_path = f"/tmp/{hotel['name'].lower().replace(' ', '_')}_briefing.html"
-                save_preview(data, ai, preview_path)
-                rendered_html = Path(preview_path).read_text(encoding="utf-8")
+        # Only send email on the morning full briefing (renders transiently)
+        if not data_only and hotel.get("recipient_email"):
+            from briefing.mailer import send
+            send(data, ai)
+            log.info(f"[processor] Email sent to {hotel['recipient_email']}")
 
-            from briefing.cloud_push import push_to_cloud
-            with run.stage("publish"):
-                push_to_cloud(data, ai, rendered_html=rendered_html,
-                              hotel_id=hotel["id"], source_run_id=run.run_id)
+        result["status"] = "degraded" if degraded else "success"
+        run.finish(result["status"])
+        log.info(f"[processor] Done: {hotel['name']}")
 
-            # Only send email on the morning full briefing (renders transiently)
-            if not data_only and hotel.get("recipient_email"):
-                from briefing.mailer import send
-                send(data, ai)
-                log.info(f"[processor] Email sent to {hotel['recipient_email']}")
-
-            run.finish("degraded" if degraded else "success")
-            log.info(f"[processor] Done: {hotel['name']}")
-
-        except Exception as exc:
-            log.error(f"[processor] Failed for {hotel['name']}: {exc}", exc_info=True)
-            run.finish("failed", error_type=type(exc).__name__, error_message=exc)
+    except Exception as exc:
+        log.error(f"[processor] Failed for {hotel['name']}: {exc}", exc_info=True)
+        run.finish("failed", error_type=type(exc).__name__, error_message=exc)
+        result["status"] = "failed"
 
 
 def _mark_cmd_done(cmd_id: str) -> None:
@@ -275,7 +356,9 @@ def run_all_hotels(hotel_id_filter: str | None = None, cmd_id: str | None = None
         log.warning("[scheduler] No hotels configured.")
         return
     for hotel in hotels:
-        process_hotel(hotel, force=force, data_only=data_only)
+        status = process_hotel(hotel, force=force, data_only=data_only)
+        if status == "failed":
+            _schedule_retry(hotel["id"], data_only, next_attempt=2)
     if cmd_id:
         _mark_cmd_done(cmd_id)
 

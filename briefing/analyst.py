@@ -21,8 +21,10 @@ anatomy so the current PWA renders unchanged.
 
 import calendar as _cal
 import json
+import os as _os
 import re
 import statistics
+import threading as _threading
 import time as _time
 from datetime import date as _date, timedelta
 from typing import Any
@@ -32,7 +34,10 @@ import config
 
 _client = None
 _MODEL = "claude-sonnet-4-6"
-_PROMPT_VERSION = "cards-v1.2"
+_PROMPT_VERSION = "cards-v1.2.1"
+
+# Global cap on concurrent Claude calls (matters once REFRESH_CONCURRENCY > 1)
+_CLAUDE_SEM = _threading.BoundedSemaphore(int(_os.getenv("CLAUDE_CONCURRENCY", "6")))
 
 # claude-sonnet-4-6 USD per million tokens (input / output / cache write 5m / cache read)
 _PRICE_IN, _PRICE_OUT, _PRICE_CW, _PRICE_CR = 3.00, 15.00, 3.75, 0.30
@@ -1191,8 +1196,11 @@ STRICT RULES
     remove, increase, decrease, cut, raise, close, open, act) as the
     instruction itself. Use: "Consider...", "It may be worth...",
     "The position could support...". Vary openers across cards.
-12. Length caps: headline <=12 words; what_happened <=20; why_it_matters
-    <=35; recommended_action <=25; by_when <=10. Shorter is better.
+12. LENGTH CAPS ARE HARD LIMITS — outputs over cap are REJECTED. Before
+    submitting, count the words in every field. Target ~80% of each cap:
+    headline ~9 words (max 12); what_happened ~15 (max 20); why_it_matters
+    ~28 (max 35); recommended_action ~18 (max 25); by_when ~6 (max 10).
+    If a thought does not fit, drop detail — never squeeze more words in.
 13. Occupancy/revenue projections: only use the low-high band provided
     ("around 91-95%"). Never present a single-point projection or the
     words "will finish at".
@@ -1324,16 +1332,17 @@ def _narrate_card(wrapper: dict, fallback_card: dict, meta: dict | None = None) 
     for attempt in range(3):
         audit["attempts"] = attempt + 1
         try:
-            response = _get_client().messages.create(
-                model=_MODEL,
-                max_tokens=1500,
-                temperature=0.2,
-                system=[{"type": "text", "text": _NARRATION_SYSTEM,
-                         "cache_control": {"type": "ephemeral"}}],
-                tools=[_CARD_TOOL],
-                tool_choice={"type": "tool", "name": "submit_card"},
-                messages=[{"role": "user", "content": prompt}],
-            )
+            with _CLAUDE_SEM:
+                response = _get_client().messages.create(
+                    model=_MODEL,
+                    max_tokens=1500,
+                    temperature=0.2,
+                    system=[{"type": "text", "text": _NARRATION_SYSTEM,
+                             "cache_control": {"type": "ephemeral"}}],
+                    tools=[_CARD_TOOL],
+                    tool_choice={"type": "tool", "name": "submit_card"},
+                    messages=[{"role": "user", "content": prompt}],
+                )
             _usage_add(audit, response.usage)
             card = next(b for b in response.content if b.type == "tool_use").input
         except Exception as exc:
@@ -1397,14 +1406,15 @@ def _narrate_summary(hotel_name: str, cards: list[dict], meta: dict | None = Non
               "Write ONE sentence (max 35 words) naming the single most urgent revenue focus today. "
               "Soft, advisory tone — no imperatives. Use ONLY numbers that appear verbatim above.")
     try:
-        response = _get_client().messages.create(
-            model=_MODEL,
-            max_tokens=300,
-            temperature=0.2,
-            tools=[_SUMMARY_TOOL],
-            tool_choice={"type": "tool", "name": "submit_summary"},
-            messages=[{"role": "user", "content": prompt}],
-        )
+        with _CLAUDE_SEM:
+            response = _get_client().messages.create(
+                model=_MODEL,
+                max_tokens=300,
+                temperature=0.2,
+                tools=[_SUMMARY_TOOL],
+                tool_choice={"type": "tool", "name": "submit_summary"},
+                messages=[{"role": "user", "content": prompt}],
+            )
         if meta is not None:
             _usage_add(meta["usage"], response.usage)
         result = next(b for b in response.content if b.type == "tool_use").input
@@ -1675,15 +1685,16 @@ NEXT 7 DAYS
 Generate 3-5 insights using the submit_briefing tool."""
 
     try:
-        response = _get_client().messages.create(
-            model=_MODEL,
-            max_tokens=4096,
-            temperature=0.3,
-            system=[{"type": "text", "text": _LEGACY_SYSTEM, "cache_control": {"type": "ephemeral"}}],
-            tools=[_LEGACY_TOOL],
-            tool_choice={"type": "tool", "name": "submit_briefing"},
-            messages=[{"role": "user", "content": user_msg}],
-        )
+        with _CLAUDE_SEM:
+            response = _get_client().messages.create(
+                model=_MODEL,
+                max_tokens=4096,
+                temperature=0.3,
+                system=[{"type": "text", "text": _LEGACY_SYSTEM, "cache_control": {"type": "ephemeral"}}],
+                tools=[_LEGACY_TOOL],
+                tool_choice={"type": "tool", "name": "submit_briefing"},
+                messages=[{"role": "user", "content": user_msg}],
+            )
         tool_use = next(b for b in response.content if b.type == "tool_use")
         result: dict[str, Any] = tool_use.input
         result.setdefault("executive_summary", "")
