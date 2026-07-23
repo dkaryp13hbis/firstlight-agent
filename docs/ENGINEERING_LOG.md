@@ -98,6 +98,14 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
    fetch 7.9s (vs ~1-2s bridge; includes client spawn + Access handshake + 11 queries),
    zero tunnel errors, no fallback. Railway queried Pome's SQL directly; no FirstLight
    code involved at the hotel. Bridge stays armed as fallback.
+7b. ✅ 2026-07-24: **Pome server decommissioned to tunnel-only.** Cloud command
+   poller (`_poll_refresh_commands`, atomic claim) + 03:30 UTC full-run schedule
+   replace the daemon and Task Scheduler triggers (`8e1329e`). Daemon killed,
+   both FirstLight tasks disabled; refresh-button test passed with zero hotel-side
+   code (21:32 run: poller-claimed, fetch_path=tunnel). Folder stays 1 week as
+   rollback. Also `5402b37`: manual refreshes now silent (no email/push) — a
+   debugging day had sent the GM 6 briefing emails; notifications only from
+   scheduled runs now.
 8. ⬜ Pilot week: watch refresh_runs (tunnel reliability, fallback count).
    Conditions before Potidea/Phase 3: (a) create read-only SQL login `firstlight_ro`
    on Pome's SQL Server and swap it into pms_config (currently sa — flagged);
