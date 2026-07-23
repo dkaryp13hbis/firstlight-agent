@@ -121,6 +121,34 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 12. ⬜ Load test 20–30 simulated hotels · 13. ⬜ Concurrency tuning (REFRESH=10/TUNNEL=5/CLAUDE=8) ·
 14. ⬜ Per-hotel briefing time + timezone
 
+### Next steps (written 2026-07-24, read this first tomorrow)
+
+**Tomorrow morning:**
+- ⬜ Verify first fully-cloud scheduled briefing (03:30 UTC / 06:30 Greece):
+  refresh_runs row with fetch_path=tunnel, fresh AI cards, exactly ONE email +
+  ONE push. Any manual refresh after it must be silent and reuse the day's AI.
+
+**During pilot week (→ ~2026-07-31):**
+- ⬜ Daily: check refresh_runs (fetch_path, tunnel_error, retries, cost) — Claude
+- ⬜ USER: create `firstlight_ro` read-only login on Pome SQL Server, send
+  password → swap pms_config off `sa` (security must-fix)
+- ⬜ USER: word-caps decision — sharper retry feedback (code) or relax caps
+  ~3 words (spec)
+- ⬜ Optional build (low-risk, independent): 7-day history backend — kpi_summary
+  migration + publish change + /briefing/history endpoint, so data accumulates
+
+**End of pilot week (after ~5 clean days):**
+- ⬜ Potidea migration: Cloudflare route + service token (~30 min), set
+  pms_type/pms_config, flip to tunnel, decommission daemon + scheduled tasks
+- ⬜ Delete FirstLight code folders from BOTH hotel servers → migration complete
+
+**After migration — roadmap (user picks order):**
+- PWA overhaul bundle: render-from-data (prerequisite) + new card anatomy +
+  Greek/English toggle + text-size 1–5 + bigger OTB charts + multiproperty
+  scroll fix + 7-day history UI (see §8 for details)
+- Signal 3 (lead time) · follow-up loop · chatbot/monetization tiers ·
+  scale prep before hotel #10
+
 ---
 
 ## 5. Decision log
