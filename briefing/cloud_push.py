@@ -16,7 +16,8 @@ import config
 
 
 def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str | None = None,
-                  hotel_id: str | None = None, source_run_id: str | None = None) -> bool:
+                  hotel_id: str | None = None, source_run_id: str | None = None,
+                  notify: bool = True) -> bool:
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
     supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
     if hotel_id is None:
@@ -58,7 +59,10 @@ def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str |
         )
         resp.raise_for_status()
         print(f"[cloud] Pushed briefing for {yesterday} (hotel {hotel_id[:8]}…) -> HTTP {resp.status_code}")
-        _send_push_notifications(ai, hotel_id, hotel_name=data.get("hotel_name") or config.HOTEL_NAME)
+        if notify:
+            _send_push_notifications(ai, hotel_id, hotel_name=data.get("hotel_name") or config.HOTEL_NAME)
+        else:
+            print("[cloud] Push notifications suppressed (manual refresh).")
         return True
     except requests.RequestException as exc:
         print(f"[cloud] Push failed: {exc}")

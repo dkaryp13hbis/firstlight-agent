@@ -49,25 +49,27 @@ def _get_hotel_lock(hotel_id: str) -> threading.Lock:
         return _hotel_locks.setdefault(hotel_id, threading.Lock())
 
 
-def _schedule_retry(hotel_id: str, data_only: bool, next_attempt: int) -> None:
+def _schedule_retry(hotel_id: str, data_only: bool, next_attempt: int,
+                    manual: bool = False) -> None:
     delay = _RETRY_DELAYS_S.get(next_attempt)
     if delay is None:
         log.error(f"[retry] Giving up on hotel {hotel_id[:8]}… after {next_attempt - 1} attempts.")
         return
     log.info(f"[retry] Scheduling attempt {next_attempt} for hotel {hotel_id[:8]}… in {delay}s")
-    t = threading.Timer(delay, _retry_run, args=(hotel_id, data_only, next_attempt))
+    t = threading.Timer(delay, _retry_run, args=(hotel_id, data_only, next_attempt, manual))
     t.daemon = True
     t.start()
 
 
-def _retry_run(hotel_id: str, data_only: bool, attempt: int) -> None:
+def _retry_run(hotel_id: str, data_only: bool, attempt: int, manual: bool = False) -> None:
     hotels = [h for h in _get_hotels() if h["id"] == hotel_id]
     if not hotels:
         log.warning(f"[retry] Hotel {hotel_id[:8]}… no longer active — retry dropped.")
         return
-    status = process_hotel(hotels[0], force=False, data_only=data_only, attempt=attempt)
+    status = process_hotel(hotels[0], force=False, data_only=data_only, attempt=attempt,
+                           manual=manual)
     if status == "failed":
-        _schedule_retry(hotel_id, data_only, attempt + 1)
+        _schedule_retry(hotel_id, data_only, attempt + 1, manual)
 
 
 _HOTEL_COLS    = "id,name,total_rooms,bridge_url,bridge_secret,recipient_email,recipient_name"
@@ -192,9 +194,11 @@ def _get_existing_ai_insights(hotel_id: str) -> dict | None:
 
 
 def process_hotel(hotel: dict, force: bool = False, data_only: bool = False,
-                  attempt: int = 1) -> str:
-    """Process one hotel. Returns final status: success | degraded | failed | skipped."""
-    log.info(f"[processor] Starting: {hotel['name']} (data_only={data_only}, attempt={attempt})")
+                  attempt: int = 1, manual: bool = False) -> str:
+    """Process one hotel. Returns final status: success | degraded | failed | skipped.
+    manual=True (app refresh / trigger): updates the app silently — no email, no push."""
+    log.info(f"[processor] Starting: {hotel['name']} (data_only={data_only}, "
+             f"attempt={attempt}, manual={manual})")
 
     # Full briefing: skip if already done today (unless forced)
     if not data_only and not force and _briefing_exists_today(hotel["id"]):
@@ -208,12 +212,13 @@ def process_hotel(hotel: dict, force: bool = False, data_only: bool = False,
         return "skipped"
     try:
         with _refresh_sem:
-            return _run_with_timeout(hotel, force, data_only, attempt)
+            return _run_with_timeout(hotel, force, data_only, attempt, manual)
     finally:
         lock.release()
 
 
-def _run_with_timeout(hotel: dict, force: bool, data_only: bool, attempt: int) -> str:
+def _run_with_timeout(hotel: dict, force: bool, data_only: bool, attempt: int,
+                      manual: bool = False) -> str:
     """Run the pipeline in a worker thread with staged timeouts: warn at
     _SOFT_WARN_S, abandon at _HARD_TIMEOUT_S so one stuck hotel never blocks
     the rest. RunLogger's first-finish-wins guard keeps the record consistent
@@ -224,7 +229,7 @@ def _run_with_timeout(hotel: dict, force: bool, data_only: bool, attempt: int) -
 
     result: dict = {}
     worker = threading.Thread(target=_process_hotel_locked,
-                              args=(hotel, run, force, data_only, result), daemon=True)
+                              args=(hotel, run, force, data_only, result, manual), daemon=True)
     worker.start()
     worker.join(_SOFT_WARN_S)
     if worker.is_alive():
@@ -240,7 +245,8 @@ def _run_with_timeout(hotel: dict, force: bool, data_only: bool, attempt: int) -
     return result.get("status", "failed")
 
 
-def _process_hotel_locked(hotel: dict, run, force: bool, data_only: bool, result: dict) -> None:
+def _process_hotel_locked(hotel: dict, run, force: bool, data_only: bool, result: dict,
+                          manual: bool = False) -> None:
     try:
         with run.stage("fetch"):
             data = _fetch_hotel_data(hotel, run)
@@ -311,10 +317,13 @@ def _process_hotel_locked(hotel: dict, run, force: bool, data_only: bool, result
         from briefing.cloud_push import push_to_cloud
         with run.stage("publish"):
             push_to_cloud(data, ai, rendered_html=rendered_html,
-                          hotel_id=hotel["id"], source_run_id=run.run_id)
+                          hotel_id=hotel["id"], source_run_id=run.run_id,
+                          notify=not manual)
 
-        # Only send email on the morning full briefing (renders transiently)
-        if not data_only and hotel.get("recipient_email"):
+        # Email only on the SCHEDULED morning full briefing — manual refreshes
+        # update the app silently (learned 2026-07-24: refresh storms mailed
+        # the GM once per run)
+        if not data_only and not manual and hotel.get("recipient_email"):
             from briefing.mailer import send
             send(data, ai)
             log.info(f"[processor] Email sent to {hotel['recipient_email']}")
@@ -370,7 +379,7 @@ def _poll_refresh_commands() -> None:
                 threading.Thread(
                     target=run_all_hotels,
                     kwargs={"hotel_id_filter": cmd["hotel_id"], "cmd_id": cmd["id"],
-                            "force": True},
+                            "force": True, "manual": True},
                     daemon=True,
                 ).start()
         except Exception as exc:
@@ -397,7 +406,9 @@ def _mark_cmd_done(cmd_id: str) -> None:
         log.warning(f"[railway] Failed to mark cmd done: {e}")
 
 
-def run_all_hotels(hotel_id_filter: str | None = None, cmd_id: str | None = None, force: bool = False, data_only: bool = False) -> None:
+def run_all_hotels(hotel_id_filter: str | None = None, cmd_id: str | None = None,
+                   force: bool = False, data_only: bool = False,
+                   manual: bool = False) -> None:
     hotels = _get_hotels()
     if hotel_id_filter:
         hotels = [h for h in hotels if h["id"] == hotel_id_filter]
@@ -405,9 +416,9 @@ def run_all_hotels(hotel_id_filter: str | None = None, cmd_id: str | None = None
         log.warning("[scheduler] No hotels configured.")
         return
     for hotel in hotels:
-        status = process_hotel(hotel, force=force, data_only=data_only)
+        status = process_hotel(hotel, force=force, data_only=data_only, manual=manual)
         if status == "failed":
-            _schedule_retry(hotel["id"], data_only, next_attempt=2)
+            _schedule_retry(hotel["id"], data_only, next_attempt=2, manual=manual)
     if cmd_id:
         _mark_cmd_done(cmd_id)
 
@@ -435,7 +446,8 @@ class Handler(BaseHTTPRequestHandler):
             data_only = (qs.get("data_only")   or ["false"])[0].lower() == "true"
             threading.Thread(
                 target=run_all_hotels,
-                kwargs={"hotel_id_filter": hotel_id, "cmd_id": cmd_id, "force": True, "data_only": data_only},
+                kwargs={"hotel_id_filter": hotel_id, "cmd_id": cmd_id, "force": True,
+                        "data_only": data_only, "manual": True},
                 daemon=True,
             ).start()
             body = b'{"status":"triggered"}'
