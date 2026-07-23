@@ -126,6 +126,8 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 
 | Date | Incident | Root cause | Fix / lesson |
 |---|---|---|---|
+| 2026-07-23 | App showed "No briefing available" for both hotels after Step 3 deploy, despite push notifications arriving | Step 3 stopped storing `rendered_html`; the PWA renders briefings FROM that field (assumption that it renders from `data` was wrong — the API endpoint was checked, the app's own reads were not) | Hotfix `297ce90` restored HTML storage; both hotels republished within the hour. Lesson: before removing a field, verify what every consumer actually reads — not just the API in front of it. PWA render-from-data is now a prerequisite (open item) before storage removal returns. Side note: dropping the blob had instantly fixed Potidea's `/briefing/latest` 500 — that endpoint chokes on large rows |
+| 2026-07-23 | Pome produced no morning briefing (3 failed runs: 06:30, 09:00, 14:00 Greece) | `server.py --daemon` was dead — restarted manually in an RDP window the day before, killed when the session was signed out; startup task only fires on reboot. Bridge returned 502 (tunnel up, origin down) | Daemon restarted; refresh republished. Diagnosed in one refresh_runs query (logbook's first save). Lessons: console-started processes die on sign-out — use Task Scheduler / disconnect only; the publication gate correctly kept the last good briefing; this failure class disappears entirely with tunnel-direct (no daemon) |
 | 2026-07-22 | Both hotels shipped a **1-insight briefing** | Old-format payloads (hotel daemons not restarted / never updated) let only the future-projection signal fire; non-empty ranked list skipped the legacy fallback | Guard on new-data presence (`b6d4185`), later formalized as `data_quality.legacy_mode` (Step 1). Lesson: fallback conditions must test *inputs*, not *outputs*; running daemons cache old code — restart after file updates |
 | 2026-07-21 | 30 min lost hunting Railway `/trigger` 404 | Two Railway services: FastAPI relay (`web-production-61c4d`) ≠ processor (`railway_main.py`); we probed the relay | Documented both services (§2). Lesson: check prior session history first — the answer usually exists |
 | 2026-07-21 | Real-data cards review found: full-month rn presented as remaining-period ("4,161 rn in 10 nights"), weak card fired (z +0.7), unexplained €108,298 at stake | No period labels on facts; magnitude gate not enforced; at-stake figure without calc | Spec v1.2 (`3f6063a`): period-scoped facts + blend validator; |z|≥2 gate; no-calc-no-figure rule |
@@ -157,6 +159,9 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 
 - PWA update to render the new card anatomy (BY WHEN box, tappable AT STAKE calc,
   evidence labels) — backend already ships the fields
+- PWA: render briefings from `data`/`ai_insights` JSON instead of `rendered_html` —
+  PREREQUISITE for removing HTML storage (see 2026-07-23 incident); also permanently
+  fixes the large-row 500 on `/briefing/latest`
 - Potidea `/briefing/latest` 500 (see incidents)
 - Signal 3 (lead-time/booking-window signal) — deferred
 - Follow-up loop (track advice given → outcomes; N component of score) — Phase 2,
