@@ -124,12 +124,18 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 ### Next steps (written 2026-07-24, read this first tomorrow)
 
 **Tomorrow morning:**
-- ⬜ Verify first fully-cloud scheduled briefing (03:30 UTC / 06:30 Greece):
-  refresh_runs row with fetch_path=tunnel, fresh AI cards, exactly ONE email +
-  ONE push. Any manual refresh after it must be silent and reuse the day's AI.
+- ✅ 2026-07-24: first fully-cloud scheduled briefing VERIFIED — Pome 03:30 UTC
+  success via tunnel (fetch 7.3s, AI 31.6s, $0.049), no fallback cards (clean
+  success vs prior degraded runs); 11:00/17:00 data-only reused AI, zero cost.
+  Note: Potidea's old Task Scheduler still fires /trigger at 04:00 UTC — handled
+  as manual (silent, AI reuse, $0); dies at Phase 3.
 
 **During pilot week (→ ~2026-07-31):**
-- ⬜ Daily: check refresh_runs (fetch_path, tunnel_error, retries, cost) — Claude
+- 🔄 Daily: check refresh_runs (fetch_path, tunnel_error, retries, cost) — Claude
+  (day 1 ✅ clean, zero tunnel errors)
+- ⬜ USER: paste Step 5 SQL in Supabase (attempt column missing — discovered
+  2026-07-24; logging falls back fine, retries unrecorded):
+  `alter table refresh_runs add column if not exists attempt integer not null default 1;`
 - ⬜ USER: create `firstlight_ro` read-only login on Pome SQL Server, send
   password → swap pms_config off `sa` (security must-fix)
 - ⬜ USER: word-caps decision — sharper retry feedback (code) or relax caps
