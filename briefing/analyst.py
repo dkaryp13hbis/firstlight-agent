@@ -512,6 +512,212 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             "fallback_card": fb,
         })
 
+    # ── Signal 3: Booking lead time by stay month (hard gate: |shift| >= 10%) ─
+    # Compares avg lead of bookings made in the last 28 days vs the same window
+    # LY, per stay month; drills into the top-shifting source. Bucket profile
+    # (city = close-in detail, resort = far-out detail) comes from hotel_type.
+    lead_rows = data.get("lead_time", [])
+    if lead_rows:
+        hotel_type    = data.get("hotel_type", "resort")
+        close_buckets = {"0-3", "4-7"} if hotel_type == "city" else {"0-3", "4-7", "8-15"}
+        close_label   = "7 days" if hotel_type == "city" else "15 days"
+
+        lt_month: dict[tuple, dict] = {}
+        lt_src:   dict[tuple, dict] = {}
+        for r in lead_rows:
+            sm, sy = int(r.get("stay_month", 0)), int(r.get("stay_year", 0))
+            per = r.get("period")
+            if per == "LY":
+                sy += 1  # align each LY slice with its TY counterpart month
+            rn = float(r.get("rn", 0))
+            a = lt_month.setdefault((sm, sy, per),
+                                    {"rn": 0.0, "rev": 0.0, "lxr": 0.0, "close_rn": 0.0})
+            a["rn"]  += rn
+            a["rev"] += float(r.get("rev", 0))
+            a["lxr"] += float(r.get("lead_x_rn", 0))
+            if r.get("lead_bucket") in close_buckets:
+                a["close_rn"] += rn
+            s = lt_src.setdefault((sm, sy, per, r.get("source") or "Direct"),
+                                  {"rn": 0.0, "lxr": 0.0})
+            s["rn"]  += rn
+            s["lxr"] += float(r.get("lead_x_rn", 0))
+
+        lt_cands: list[dict] = []
+        for sm, sy in sorted({(k[0], k[1]) for k in lt_month if k[2] == "TY"}):
+            ty_a = lt_month.get((sm, sy, "TY"))
+            ly_a = lt_month.get((sm, sy, "LY"))
+            # Sample gate: both periods need volume for a stable average
+            if not ty_a or not ly_a or ty_a["rn"] < 15 or ly_a["rn"] < 15:
+                continue
+            m_start, m_end = _month_bounds(sy, sm)
+            if m_end < today:
+                continue
+            wavg_ty = ty_a["lxr"] / ty_a["rn"]
+            wavg_ly = ly_a["lxr"] / ly_a["rn"]
+            if wavg_ly <= 0:
+                continue
+            shift_days = wavg_ty - wavg_ly
+            shift_pct  = shift_days / wavg_ly
+            if abs(shift_pct) < 0.10:
+                continue  # hard gate: <10% shift is noise
+            rev_in_motion = ty_a["rev"]
+            if rev_in_motion < _STAKE_FLOOR_EUR:
+                continue  # spec C2.2 significance floor
+
+            m_name        = _cal.month_abbr[sm]
+            month_label   = f"{m_name} {sy}"
+            days_to_start = max(0, (m_start - today).days)
+            window_left   = max(0, (m_end - today).days)
+            shrinking     = shift_days < 0          # guests book closer-in than LY
+            pace_m        = next((p for p in pace if p.get("month_num") == sm), None) \
+                            if sy == today.year else None
+            pace_status   = pace_m.get("status") if pace_m else None
+            behind        = pace_status == "behind"
+
+            share_ty = ty_a["close_rn"] / ty_a["rn"]
+            share_ly = ly_a["close_rn"] / ly_a["rn"] if ly_a["rn"] else 0.0
+
+            lead_ty_i = round(wavg_ty)
+            lead_ly_i = round(wavg_ly)
+            shift_i   = lead_ty_i - lead_ly_i
+            f_lead_ty = f"{lead_ty_i} days"
+            f_lead_ly = f"{lead_ly_i} days"
+            f_shift   = (f"{shift_days:+.1f} days" if abs(shift_i) < 2
+                         else f"{shift_i:+d} days")
+            f_share_ty = _pct(share_ty * 100, 0)
+            f_share_ly = _pct(share_ly * 100, 0)
+            f_stake    = _eur(rev_in_motion)
+            f_calc     = (f"{_eur(rev_in_motion)} booked in last 28 days for "
+                          f"{month_label}, arriving {abs(shift_days):.0f} days "
+                          f"{'later' if shrinking else 'earlier'} than last year")
+
+            p_ty = f"bookings made last 28 days for {month_label}"
+            p_ly = f"same 28-day window last year for {month_label}"
+            facts = {
+                "month_label":   month_label,
+                "avg_lead":      _fact(f_lead_ty, p_ty),
+                "avg_lead_ly":   _fact(f_lead_ly, p_ly),
+                "lead_shift":    _fact(f_shift, "vs last year"),
+                "close_in_share":    _fact(f_share_ty, f"{p_ty}, within {close_label} of arrival"),
+                "close_in_share_ly": _fact(f_share_ly, f"{p_ly}, within {close_label} of arrival"),
+                "value_at_stake":      f_stake,
+                "value_at_stake_calc": f_calc,
+            }
+
+            # Top-shifting source drill-down (needs volume on both sides)
+            best_src = None
+            for (ssm, ssy, sper, src), s_ty in lt_src.items():
+                if (ssm, ssy, sper) != (sm, sy, "TY") or s_ty["rn"] < 8:
+                    continue
+                s_ly = lt_src.get((sm, sy, "LY", src))
+                if not s_ly or s_ly["rn"] < 8:
+                    continue
+                d = s_ty["lxr"] / s_ty["rn"] - s_ly["lxr"] / s_ly["rn"]
+                if best_src is None or abs(d) > abs(best_src[1]):
+                    best_src = (src, d, s_ty["lxr"] / s_ty["rn"], s_ly["lxr"] / s_ly["rn"])
+            if best_src:
+                facts["top_source_shift"] = _fact(
+                    f"{best_src[0]}: {best_src[2]:.0f}d vs {best_src[3]:.0f}d",
+                    f"avg lead, {p_ty} vs same window last year")
+
+            if shrinking:
+                tag = "MONITOR"
+                if behind:
+                    hypo = [{"text": f"Demand for {month_label} is booking closer to arrival than last year — the pace gap may be timing rather than lost demand", "confidence": "Medium"}]
+                    fb_why = "The pace gap may be timing rather than lost demand — bookings are simply arriving later than last year (confidence: Medium)."
+                    fb_action = f"It may be worth holding rates and delaying any {month_label} discounting — demand appears to be arriving later, not disappearing."
+                else:
+                    hypo = [{"text": f"Guests are committing later for {month_label} — close-in demand is carrying the month", "confidence": "Medium"}]
+                    fb_why = "Close-in demand is carrying the month; discounting early would give margin away to guests who book late anyway (confidence: Medium)."
+                    fb_action = f"Current pricing looks supported by late demand — early {month_label} discounts may be unnecessary."
+                directive = {
+                    "type": "hold_rates",
+                    "target": f"open {month_label} nights — demand books closer-in than last year",
+                    "deadline": "recheck in 7 days",
+                    "trigger_if_monitor": f"{month_label} pickup slowing while lead time stays short",
+                }
+                fb_headline = f"{month_label} demand books {abs(shift_i)} days closer to arrival than last year"
+                fb_by_when = "Recheck in 7 days — sooner if pickup slows."
+            elif behind:
+                tag = "ALERT"
+                hypo = [{"text": f"The booking window for {month_label} has lengthened while pace is behind — the late demand being counted on may not materialise", "confidence": "Medium"}]
+                directive = {
+                    "type": "investigate_demand",
+                    "target": f"{month_label} pricing and visibility — late demand is not compensating",
+                    "deadline": "within 2 days",
+                    "trigger_if_monitor": None,
+                }
+                fb_why = "Guests now commit earlier, so waiting for a late surge to close the gap looks riskier than last year (confidence: Medium)."
+                fb_action = f"A review of {month_label} pricing and channel visibility may be warranted — the window to influence the month is closing earlier."
+                fb_headline = f"{month_label} books {abs(shift_i)} days earlier than last year while pace lags"
+                fb_by_when = "Within 2 days."
+            else:
+                tag = "OPPORTUNITY" if pace_status == "ahead" else "MONITOR"
+                hypo = [{"text": f"Guests commit earlier for {month_label} than last year — demand confidence looks stronger", "confidence": "Medium"}]
+                directive = {
+                    "type": "rate_review_up",
+                    "target": f"open {month_label} nights — early commitment supports firmer rates",
+                    "deadline": "within 3 days",
+                    "trigger_if_monitor": None,
+                }
+                fb_why = "Earlier commitment usually signals stronger demand confidence, which can support firmer pricing (confidence: Medium)."
+                fb_action = f"The position could support firmer rates on open {month_label} nights."
+                fb_headline = f"{month_label} guests book {abs(shift_i)} days earlier than last year"
+                fb_by_when = "Within 3 days."
+
+            fallback_card = {
+                "id": f"leadtime_{m_name.lower()}_{sy}",
+                "tag": tag,
+                "headline": fb_headline,
+                "evidence": [
+                    {"label": "AVG LEAD TIME", "value": f"{lead_ty_i}d",
+                     "sub": f"vs {lead_ly_i}d same window last year"},
+                    {"label": "CLOSE-IN SHARE", "value": f_share_ty,
+                     "sub": f"vs {f_share_ly} LY, within {close_label}"},
+                ],
+                "what_happened": (f"Bookings made in the last 28 days for {month_label} "
+                                  f"average {f_lead_ty} before arrival, against {f_lead_ly} "
+                                  f"in the same window last year."),
+                "why_it_matters": fb_why,
+                "recommended_action": fb_action,
+                "by_when": fb_by_when,
+                "at_stake": {"value": f_stake, "calc": f_calc},
+            }
+
+            R = min(rev_in_motion / (daily_rev_baseline * 28.0), 1.0)
+            U = _urgency(days_to_start)
+            M = _magnitude_pct(abs(shift_pct))
+            C = _confidence(ty_a["rn"])
+            score = _score_candidate(R, U, M, C=C)
+
+            lt_cands.append({
+                "signal":     "lead_time",
+                "tag":        tag,
+                "score":      round(score, 4),
+                "title_hint": fb_headline,
+                "month_num":  sm,
+                "stake_eur":  rev_in_motion,
+                "insight": {
+                    "id": f"leadtime_{m_name.lower()}_{sy}",
+                    "tag": tag,
+                    "score": round(score, 4),
+                    "signal": "lead_time",
+                    "stay_period": {"from": max(m_start, today).isoformat(),
+                                    "to": m_end.isoformat(), "label": month_label},
+                    "days_to_nearest_arrival": days_to_start,
+                    "booking_window_days_left": window_left,
+                    "facts": facts,
+                    "cause_hypotheses": hypo,
+                    "action_directives": directive,
+                    "history": {"first_raised": None, "previously_advised": None},
+                },
+                "fallback_card": fallback_card,
+            })
+
+        # At most 2 lead-time cards per day — keep the sharpest stories
+        lt_cands.sort(key=lambda c: c["score"], reverse=True)
+        candidates.extend(lt_cands[:2])
+
     # ── Signal 4: Soft / Hot dates in next 90 days ───────────────────────────
     otb_by_date = data.get("otb_by_date", [])
     if otb_by_date and total_rooms > 0:

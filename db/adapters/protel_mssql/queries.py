@@ -598,6 +598,84 @@ WHERE h.mpehotel = ?
 """.format(fake_rt=_FAKE_RT_EXCLUDE)
 
 
+# ------------------------------------------------------------------
+# Q13: Booking lead time by stay month × source — TY vs LY
+# Window: bookings MADE in the last 28 days vs same 28-day window LY.
+# LY includes bookings later cancelled but active as of that date last
+# year (same convention as STLY) — TY bookings haven't had time to cancel.
+# Buckets are a fine grid; the compute layer merges them per hotel_type
+# profile (city keeps close-in detail, resort keeps far-out detail).
+# lead_days_x_rn enables exact weighted-average lead per slice.
+# ------------------------------------------------------------------
+
+Q_LEAD_TIME = """
+DECLARE @today        DATE = CAST(GETDATE() AS DATE);
+DECLARE @win_start    DATE = DATEADD(DAY, -27, @today);
+DECLARE @ly_today     DATE = DATEADD(YEAR, -1, @today);
+DECLARE @ly_win_start DATE = DATEADD(YEAR, -1, @win_start);
+
+SELECT
+    period,
+    stay_month,
+    stay_year,
+    source,
+    CASE WHEN lead_days <= 3  THEN '0-3'
+         WHEN lead_days <= 7  THEN '4-7'
+         WHEN lead_days <= 15 THEN '8-15'
+         WHEN lead_days <= 30 THEN '16-30'
+         WHEN lead_days <= 60 THEN '31-60'
+         WHEN lead_days <= 90 THEN '61-90'
+         ELSE '90+' END        AS lead_bucket,
+    SUM(rn)                    AS room_nights,
+    SUM(rev)                   AS revenue,
+    SUM(CAST(lead_days AS BIGINT) * rn) AS lead_days_x_rn
+FROM (
+    -- TY: bookings made in the last 28 days (active)
+    SELECT 'TY' AS period,
+           MONTH(h.date) AS stay_month,
+           YEAR(h.date)  AS stay_year,
+           ISNULL(NULLIF(LTRIM(RTRIM(h.Sourcen)), ''), 'Direct') AS source,
+           DATEDIFF(DAY, CAST(h.SystemDate AS DATE), h.date) AS lead_days,
+           h.Occupancy AS rn,
+           h.logis     AS rev
+    FROM bidata.proteluser.Hitia h
+    WHERE h.mpehotel = ?
+      AND h.reschar < 2
+      AND {fake_rt}
+      AND CAST(h.SystemDate AS DATE) BETWEEN @win_start AND @today
+      AND h.date >= CAST(h.SystemDate AS DATE)
+
+    UNION ALL
+
+    -- LY: bookings made in same 28-day window last year, active as of then
+    SELECT 'LY',
+           MONTH(h.date),
+           YEAR(h.date),
+           ISNULL(NULLIF(LTRIM(RTRIM(h.Sourcen)), ''), 'Direct'),
+           DATEDIFF(DAY, CAST(h.SystemDate AS DATE), h.date),
+           CASE WHEN h.reschar < 2 THEN h.Occupancy
+                WHEN CAST(h.datumbis AS DATE) = CAST(h.date AS DATE) THEN 0
+                ELSE 1 END,
+           h.logis
+    FROM bidata.proteluser.Hitia h
+    WHERE h.mpehotel = ?
+      AND (h.reschar < 2 OR (h.reschar = 2 AND CAST(h.Canceled AS DATE) > @ly_today))
+      AND {fake_rt}
+      AND CAST(h.SystemDate AS DATE) BETWEEN @ly_win_start AND @ly_today
+      AND h.date >= CAST(h.SystemDate AS DATE)
+) t
+GROUP BY period, stay_month, stay_year, source,
+    CASE WHEN lead_days <= 3  THEN '0-3'
+         WHEN lead_days <= 7  THEN '4-7'
+         WHEN lead_days <= 15 THEN '8-15'
+         WHEN lead_days <= 30 THEN '16-30'
+         WHEN lead_days <= 60 THEN '31-60'
+         WHEN lead_days <= 90 THEN '61-90'
+         ELSE '90+' END
+ORDER BY period, stay_year, stay_month;
+""".format(fake_rt=_FAKE_RT_EXCLUDE)
+
+
 Q_BOOKING_CURVE_FULL_MONTHS = """
 DECLARE @today    DATE = CAST(GETDATE() AS DATE);
 DECLARE @stly_cap DATE = DATEADD(YEAR, -1, @today);

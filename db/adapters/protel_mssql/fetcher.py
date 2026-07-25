@@ -425,6 +425,25 @@ def fetch_snapshot(conn: pyodbc.Connection, hotel_ctx: dict[str, Any]) -> dict[s
         "rev_remaining_final_ly": round(float(cm.get("rev_remaining_final_ly", 0) or 0), 0),
     }
 
+    # ── Q13: Booking lead time (28-day window, stay month × source) ──
+    # Optional signal — fail-open: a Q13 problem must never block a briefing.
+    lead_time = []
+    try:
+        cur.execute(Q.Q_LEAD_TIME, hotel_id, hotel_id)
+        for r in _rows(cur):
+            lead_time.append({
+                "period":      r["period"],
+                "stay_month":  int(r["stay_month"]),
+                "stay_year":   int(r["stay_year"]),
+                "source":      r["source"],
+                "lead_bucket": r["lead_bucket"],
+                "rn":          float(r["room_nights"] or 0),
+                "rev":         round(float(r["revenue"] or 0), 0),
+                "lead_x_rn":   float(r["lead_days_x_rn"] or 0),
+            })
+    except Exception as exc:  # noqa: BLE001
+        print(f"[{hotel_name}] lead_time query failed (non-blocking): {exc}")
+
     # ── Assemble payload ──────────────────────────────────────────
     payload = {
         "hotel_name": hotel_name,
@@ -493,6 +512,8 @@ def fetch_snapshot(conn: pyodbc.Connection, hotel_ctx: dict[str, Any]) -> dict[s
         "pace":        pace,
         "pace_current": pace_current,
         "pickup_daily": pickup_daily,
+        "lead_time":   lead_time,
+        "hotel_type":  hotel_ctx.get("hotel_type", "resort"),
         "otb_by_date": otb_by_date,
         "current_month_remaining": current_month_remaining,
         "stly_occ_by_month": {

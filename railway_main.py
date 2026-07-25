@@ -128,6 +128,7 @@ def _fetch_via_tunnel(hotel: dict, pms_cfg: dict) -> dict:
                 "hotel_name":   hotel["name"],
                 "total_rooms":  hotel["total_rooms"],
                 "pms_hotel_id": sql.get("pms_hotel_id", 1),
+                "hotel_type":   pms_cfg.get("hotel_type", "resort"),
             })
         finally:
             conn.close()

@@ -79,7 +79,10 @@ _SIGNAL_FIELDS = ("pickup_daily", "otb_by_date", "current_month_remaining")
 
 # Missing entries with these prefixes flag legacy_mode but never block
 # publication — old-format payloads (pre-signal fetchers) stay publishable.
-_SIGNAL_PREFIXES = _SIGNAL_FIELDS + ("pace[].rn_stly", "pace[].rn_final_ly")
+# lead_time is optional even for signal-mode payloads (Signal 3 only): its
+# absence never blocks publication and never triggers legacy_mode.
+_SIGNAL_PREFIXES = _SIGNAL_FIELDS + ("pace[].rn_stly", "pace[].rn_final_ly",
+                                     "lead_time")
 
 _REQUIRED_YESTERDAY = ("revenue", "revenueLY", "roomNights", "roomNightsLY",
                        "adr", "adrLY", "occupancy", "occupancyLY")
@@ -143,10 +146,15 @@ def build_data_quality(data: dict[str, Any], total_rooms: int | None = None) -> 
                 missing.append(f"current_month_remaining.{k}")
     legacy_mode = bool(signal_missing)
 
+    # Optional signal fields — tracked but never affect legacy_mode
+    if not data.get("lead_time"):
+        missing.append("lead_time")
+
     # ── Row counts ────────────────────────────────────────────────────────
     rows_fetched = {
         field: len(data.get(field) or [])
-        for field in ("pace", "pickup_daily", "otb_by_date", "topChannels", "next7days")
+        for field in ("pace", "pickup_daily", "otb_by_date", "topChannels",
+                      "next7days", "lead_time")
     }
 
     # ── Sanity checks ─────────────────────────────────────────────────────
