@@ -198,7 +198,7 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 
 | Commit | Date | What |
 |---|---|---|
-| _pending_ | 2026-07-25 | Signal 3 (booking lead time): Q13 by stay month × source (28d window vs same window LY), fail-open fetch, optional contract field, compute candidates with city/resort bucket profiles (`hotel_type` in pms_config, default resort), max 2 cards/day, tags MONITOR/ALERT/OPPORTUNITY by window direction × pace status. test_leadtime.py = 23 checks |
+| `be83592` | 2026-07-25 | Signal 3 (booking lead time): Q13 by stay month × source (28d window vs same window LY), fail-open fetch, optional contract field, compute candidates with city/resort bucket profiles (`hotel_type` in pms_config, default resort), max 2 cards/day, tags MONITOR/ALERT/OPPORTUNITY by window direction × pace status. test_leadtime.py = 23 checks |
 | `4704c37` | 2026-07-22 | Step 2: Protel adapter behind PMS drawer; back-compat shims |
 | `3bf6605` | 2026-07-22 | Step 1: HotelDataSnapshot contract + data_quality publication gate |
 | `3f6063a` | 2026-07-22 | Analyst v1.2: soft language, global ranking, projection bands, period-scoped facts, hard gates, novelty gate |
