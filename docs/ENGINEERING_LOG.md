@@ -221,6 +221,11 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 - PWA: text-size setting — whole-report scale selector, levels 1–5, like phone
   accessibility font sizing (requested 2026-07-24)
 - PWA: the 3 OTB charts are too small — enlarge charts and axis/data labels
+- Charts (Revenue OTB + Occupancy): for months fully in the past, STLY and
+  Final LY are the same number — show ONE LY indicator (Final LY) for closed
+  months; keep both only for current/future months (requested 2026-07-26).
+  Note: chart is generated in OUR templates (rendered_html), so this is
+  fixable backend-side without touching the PWA
 - PWA multiproperty bug: switching hotel jumps straight to AI insights section —
   should reset scroll to top of the report (requested 2026-07-24)
 - 7-day history with day-over-day KPI deltas (requested 2026-07-24). Design:
