@@ -174,6 +174,7 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-07-26 | TARGET ARCHITECTURE (agreed w/ user + CTO input): three layers — Cloudflare = network + frontend (DNS, tunnels, Access, React PWA on Cloudflare Pages after the overhaul; Vercel retires); ONE Docker container = compute (FastAPI adopted when the history endpoint lands, + scheduler + analyst); Supabase = data. Container host (Railway today) is a swappable landlord, revisit at ~20 hotels (DO App Platform / Fly / CF Containers when mature). Backend can NEVER run on CF Workers (pyodbc native driver, cloudflared subprocess, long-running scheduler). Repos stay separate (agent vs PWA) — IP isolation + independent deploys; one VS Code workspace for cross-repo work |
 | 2026-07-24 | Claude runs ONCE per hotel per day (scheduled morning run only); data-only AND manual refreshes reuse the day's AI insights (`2b91f6e`) | Data barely moves intraday; per-refresh regeneration was pure cost. Hard-caps AI at ~€2-3/hotel/mo; manual refresh drops ~100s → ~10s. Fallback: refresh before any morning AI → generates fresh |
 | 2026-07-24 | Manual refreshes are silent — no email, no push (`5402b37`) | A debugging day sent the GM 6 briefing emails; notifications/email only from scheduled runs |
 | 2026-07-24 | Pome server decommissioned to cloudflared-only (`8e1329e`) | Cloud command poller + 03:30 UTC schedule replaced the daemon's last two roles; refresh-button test passed with zero hotel-side code |
