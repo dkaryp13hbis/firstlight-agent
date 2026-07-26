@@ -34,7 +34,7 @@ import config
 
 _client = None
 _MODEL = "claude-sonnet-4-6"
-_PROMPT_VERSION = "cards-v1.2.1"
+_PROMPT_VERSION = "cards-v1.3-hero"
 
 # Global cap on concurrent Claude calls (matters once REFRESH_CONCURRENCY > 1)
 _CLAUDE_SEM = _threading.BoundedSemaphore(int(_os.getenv("CLAUDE_CONCURRENCY", "6")))
@@ -1450,13 +1450,13 @@ _CARD_TOOL: dict[str, Any] = {
     },
 }
 
-_SUMMARY_TOOL: dict[str, Any] = {
-    "name": "submit_summary",
-    "description": "Submit the one-sentence executive summary.",
+_HERO_TOOL: dict[str, Any] = {
+    "name": "submit_hero",
+    "description": "Submit the morning hero paragraph shown at the top of the briefing.",
     "input_schema": {
         "type": "object",
-        "properties": {"executive_summary": {"type": "string"}},
-        "required": ["executive_summary"],
+        "properties": {"hero": {"type": "string"}},
+        "required": ["hero"],
     },
 }
 
@@ -1600,35 +1600,171 @@ def _harden_card(card: dict, wrapper: dict) -> dict:
     return card
 
 
-def _narrate_summary(hotel_name: str, cards: list[dict], meta: dict | None = None) -> str:
-    fallback = f"Today's focus: {cards[0]['headline']}" if cards else ""
-    if not cards:
-        return fallback
+def _driver_hint(vol_pct: float | None, adr_pct: float | None) -> str:
+    """What drove a revenue variance: volume (room nights), rate (ADR), or both."""
+    if vol_pct is None or adr_pct is None:
+        return ""
+    v, a = vol_pct, adr_pct
+    if abs(v) < 1.5 and abs(a) < 1.5:
+        return "occupancy and rate both broadly flat"
+    if v >= 0 and a >= 0:
+        if abs(a) >= 2 * max(abs(v), 0.1): return "rate-led"
+        if abs(v) >= 2 * max(abs(a), 0.1): return "occupancy-led"
+        return "occupancy and rate both contributing"
+    if v <= 0 and a <= 0:
+        if abs(a) >= 2 * max(abs(v), 0.1): return "mainly softer rates"
+        if abs(v) >= 2 * max(abs(a), 0.1): return "mainly softer occupancy"
+        return "softer occupancy and rates"
+    return "rate up, occupancy down" if a > 0 else "occupancy up, rate down"
+
+
+def _build_hero_slots(data: dict) -> dict:
+    """Deterministic facts for the hero paragraph. Every number the narration
+    may use must appear here verbatim (numeric validator input)."""
+    yd, mtd = data.get("yesterday", {}) or {}, data.get("mtd", {}) or {}
+
+    def _vs(ty: float, ly: float) -> str | None:
+        return _pct_signed((ty - ly) / ly * 100) if ly else None
+
+    def _vpct(ty: float, ly: float) -> float | None:
+        return (ty - ly) / ly * 100 if ly else None
+
+    def _block(d: dict) -> dict:
+        rev, rev_ly = float(d.get("revenue", 0)), float(d.get("revenueLY", 0))
+        rn,  rn_ly  = float(d.get("roomNights", 0)), float(d.get("roomNightsLY", 0))
+        adr, adr_ly = float(d.get("adr", 0)), float(d.get("adrLY", 0))
+        b = {
+            "revenue":   _eur(rev),
+            "vs_ly":     _vs(rev, rev_ly),
+            "occ":       _pct(float(d.get("occupancy", 0)) * 100, 0),
+            "occ_ly":    _pct(float(d.get("occupancyLY", 0)) * 100, 0),
+            "adr":       _eur(adr),
+            "adr_ly":    _eur(adr_ly),
+            "adr_vs_ly": _vs(adr, adr_ly),
+            "rn_vs_ly":  _vs(rn, rn_ly),
+            "driver":    _driver_hint(_vpct(rn, rn_ly), _vpct(adr, adr_ly)),
+        }
+        return {k: v for k, v in b.items() if v not in (None, "")}
+
+    slots = {"yesterday": _block(yd)}
+    m = _block(mtd)
+    if mtd.get("month_name"):
+        m["month"] = f"{mtd['month_name']} MTD"
+    slots["mtd"] = m
+    return slots
+
+
+def _hero_violations(text: str) -> list[str]:
+    v = []
+    words = len(text.split())
+    if words > 120:
+        v.append(f"hero is {words} words (max 110)")
+    if not text.strip().startswith("Good morning"):
+        v.append("hero must start with 'Good morning.'")
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        first = sentence.strip().split(" ")[0].lower().strip(",.:;")
+        if first in _BANNED_IMPERATIVES:
+            v.append(f"sentence starts with imperative '{first}' — use a soft opener")
+    if "!" in text:
+        v.append("no exclamation marks")
+    return v
+
+
+def _hero_fallback(slots: dict, cards: list[dict]) -> str:
+    """Deterministic hero — always available, numbers straight from slots."""
+    y, m = slots.get("yesterday", {}), slots.get("mtd", {})
+    parts = ["Good morning."]
+    if y.get("revenue"):
+        s = f"Yesterday finished at {y['revenue']}"
+        if y.get("vs_ly"):
+            s += f", {y['vs_ly']} vs last year"
+        if y.get("driver"):
+            s += f" ({y['driver']})"
+        parts.append(s + ".")
+    if m.get("revenue"):
+        s = f"{m.get('month', 'Month to date')} stands at {m['revenue']}"
+        if m.get("vs_ly"):
+            s += f", {m['vs_ly']} vs last year"
+        parts.append(s + ".")
+    for c in cards[:2]:
+        s = c["headline"].rstrip(".")
+        stake = (c.get("at_stake") or {}).get("value")
+        if stake and c is cards[0]:
+            s += f" — {stake} at stake"
+        parts.append(s + ".")
+    return " ".join(parts)
+
+
+def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
+                  meta: dict | None = None) -> str:
+    """The hero paragraph at the top of the app: yesterday → MTD → top signals.
+    One Claude call, numeric validator, deterministic fallback."""
+    fallback = _hero_fallback(slots, cards)
     digest = [{"tag": c["tag"], "headline": c["headline"],
                "at_stake": (c.get("at_stake") or {}).get("value")} for c in cards[:3]]
-    haystack = json.dumps(digest, ensure_ascii=False)
-    prompt = (f"Hotel: {hotel_name}. Top insights this morning:\n"
-              f"{json.dumps(digest, ensure_ascii=False, indent=2)}\n\n"
-              "Write ONE sentence (max 35 words) naming the single most urgent revenue focus today. "
-              "Soft, advisory tone — no imperatives. Use ONLY numbers that appear verbatim above.")
-    try:
-        with _CLAUDE_SEM:
-            response = _get_client().messages.create(
-                model=_MODEL,
-                max_tokens=300,
-                temperature=0.2,
-                tools=[_SUMMARY_TOOL],
-                tool_choice={"type": "tool", "name": "submit_summary"},
-                messages=[{"role": "user", "content": prompt}],
-            )
-        if meta is not None:
-            _usage_add(meta["usage"], response.usage)
-        result = next(b for b in response.content if b.type == "tool_use").input
-        summary = result.get("executive_summary", "")
-        if summary and not _bad_numbers({"s": summary}, haystack) and len(summary.split()) <= 40:
-            return summary
-    except Exception as exc:
-        print(f"[analyst] Summary narration error: {exc}")
+    haystack = (json.dumps(slots, ensure_ascii=False)
+                + json.dumps(digest, ensure_ascii=False))
+    prompt_base = (
+        f"Hotel: {hotel_name}. You write the short morning hero paragraph that opens "
+        f"the general manager's daily briefing.\n\n"
+        f"PERFORMANCE DATA (use ONLY these numbers, verbatim):\n"
+        f"{json.dumps(slots, ensure_ascii=False, indent=2)}\n\n"
+        f"TOP INSIGHTS (shown as full cards below the hero — preview them, don't repeat them fully):\n"
+        f"{json.dumps(digest, ensure_ascii=False, indent=2)}\n\n"
+        "Write ONE flowing paragraph of 4-6 short sentences, max 110 words, starting "
+        "exactly with \"Good morning.\" Order: (1) yesterday's result and what drove it "
+        "— occupancy vs rate, per the driver hints; (2) the month-to-date position; "
+        "(3) then the most important forward-looking points from TOP INSIGHTS, each "
+        "compressed to one clause or short sentence, mentioning the at-stake value only "
+        "for the single most important one. Soft advisory tone, no imperatives, no "
+        "exclamation marks. Never invent causes (nationalities, room types, events, "
+        "weather) — only what the data shows. Every number must appear verbatim in the "
+        "data above."
+    )
+    t0 = _time.time()
+    problems: list[str] = []
+    attempts = 0
+    for attempt in (1, 2):
+        attempts = attempt
+        prompt = prompt_base if attempt == 1 else (
+            prompt_base + "\n\nYour previous attempt was REJECTED: "
+            + "; ".join(problems) + ". Fix these and resubmit.")
+        try:
+            with _CLAUDE_SEM:
+                response = _get_client().messages.create(
+                    model=_MODEL,
+                    max_tokens=500,
+                    temperature=0.2,
+                    tools=[_HERO_TOOL],
+                    tool_choice={"type": "tool", "name": "submit_hero"},
+                    messages=[{"role": "user", "content": prompt}],
+                )
+            if meta is not None:
+                _usage_add(meta["usage"], response.usage)
+            hero = next(b for b in response.content if b.type == "tool_use").input.get("hero", "")
+            problems = _hero_violations(hero)
+            bad = _bad_numbers({"h": hero}, haystack)
+            if bad:
+                problems.append(f"numbers not in input data: {', '.join(bad[:5])}")
+            if hero and not problems:
+                if meta is not None:
+                    meta["cards_audit"].append({
+                        "card_id": "hero", "signal": "hero", "tag": "HERO",
+                        "attempts": attempts, "fallback_used": False,
+                        "latency_ms": int((_time.time() - t0) * 1000),
+                        "validation_problems": [],
+                    })
+                return hero
+        except Exception as exc:
+            print(f"[analyst] Hero narration error: {exc}")
+            break
+    if meta is not None:
+        meta["cards_audit"].append({
+            "card_id": "hero", "signal": "hero", "tag": "HERO",
+            "attempts": attempts, "fallback_used": True,
+            "latency_ms": int((_time.time() - t0) * 1000),
+            "validation_problems": problems,
+        })
     return fallback
 
 
@@ -1730,7 +1866,7 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None) -> dict
             cards.append(card)
             print(f"[analyst] Card {len(cards)}: [{card['tag']}] {card['headline'][:60]}")
 
-        summary = _narrate_summary(hotel_name, cards, meta=meta)
+        summary = _narrate_hero(hotel_name, _build_hero_slots(data), cards, meta=meta)
         meta["fallback_cards"] = sum(1 for a in meta["cards_audit"] if a["fallback_used"])
         meta["estimated_cost_usd"] = _estimate_cost_usd(meta["usage"])
         result = {
