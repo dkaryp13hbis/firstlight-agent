@@ -50,6 +50,11 @@ def _render(data: dict[str, Any], ai: dict[str, Any]) -> str:
     env.filters["euro_full"] = lambda v: f"€{int(round(v)):,}"
     env.filters["highlight"] = _highlight
 
+    # Closed months (fully in the past) show STLY only in the occupancy chart —
+    # their Final LY equals STLY, so drawing both duplicates one value.
+    from datetime import date as _d
+    env.globals["current_month_num"] = _d.today().month
+
     return env.get_template("email.html").render(data=data, ai=ai)
 
 

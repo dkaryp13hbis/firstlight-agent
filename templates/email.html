@@ -580,7 +580,10 @@
   {% set ns2.prev_xi    = xi %}
   {% set ns2.prev_y_ty  = y_ty %}
   {% set ns2.prev_y_stly = y_stly %}
-  {% set ns2.pts_fly = ns2.pts_fly ~ xi|string ~ ',' ~ y_fly|string ~ ' ' %}
+  {# Closed months: Final LY == STLY, draw STLY only — dashed line starts at the current month #}
+  {% if not (p.month_num is defined and current_month_num is defined and p.month_num < current_month_num) %}
+    {% set ns2.pts_fly = ns2.pts_fly ~ xi|string ~ ',' ~ y_fly|string ~ ' ' %}
+  {% endif %}
 {% endfor %}
 {% set smooth_area = ns2.smooth_ty ~ ' L' ~ ns2.last_xi ~ ',' ~ bot ~ ' L' ~ ns2.first_xi ~ ',' ~ bot ~ ' Z' %}
 

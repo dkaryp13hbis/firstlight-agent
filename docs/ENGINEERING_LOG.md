@@ -180,7 +180,10 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 **Small builds (Claude, anytime — pilot-safe):**
 - ⬜ Signal 3 polish: exclude comp/house sources from drill-down;
   `pms_config.lead_window_days` (default 28)
-- ⬜ Chart fix: single LY indicator for closed months (template-side)
+- ✅ Chart fix 2026-07-27: OCCUPANCY line chart — closed months (month_num <
+  current month) show STLY only; the Final LY dashed line starts at the current
+  month. Revenue + ADR bar charts deliberately unchanged (user choice).
+  Legacy payloads without month_num keep the full line (guarded).
 
 **Then — the stack migration (sequenced, each phase shippable + rollback-able):**
 - ⬜ **Phase A — FastAPI** (~3-4 days, invisible to users): uvicorn 1 worker,
