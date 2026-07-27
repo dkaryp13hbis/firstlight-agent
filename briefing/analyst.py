@@ -34,7 +34,13 @@ import config
 
 _client = None
 _MODEL = "claude-sonnet-4-6"
-_PROMPT_VERSION = "cards-v1.3-hero"
+_PROMPT_VERSION = "cards-v1.4-singleshot"
+
+# Cost policy (user decision 2026-07-27): every Claude call costs money, so
+# narration gets ONE attempt — a validation miss goes straight to the free
+# deterministic fallback. Caps are enforced up-front via tool-schema
+# descriptions. Set NARRATION_ATTEMPTS=2 to re-enable surgical retries.
+_MAX_NARRATION_ATTEMPTS = max(1, int(_os.getenv("NARRATION_ATTEMPTS", "1")))
 
 # Global cap on concurrent Claude calls (matters once REFRESH_CONCURRENCY > 1)
 _CLAUDE_SEM = _threading.BoundedSemaphore(int(_os.getenv("CLAUDE_CONCURRENCY", "6")))
@@ -1422,7 +1428,7 @@ _CARD_TOOL: dict[str, Any] = {
         "properties": {
             "id":       {"type": "string"},
             "tag":      {"type": "string", "enum": ["ALERT", "OPPORTUNITY", "MONITOR"]},
-            "headline": {"type": "string"},
+            "headline": {"type": "string", "description": "HARD LIMIT 12 words — write 9 or fewer. Over-limit submissions are discarded."},
             "evidence": {
                 "type": "array", "minItems": 2, "maxItems": 2,
                 "items": {
@@ -1435,10 +1441,10 @@ _CARD_TOOL: dict[str, Any] = {
                     "required": ["label", "value", "sub"],
                 },
             },
-            "what_happened":      {"type": "string"},
-            "why_it_matters":     {"type": "string"},
-            "recommended_action": {"type": "string"},
-            "by_when":            {"type": "string"},
+            "what_happened":      {"type": "string", "description": "HARD LIMIT 20 words — write 16 or fewer. Over-limit submissions are discarded."},
+            "why_it_matters":     {"type": "string", "description": "HARD LIMIT 35 words — write 28 or fewer. Over-limit submissions are discarded."},
+            "recommended_action": {"type": "string", "description": "HARD LIMIT 25 words — write 20 or fewer. Soft opener, never an imperative verb first. Over-limit submissions are discarded."},
+            "by_when":            {"type": "string", "description": "HARD LIMIT 10 words — write 8 or fewer."},
             "at_stake": {
                 "type": "object",
                 "properties": {"value": {"type": "string"}, "calc": {"type": "string"}},
@@ -1455,7 +1461,7 @@ _HERO_TOOL: dict[str, Any] = {
     "description": "Submit the morning hero paragraph shown at the top of the briefing.",
     "input_schema": {
         "type": "object",
-        "properties": {"hero": {"type": "string"}},
+        "properties": {"hero": {"type": "string", "description": "4-6 short sentences starting exactly with 'Good morning.' HARD LIMIT 110 words — write 90 or fewer. Over-limit submissions are discarded."}},
         "required": ["hero"],
     },
 }
@@ -1512,6 +1518,45 @@ def _period_violations(card: dict, facts: dict) -> list[str]:
     return v
 
 
+_CAP_VIOLATION_RE = re.compile(r"^(\w+) is (\d+) words \(max (\d+)\)$")
+
+
+def _retry_feedback(card: dict, bad_nums: list[str], style: list[str],
+                    period: list[str]) -> str:
+    """Surgical retry instructions: quote the model's own offending text and
+    say exactly what to change. Unlisted fields must be resubmitted verbatim."""
+    fixes: list[str] = []
+    for p in style:
+        m = _CAP_VIOLATION_RE.match(p)
+        if m:
+            field, n, cap = m.group(1), m.group(2), int(m.group(3))
+            fixes.append(
+                f'"{field}" is {n} words — the cap is {cap}. You wrote:\n'
+                f'      "{card.get(field, "")}"\n'
+                f'    Rewrite exactly this text in at most {cap} words '
+                f'(target {max(cap - 2, 3)}). Cut adjectives and merge clauses; '
+                f'keep every number character-for-character.')
+        elif "imperative" in p:
+            fixes.append(
+                f'"recommended_action" opens with a banned imperative. You wrote:\n'
+                f'      "{card.get("recommended_action", "")}"\n'
+                f'    Rephrase the same content with a soft opener '
+                f'("Consider…", "It may be worth…").')
+        else:
+            fixes.append(p)
+    if bad_nums:
+        fixes.append(
+            "these numbers do NOT exist in the input and are forbidden: "
+            + ", ".join(bad_nums)
+            + ". Remove each one or replace it with a value copied "
+              "character-for-character from the input.")
+    fixes.extend(period)
+    return ("\n\nYOUR PREVIOUS SUBMISSION (above input unchanged) WAS REJECTED. "
+            "Fix ONLY the issues below — every field not mentioned was accepted "
+            "and must be resubmitted word-for-word unchanged:\n\n"
+            + "\n\n".join(f"- {f}" for f in fixes))
+
+
 def _narrate_card(wrapper: dict, fallback_card: dict, meta: dict | None = None) -> dict:
     """One Claude call per card; validated; max 2 retries; then fallback.
     When `meta` is given, appends a per-card audit entry (facts given, attempts,
@@ -1535,7 +1580,7 @@ def _narrate_card(wrapper: dict, fallback_card: dict, meta: dict | None = None) 
     }
 
     result_card = None
-    for attempt in range(3):
+    for attempt in range(_MAX_NARRATION_ATTEMPTS):
         audit["attempts"] = attempt + 1
         try:
             with _CLAUDE_SEM:
@@ -1556,22 +1601,23 @@ def _narrate_card(wrapper: dict, fallback_card: dict, meta: dict | None = None) 
             audit["validation_problems"].append(f"api_error: {str(exc)[:200]}")
             continue
 
-        problems = (_bad_numbers(card, haystack)
-                    + _style_violations(card)
-                    + _period_violations(card, facts))
+        bad_nums = _bad_numbers(card, haystack)
+        style    = _style_violations(card)
+        period   = _period_violations(card, facts)
+        problems = [f"invented number: {t}" for t in bad_nums] + style + period
         if not problems:
             result_card = _harden_card(card, wrapper)
             break
 
         print(f"[analyst] Card '{wrapper['insight']['id']}' attempt {attempt + 1} rejected: {problems}")
         audit["validation_problems"].extend(str(p) for p in problems)
-        prompt = (base_prompt +
-                  "\n\nPREVIOUS ATTEMPT REJECTED for these violations:\n- "
-                  + "\n- ".join(str(p) for p in problems)
-                  + "\nFix every violation. Copy numbers character-for-character from the input only.")
+        prompt = (base_prompt
+                  + "\n\nYour previous submission was:\n"
+                  + json.dumps(card, ensure_ascii=False, indent=2)
+                  + _retry_feedback(card, bad_nums, style, period))
 
     if result_card is None:
-        print(f"[analyst] Card '{wrapper['insight']['id']}': validation failed twice — using templated fallback.")
+        print(f"[analyst] Card '{wrapper['insight']['id']}': validation failed — using free templated fallback (no retry, cost policy).")
         audit["fallback_used"] = True
         result_card = dict(fallback_card)
 
@@ -1724,7 +1770,7 @@ def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
     t0 = _time.time()
     problems: list[str] = []
     attempts = 0
-    for attempt in (1, 2):
+    for attempt in range(1, _MAX_NARRATION_ATTEMPTS + 1):
         attempts = attempt
         prompt = prompt_base if attempt == 1 else (
             prompt_base + "\n\nYour previous attempt was REJECTED: "

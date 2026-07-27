@@ -138,9 +138,14 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
   `alter table refresh_runs add column if not exists attempt integer not null default 1;`
 - ⬜ Create `firstlight_ro` read-only login on Pome SQL Server, send password →
   swap pms_config off `sa` (security must-fix)
-- ⬜ Word-caps decision — sharper retry feedback (code) or relax caps ~3 words
-  (spec). 2026-07-27: Pome degraded again (1 fallback card, cost $0.106) —
-  the decision is becoming worth making.
+- ✅ Word-caps decision RESOLVED 2026-07-27 (cards-v1.4-singleshot) — user
+  cost policy: NO retries, every Claude call costs. Narration = ONE attempt;
+  a validation miss ships the free deterministic fallback card. Prevention
+  moved up-front: word budgets embedded in the tool schema field descriptions
+  (write ≤80% of cap; over-limit discarded), same for hero. Surgical
+  retry-feedback code kept dormant behind NARRATION_ATTEMPTS env (default 1).
+  Expected: cost drops to ~$0.04-0.05/hotel/day flat; watch fallback rate —
+  if it climbs above ~1 card/day, relax caps +3 words (free fix).
 
 **Pilot week (→ ~2026-07-31):**
 - 🔄 Daily refresh_runs check — Claude (days 1-4: zero tunnel errors; day 4
