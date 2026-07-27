@@ -66,11 +66,31 @@ Global ranking (no per-month quota); same-month pace+projection merge; pickup+so
 merge; novelty gate (repeat card within 3 days without ≥10% worsening → watchlist).
 
 **Layer B — narration (one Claude call per card):** the LLM only phrases pre-computed
-facts. Validator rejects: any number not verbatim in input; word-cap violations
-(headline 12 / what 20 / why 35 / action 25 / by_when 10 words); imperative action
-openers (soft suggestions only); sentences blending full-month with remaining-period
-numbers. Max 2 retries → deterministic templated fallback card ships instead.
-**Narration can never block a briefing** — only data-level failures can.
+facts. Validator rejects: any number not verbatim in input; word-cap violations;
+imperative action openers (soft suggestions only); sentences blending full-month
+with remaining-period numbers. SINGLE attempt (cost policy 2026-07-27,
+`NARRATION_ATTEMPTS` env to re-enable retries) → deterministic templated fallback
+card ships instead. **Narration can never block a briefing** — only data-level
+failures can.
+
+**Word-limit contract (canonical, `_WORD_CAPS` + `_HERO_WORD_CAP` in analyst.py):**
+
+| Field | Cap | First-attempt target (~80%) |
+|---|---|---|
+| headline | 12 | ≤ 9 |
+| what_happened | 20 | ≤ 16 |
+| why_it_matters | 35 | ≤ 28 |
+| recommended_action | 25 | ≤ 20 |
+| by_when | 10 | ≤ 8 |
+| hero paragraph | 110 | ≤ 90 |
+
+Enforced on EVERY path — nothing the briefing ships may exceed a cap:
+1. tool-schema field descriptions state the cap + target at generation time;
+2. validators reject over-cap narration (single shot → fallback);
+3. fallback templates are test-proven within caps (test_leadtime/test_hero —
+   any NEW fallback template must add the same check);
+4. `_enforce_caps()` / `_clamp_words()` runtime clamp as last resort (logs a
+   CAP CLAMP warning = template bug to fix).
 
 Output carries both new card anatomy (headline/evidence/what/why/action/by_when/
 at_stake+calc) and legacy fields (title/kpis/findings/action) so the current PWA

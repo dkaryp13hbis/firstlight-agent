@@ -31,8 +31,14 @@ Two layers, strictly separated:
   so narration can't blend periods (`_period_violations`).
 - Numeric validator: any number in card output must appear VERBATIM in the
   narration input (`_bad_numbers`). Compute exact display strings in Layer A.
-- Word caps `_WORD_CAPS` (headline 12 … by_when 10); soft language, no
-  imperative openers (`_BANNED_IMPERATIVES`). 2 attempts then fallback card.
+- WORD-LIMIT CONTRACT (canonical: `_WORD_CAPS` + `_HERO_WORD_CAP`; table in
+  ENGINEERING_LOG §3): headline 12 / what 20 / why 35 / action 25 / by_when 10
+  / hero 110. Enforced on EVERY path: schema descriptions (~80% targets) →
+  validator (SINGLE attempt, cost policy — `NARRATION_ATTEMPTS` re-enables
+  retries) → fallback templates test-proven within caps (any new fallback
+  template MUST add the cap check to its test) → `_enforce_caps()` runtime
+  clamp last resort (a CAP CLAMP log line = template bug, fix the template).
+- Soft language, no imperative openers (`_BANNED_IMPERATIVES`).
 - Projections only as bands (occ ±2pts `_occ_band`, rev ±2% `_rev_band`) —
   never a point estimate.
 

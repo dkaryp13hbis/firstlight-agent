@@ -681,9 +681,9 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                     {"label": "CLOSE-IN SHARE", "value": f_share_ty,
                      "sub": f"vs {f_share_ly} LY, within {close_label}"},
                 ],
-                "what_happened": (f"Bookings made in the last 28 days for {month_label} "
-                                  f"average {f_lead_ty} before arrival, against {f_lead_ly} "
-                                  f"in the same window last year."),
+                "what_happened": (f"Last-28-day bookings for {month_label} average "
+                                  f"{f_lead_ty} before arrival, versus {f_lead_ly} "
+                                  f"same window last year."),
                 "why_it_matters": fb_why,
                 "recommended_action": fb_action,
                 "by_when": fb_by_when,
@@ -1471,8 +1471,33 @@ _NUM_TOKEN = re.compile(r"\d(?:[\d,\.]*\d)?")
 _BANNED_IMPERATIVES = {"change", "remove", "increase", "decrease", "cut",
                        "raise", "close", "open", "act", "lower", "lift"}
 
+# ── Word-limit contract (canonical — see ENGINEERING_LOG §3) ─────────────────
+# Every text the briefing ships obeys these caps, on EVERY path:
+#   1. tool-schema descriptions steer the single Claude attempt to ~80% of cap
+#   2. validators reject over-cap narration → deterministic fallback ships
+#   3. fallback templates are test-enforced within caps (test_leadtime etc.)
+#   4. _enforce_caps() is the last-resort runtime clamp — nothing ever ships over
 _WORD_CAPS = {"headline": 12, "what_happened": 20, "why_it_matters": 35,
               "recommended_action": 25, "by_when": 10}
+_HERO_WORD_CAP = 110
+
+
+def _clamp_words(text: str, cap: int) -> str:
+    words = str(text).split()
+    if len(words) <= cap:
+        return text
+    return " ".join(words[:cap]).rstrip(",;:.") + "…"
+
+
+def _enforce_caps(card: dict) -> dict:
+    """Last-resort guarantee: no card field ever ships over its cap."""
+    for field, cap in _WORD_CAPS.items():
+        text = str(card.get(field, ""))
+        if len(text.split()) > cap:
+            print(f"[analyst] CAP CLAMP: '{card.get('id', '?')}' {field} "
+                  f"{len(text.split())}>{cap} words — trimmed (template needs fixing).")
+            card[field] = _clamp_words(text, cap)
+    return card
 
 
 def _bad_numbers(card_out: dict, haystack: str) -> list[str]:
@@ -1619,7 +1644,7 @@ def _narrate_card(wrapper: dict, fallback_card: dict, meta: dict | None = None) 
     if result_card is None:
         print(f"[analyst] Card '{wrapper['insight']['id']}': validation failed — using free templated fallback (no retry, cost policy).")
         audit["fallback_used"] = True
-        result_card = dict(fallback_card)
+        result_card = _enforce_caps(dict(fallback_card))
 
     audit["latency_ms"] = int((_time.monotonic() - t0) * 1000)
     if meta is not None:
@@ -1703,8 +1728,8 @@ def _build_hero_slots(data: dict) -> dict:
 def _hero_violations(text: str) -> list[str]:
     v = []
     words = len(text.split())
-    if words > 120:
-        v.append(f"hero is {words} words (max 110)")
+    if words > _HERO_WORD_CAP:
+        v.append(f"hero is {words} words (max {_HERO_WORD_CAP})")
     if not text.strip().startswith("Good morning"):
         v.append("hero must start with 'Good morning.'")
     for sentence in re.split(r"(?<=[.!?])\s+", text):
@@ -1757,7 +1782,7 @@ def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
         f"{json.dumps(slots, ensure_ascii=False, indent=2)}\n\n"
         f"TOP INSIGHTS (shown as full cards below the hero — preview them, don't repeat them fully):\n"
         f"{json.dumps(digest, ensure_ascii=False, indent=2)}\n\n"
-        "Write ONE flowing paragraph of 4-6 short sentences, max 110 words, starting "
+        f"Write ONE flowing paragraph of 4-6 short sentences, max {_HERO_WORD_CAP} words, starting "
         "exactly with \"Good morning.\" Order: (1) yesterday's result and what drove it "
         "— occupancy vs rate, per the driver hints; (2) the month-to-date position; "
         "(3) then the most important forward-looking points from TOP INSIGHTS, each "
@@ -1811,7 +1836,7 @@ def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
             "latency_ms": int((_time.time() - t0) * 1000),
             "validation_problems": problems,
         })
-    return fallback
+    return _clamp_words(fallback, _HERO_WORD_CAP)
 
 
 # ─── Legacy field mapping (current PWA renders these) ─────────────────────────

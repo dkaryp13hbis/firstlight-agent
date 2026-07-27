@@ -89,6 +89,25 @@ check("accepts clean paragraph", _hero_violations(
     "Good morning. Yesterday finished at €61,400, +6.4% vs last year, rate-led. "
     "July MTD stands at €1,200,000. August looks strong.") == [])
 
+print("— Word-limit contract (clamp) —")
+from briefing.analyst import _clamp_words, _enforce_caps, _WORD_CAPS, _HERO_WORD_CAP
+
+check("clamp leaves short text untouched", _clamp_words("one two three", 5) == "one two three")
+long_text = "word " * 30
+check("clamp trims to cap with ellipsis",
+      len(_clamp_words(long_text, 10).split()) == 10
+      and _clamp_words(long_text, 10).endswith("…"))
+over_card = {"id": "x", "headline": "w " * 20, "what_happened": "ok",
+             "why_it_matters": "ok", "recommended_action": "ok", "by_when": "ok"}
+clamped = _enforce_caps(dict(over_card))
+check("enforce_caps trims over-cap field",
+      len(clamped["headline"].split()) == _WORD_CAPS["headline"])
+check("enforce_caps leaves ok fields alone", clamped["what_happened"] == "ok")
+check("hero validator rejects at exactly cap+1",
+      any("words" in v for v in _hero_violations(
+          "Good morning. " + "w " * (_HERO_WORD_CAP - 1))))
+check("hero fallback under hero cap", len(fb.split()) <= _HERO_WORD_CAP)
+
 print("— Numeric validator on hero —")
 hay = json.dumps(slots) + json.dumps(cards)
 check("verbatim numbers pass",

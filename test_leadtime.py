@@ -112,6 +112,12 @@ if lt:
     fb = c["fallback_card"]
     check("fallback has 2 evidence rows", len(fb["evidence"]) == 2)
     check("fallback headline mentions month", nm_name in fb["headline"], fb["headline"])
+    # Word-limit contract: fallback templates must respect every cap
+    from briefing.analyst import _WORD_CAPS
+    for field, cap in _WORD_CAPS.items():
+        n = len(str(fb.get(field, "")).split())
+        check(f"fallback {field} within cap ({n}<={cap})", n <= cap,
+              str(fb.get(field, "")))
     check("directive is hold_rates",
           ins["action_directives"]["type"] == "hold_rates",
           ins["action_directives"]["type"])
