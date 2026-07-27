@@ -121,52 +121,59 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 12. ⬜ Load test 20–30 simulated hotels · 13. ⬜ Concurrency tuning (REFRESH=10/TUNNEL=5/CLAUDE=8) ·
 14. ⬜ Per-hotel briefing time + timezone
 
-### TO-DO list (updated 2026-07-26 — read this first)
+### TO-DO list (updated 2026-07-27 — read this first)
 
 **Done this week:**
-- ✅ 2026-07-24: first fully-cloud scheduled briefing VERIFIED — Pome via tunnel,
-  fresh AI, $0.049, one email + one push; data-only refreshes reuse AI at $0.
-  Note: Potidea's old Task Scheduler still fires /trigger at 04:00 UTC — handled
-  as manual (silent, AI reuse, $0); dies at Phase 3.
-- ✅ 2026-07-25: Signal 3 (booking lead time) built, tested, shipped (`be83592`)
-- ✅ 2026-07-26: Signal 3 verified LIVE — first card `leadtime_jul_2026` in Pome's
-  morning briefing (1 attempt, 0 validation problems, 99 rows via tunnel)
+- ✅ 2026-07-24: first fully-cloud scheduled briefing VERIFIED (Pome via tunnel,
+  one email + one push; Potidea's stray 04:00 /trigger handled silently)
+- ✅ 2026-07-25: Signal 3 (booking lead time) shipped (`be83592`); verified live
+  2026-07-26 — first card `leadtime_jul_2026`, 1 attempt, 0 problems
+- ✅ 2026-07-26: Hero paragraph shipped (`c4b3e46`); CLAUDE.md + 4 routed skills
+  (`2ed8199`); target stack + no-Celery + scheduling decisions logged
+- ✅ 2026-07-27: Hero LIVE debut — 1 attempt, 6.1s, 0 validation problems;
+  occupancy-vs-rate driver narrated correctly ("rate-for-volume trade")
 
-**Now (Claude, small builds):**
-- ⬜ Signal 3 polish: exclude comp/house sources (Complimentary etc.) from the
-  top-source drill-down; make lead window configurable
-  (`pms_config.lead_window_days`, default 28)
-- ⬜ Chart fix (template-side, small): single LY indicator for closed months —
-  STLY duplicates Final LY once a month has passed
-- ⬜ Optional (say go): 7-day history backend — kpi_summary migration + publish
-  change + /briefing/history endpoint, so data accumulates from day one
-
-**USER (3 small items):**
+**USER (3 small items, unchanged):**
 - ⬜ Paste Step 5 SQL in Supabase (attempt column still missing):
   `alter table refresh_runs add column if not exists attempt integer not null default 1;`
 - ⬜ Create `firstlight_ro` read-only login on Pome SQL Server, send password →
   swap pms_config off `sa` (security must-fix)
 - ⬜ Word-caps decision — sharper retry feedback (code) or relax caps ~3 words
-  (spec). Status quo: retries are catching them (2/4 cards needed a 2nd attempt
-  on 2026-07-26, no fallbacks) at ~15-20s extra latency per retry.
+  (spec). 2026-07-27: Pome degraded again (1 fallback card, cost $0.106) —
+  the decision is becoming worth making.
 
 **Pilot week (→ ~2026-07-31):**
-- 🔄 Daily: check refresh_runs (fetch_path, tunnel_error, retries, cost) — Claude
-  (days 1-3 ✅ clean, zero tunnel errors so far)
+- 🔄 Daily refresh_runs check — Claude (days 1-4: zero tunnel errors; day 4
+  degraded on word caps, not infrastructure)
 
-**End of pilot week (after ~5 clean days):**
-- ⬜ Potidea migration: Cloudflare route + service token (~30 min), set
-  pms_type/pms_config, flip to tunnel, decommission daemon + scheduled tasks —
-  Potidea then gets the new insight cards (incl. Signal 3) automatically
+**End of pilot week — Phase 3 (closes the migration):**
+- ⬜ Potidea: Cloudflare route + service token (~30 min), pms_config, flip to
+  tunnel, decommission daemon + tasks (kills the stray 04:00 trigger; Potidea
+  gets Signal 3 + hero automatically)
 - ⬜ Delete FirstLight code folders from BOTH hotel servers → migration complete
 
-**After migration — roadmap (user picks order):**
-- PWA overhaul bundle: render-from-data (prerequisite) + new card anatomy +
-  Greek/English toggle + text-size 1–5 + bigger OTB charts + multiproperty
-  scroll fix + 7-day history UI (see §8 for details)
-- New card types (compute-only, no new SQL): ADR-vs-occupancy trade-off ·
-  cancellation spike
-- Follow-up loop · chatbot/monetization tiers · scale prep before hotel #10
+**Small builds (Claude, anytime — pilot-safe):**
+- ⬜ Signal 3 polish: exclude comp/house sources from drill-down;
+  `pms_config.lead_window_days` (default 28)
+- ⬜ Chart fix: single LY indicator for closed months (template-side)
+
+**Then — the stack migration (sequenced, each phase shippable + rollback-able):**
+- ⬜ **Phase A — FastAPI** (~3-4 days, invisible to users): uvicorn 1 worker,
+  scheduler → lifespan, port /trigger + /briefing/latest, per-hotel API tokens,
+  kpi_summary column + GET /briefing/history
+- ⬜ **Phase B — React on Cloudflare Pages** (~1-2 weeks): audit PWA repo first;
+  render-from-data; new card anatomy + hero block + Greek/English + text-size
+  1-5 + bigger OTB charts + closed-month LY fix + scroll fix + 7-day history UI;
+  reads via FastAPI tokens; parallel-run then retire Vercel; drop rendered_html
+- ⬜ **Phase C — Postgres on Railway** (~2-3 days + 2-week rollback window):
+  db/client.py consolidation → pg_dump/restore → env-var flip; LISTEN/NOTIFY
+  queue; verify backups + nightly dump; retire Supabase
+- ⬜ Phase 4 scale prep before hotel #10: de-globalize config →
+  REFRESH_CONCURRENCY=10, load test 20-30 hotels, per-hotel briefing time/tz
+
+**Product roadmap (parallel to stack work, user picks order):**
+- New card types (compute-only): ADR-vs-occupancy trade-off · cancellation spike
+- Follow-up loop (advice → outcome tracking) · chatbot · monetization tiers
 
 ---
 
