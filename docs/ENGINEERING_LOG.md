@@ -315,7 +315,25 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
   "need X/day" = gap to LY final ÷ days left, REPLACED by green "✓ passed LY
   final (+rn)" once booked ≥ LY final; right column shows both speeds labeled
   "/day · 7d|14d" + speeding up / slowing down / steady (7d vs 14d).
-  Charts 3-5 comments pending 1-by-1.
+  CHART 3 SPEC 2026-07-28 (churn butterfly, REPLACES Top month in Pickup):
+  butterfly kept — cancelled left (red tones) / booked right (blue tones),
+  arms split into THIN PAIRS: top = last 7d, bottom = last 14d, 4-swatch
+  legend on top; net per window right (red if cancels >60% of gross); amber
+  alert names worst-churn month. REAL data since Q14 live (2026-07-29 run:
+  Aug 294 cancels/850 booked in 14d = 35% churn — sample had guessed 45).
+  CHART 5 SPEC DECIDED 2026-07-28 (demand heat, under OTB): next 60 DAYS,
+  calendar grid 7 weekday cols (M-S, date-aligned), bigger cells each showing
+  OCCUPANCY % on top + date dd/mm below; shade = occupancy (7-step blue ramp,
+  what you read is what colours it); red outline + amber alert = date far
+  behind LY (occ < 50% of LY when LY ≥30%). Real find: 23-25/09 flagged.
+  CHART 4 (sparklines) comments pending.
+  NEXT FEATURE ACCEPTED 2026-07-29: ADR BRIDGE (mix vs rate decomposition,
+  spec + reference impl received as docs — identity-guaranteed midpoint
+  method, consumed periods only, 364-day shift, Decimal, centering on ADR-bar,
+  min_share 3% fold to Other). Needs Q15: per-channel consumed room nights +
+  revenue, July TY vs July LY(364d) — channel split not in payload today.
+  Narrative from structured payload only (mix-dominant / rate-dominant /
+  both templates, no imperatives). Second dimension room_type after channel.
   User placements:
   1 Curve position meter → under OTB charts · 2 Velocity bullet → under Pickup ·
   3 Churn butterfly → REPLACES "Top month" in Pickup · 4 Sparkline multiples →
