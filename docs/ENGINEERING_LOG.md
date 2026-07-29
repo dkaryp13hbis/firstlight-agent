@@ -306,7 +306,15 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
   tick = LY same date (labeled inline); right column = "+X rn vs LY pace" +
   "Y rn to reach LY final". Colors: bar BLUE always; RED only when behind LY
   same-date pace; GREEN only as overflow segment past track end when booked >
-  LY final (labeled "+Z rn above LY final"). Charts 2-5 comments pending 1-by-1.
+  LY final (labeled "+Z rn above LY final").
+  CHART 2 SPEC DECIDED 2026-07-28 (velocity / booking speed, under Pickup):
+  net rooms/day (bookings − cancellations, from pickup_daily), TWO bars per
+  month — last 7d (navy) + last 14d (accent blue) — for CURRENT + NEXT 3 stay
+  months; grey tick = LY speed same time (lead_time 28d window); amber tick +
+  "need X/day" = gap to LY final ÷ days left, REPLACED by green "✓ passed LY
+  final (+rn)" once booked ≥ LY final; right column shows both speeds labeled
+  "/day · 7d|14d" + speeding up / slowing down / steady (7d vs 14d).
+  Charts 3-5 comments pending 1-by-1.
   User placements:
   1 Curve position meter → under OTB charts · 2 Velocity bullet → under Pickup ·
   3 Churn butterfly → REPLACES "Top month" in Pickup · 4 Sparkline multiples →
