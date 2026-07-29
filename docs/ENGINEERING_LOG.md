@@ -201,6 +201,21 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 
 **Product roadmap (parallel to stack work, user picks order):**
 - New card types (compute-only): ADR-vs-occupancy trade-off · cancellation spike
+- Insight feedback loop (agreed 2026-07-27): 👍/👎 per card + reason chips →
+  `insight_feedback` table + POST /feedback in Phase A; UI in Phase B card
+  footer; Tier-1 learning = bounded per-hotel ranking-weight tuning (N
+  component), pattern-gated (≥5 signals, decay). GUARDRAIL: feedback tunes
+  ranking/phrasing only — NEVER suppresses hard-gated facts (shoot-the-
+  messenger protection). Tier 2 editorial prompt notes later; Tier 3 only at
+  scale. Joins on refresh_runs.cards_audit by card_id.
+- Onboarding kit → onboarding agent (agreed direction 2026-07-27): v1 kit
+  (~2-3 days): install-cloudflared.ps1 + SQL discovery probe (Hitia check,
+  mpehotel list, zimmer count, fake kat detection) + auto-proposed pms_config
+  + GM verification report — dogfood on Potidea/hotel #3. v2 (pre-scale,
+  ~1-2 wks): Cloudflare API provisioning + email flow + LLM diagnostic loop
+  (agent handles weird cases; humans keep: run installer, sign off numbers).
+- db/adapters/SEMANTICS.md — PMS-neutral metric definitions (STLY, cancellation
+  in/out, fake rooms) to write BEFORE adapter #2; ~1h, knowledge fresh now
 - Follow-up loop (advice → outcome tracking) · chatbot · monetization tiers
 
 ---
@@ -209,6 +224,7 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-07-28 | Pricing: FirstLight = **€99/hotel/mo + VAT, flat, unlimited users** — never per room count. Sold as add-on to Hotel BI (€330), standalone, or €399 bundle. Full commercial policy in [COMMERCIAL.md](COMMERCIAL.md) | Value unit is the briefing (one/hotel/day), COGS flat (~€2–3/mo AI); flat matches Hotel BI's per-property model; unlimited users spreads the habit through the hotel. Only size lever: portfolio discount from 2nd property |
 | 2026-07-26 | Data layer end-state: Supabase → **Railway managed Postgres** at the overhaul release (NOT Postgres-in-container — ephemeral FS). FastAPI becomes the ONLY gateway (PWA stops reading the DB directly; needs per-hotel auth). Rationale: once render-from-data routes the PWA through our API, PostgREST value evaporates; colocation + one less external dependency. Migrates together with React/Pages + render-from-data as ONE coordinated release |
 | 2026-07-26 | Scheduling in the FastAPI container: APScheduler in the lifespan hook, **exactly 1 uvicorn worker while scheduler lives in the API process** (N workers = N schedulers = duplicate briefings/emails). At scale: web/worker split — same image, two Railway services; queue = refresh_commands with FOR UPDATE SKIP LOCKED + LISTEN/NOTIFY. Per-hotel briefing times = per-hotel APScheduler crons (tz-aware) |
 | 2026-07-26 | NO Celery: ~1k tasks/day at 200 hotels doesn't justify a Redis broker (new always-on dependency in the 03:30 path, Windows dev pain, re-buys locks/retries/audit we have). Postgres-native queue at the Phase 4 split; **Procrastinate** (Postgres-broker task queue) if we want task ergonomics. Revisit only at >50k tasks/day or multi-machine workers (chatbot-driven) |
