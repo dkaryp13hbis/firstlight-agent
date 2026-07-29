@@ -444,6 +444,24 @@ def fetch_snapshot(conn: pyodbc.Connection, hotel_ctx: dict[str, Any]) -> dict[s
     except Exception as exc:  # noqa: BLE001
         print(f"[{hotel_name}] lead_time query failed (non-blocking): {exc}")
 
+    # ── Q14: Daily cancellations by stay month (fail-open, optional) ──
+    cancel_daily = []
+    try:
+        cur.execute(Q.Q_CANCEL_DAILY, hotel_id)
+        for r in _rows(cur):
+            ref = r["ref_date"]
+            if hasattr(ref, "strftime"):
+                ref = ref.strftime("%Y-%m-%d")
+            cancel_daily.append({
+                "ref_date":   str(ref),
+                "stay_month": int(r["stay_month"]),
+                "stay_year":  int(r["stay_year"]),
+                "cancel_rn":  int(r["cancel_rn"] or 0),
+                "cancel_rev": round(float(r["cancel_rev"] or 0), 0),
+            })
+    except Exception as exc:  # noqa: BLE001
+        print(f"[{hotel_name}] cancel_daily query failed (non-blocking): {exc}")
+
     # ── Assemble payload ──────────────────────────────────────────
     payload = {
         "hotel_name": hotel_name,
@@ -513,6 +531,7 @@ def fetch_snapshot(conn: pyodbc.Connection, hotel_ctx: dict[str, Any]) -> dict[s
         "pace_current": pace_current,
         "pickup_daily": pickup_daily,
         "lead_time":   lead_time,
+        "cancel_daily": cancel_daily,
         "hotel_type":  hotel_ctx.get("hotel_type", "resort"),
         "otb_by_date": otb_by_date,
         "current_month_remaining": current_month_remaining,

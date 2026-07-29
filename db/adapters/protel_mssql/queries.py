@@ -676,6 +676,39 @@ ORDER BY period, stay_year, stay_month;
 """.format(fake_rt=_FAKE_RT_EXCLUDE)
 
 
+# ------------------------------------------------------------------
+# Q14: Daily cancellations by future stay month — last 14 days.
+# The cancellation branch of Q9 as its own series: Q9 ships NET pickup;
+# this ships the cancel side so gross bookings = net + cancels.
+# Powers the churn butterfly (booked vs cancelled per stay month, 7d/14d
+# windows) and, later, the cancellation-spike card.
+# Same conventions as Q9: future stays only, capped 1 year out, room
+# nights counted per stay night (day-use rows excluded via datumbis>date).
+# ------------------------------------------------------------------
+
+Q_CANCEL_DAILY = """
+DECLARE @today        DATE = CAST(GETDATE() AS DATE);
+DECLARE @window_start DATE = DATEADD(DAY, -13, @today);  -- 14 days incl. today
+DECLARE @max_future   DATE = DATEADD(YEAR,  1, @today);
+
+SELECT CAST(h.Canceled AS DATE) AS ref_date,
+       MONTH(h.date)            AS stay_month,
+       YEAR(h.date)             AS stay_year,
+       SUM(CASE WHEN CAST(h.datumbis AS DATE) > CAST(h.date AS DATE)
+                THEN 1 ELSE 0 END)  AS cancel_rn,
+       SUM(h.logis)                 AS cancel_rev
+FROM bidata.proteluser.Hitia h
+WHERE h.mpehotel = ?
+  AND h.reschar = 2
+  AND {fake_rt}
+  AND h.date  >  @today
+  AND h.date  <= @max_future
+  AND CAST(h.Canceled AS DATE) BETWEEN @window_start AND @today
+GROUP BY CAST(h.Canceled AS DATE), MONTH(h.date), YEAR(h.date)
+ORDER BY ref_date, stay_month;
+""".format(fake_rt=_FAKE_RT_EXCLUDE)
+
+
 Q_BOOKING_CURVE_FULL_MONTHS = """
 DECLARE @today    DATE = CAST(GETDATE() AS DATE);
 DECLARE @stly_cap DATE = DATEADD(YEAR, -1, @today);

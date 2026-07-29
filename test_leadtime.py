@@ -166,5 +166,16 @@ dq2 = build_data_quality(dict(core, lead_time=[{"period": "TY"}]), total_rooms=1
 check("present lead_time not flagged missing", "lead_time" not in dq2["missing_fields"])
 check("lead_time counted in rows_fetched", dq2["rows_fetched"].get("lead_time") == 1)
 
+# cancel_daily (Q14) — same optional-signal contract treatment
+check("missing cancel_daily is tracked", "cancel_daily" in dq["missing_fields"])
+check("missing cancel_daily does NOT block publication", dq["complete"] is True)
+check("missing cancel_daily does NOT trigger legacy_mode", dq["legacy_mode"] is False)
+dq3 = build_data_quality(dict(core, cancel_daily=[{"ref_date": "2026-07-28"}]),
+                         total_rooms=100)
+check("present cancel_daily not flagged missing",
+      "cancel_daily" not in dq3["missing_fields"])
+check("cancel_daily counted in rows_fetched",
+      dq3["rows_fetched"].get("cancel_daily") == 1)
+
 print(f"\n{PASS} passed, {FAIL} failed")
 raise SystemExit(1 if FAIL else 0)
