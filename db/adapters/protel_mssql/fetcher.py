@@ -462,6 +462,21 @@ def fetch_snapshot(conn: pyodbc.Connection, hotel_ctx: dict[str, Any]) -> dict[s
     except Exception as exc:  # noqa: BLE001
         print(f"[{hotel_name}] cancel_daily query failed (non-blocking): {exc}")
 
+    # ── Q15: Consumed rn+rev by source, MTD vs LY-364d (fail-open) ──
+    # ADR-bridge input: month-start→yesterday consumed nights per channel.
+    consumed_by_source = []
+    try:
+        cur.execute(Q.Q_CONSUMED_BY_SOURCE, hotel_id, hotel_id)
+        for r in _rows(cur):
+            consumed_by_source.append({
+                "period": r["period"],
+                "source": r["source"],
+                "rn":     float(r["room_nights"] or 0),
+                "rev":    round(float(r["revenue"] or 0), 2),
+            })
+    except Exception as exc:  # noqa: BLE001
+        print(f"[{hotel_name}] consumed_by_source query failed (non-blocking): {exc}")
+
     # ── Assemble payload ──────────────────────────────────────────
     payload = {
         "hotel_name": hotel_name,
@@ -532,6 +547,7 @@ def fetch_snapshot(conn: pyodbc.Connection, hotel_ctx: dict[str, Any]) -> dict[s
         "pickup_daily": pickup_daily,
         "lead_time":   lead_time,
         "cancel_daily": cancel_daily,
+        "consumed_by_source": consumed_by_source,
         "hotel_type":  hotel_ctx.get("hotel_type", "resort"),
         "otb_by_date": otb_by_date,
         "current_month_remaining": current_month_remaining,

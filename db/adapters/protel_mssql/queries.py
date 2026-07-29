@@ -709,6 +709,55 @@ ORDER BY ref_date, stay_month;
 """.format(fake_rt=_FAKE_RT_EXCLUDE)
 
 
+# ------------------------------------------------------------------
+# Q15: Consumed room nights + revenue by SOURCE — ADR bridge input.
+# Spec rules (adr-bridge-implementation-spec): CONSUMED nights only
+# (stay dates month-start → yesterday, active bookings), LY window
+# shifted 364 days (weekday-aligned, NOT 365), zero-revenue rows
+# excluded (comps/house-use distort channel ADR). Revenue = logis
+# (lodging only), same basis both periods.
+# ------------------------------------------------------------------
+
+Q_CONSUMED_BY_SOURCE = """
+DECLARE @today    DATE = CAST(GETDATE() AS DATE);
+DECLARE @yday     DATE = DATEADD(DAY, -1, @today);
+DECLARE @m_start  DATE = DATEFROMPARTS(YEAR(@yday), MONTH(@yday), 1);
+DECLARE @ly_start DATE = DATEADD(DAY, -364, @m_start);
+DECLARE @ly_end   DATE = DATEADD(DAY, -364, @yday);
+
+SELECT period, source,
+       SUM(rn)  AS room_nights,
+       SUM(rev) AS revenue
+FROM (
+    SELECT 'TY' AS period,
+           ISNULL(NULLIF(LTRIM(RTRIM(h.Sourcen)), ''), 'Direct') AS source,
+           h.Occupancy AS rn,
+           h.logis     AS rev
+    FROM bidata.proteluser.Hitia h
+    WHERE h.mpehotel = ?
+      AND h.reschar < 2
+      AND {fake_rt}
+      AND h.date BETWEEN @m_start AND @yday
+      AND h.logis > 0
+
+    UNION ALL
+
+    SELECT 'LY',
+           ISNULL(NULLIF(LTRIM(RTRIM(h.Sourcen)), ''), 'Direct'),
+           h.Occupancy,
+           h.logis
+    FROM bidata.proteluser.Hitia h
+    WHERE h.mpehotel = ?
+      AND h.reschar < 2
+      AND {fake_rt}
+      AND h.date BETWEEN @ly_start AND @ly_end
+      AND h.logis > 0
+) t
+GROUP BY period, source
+ORDER BY period, SUM(rev) DESC;
+""".format(fake_rt=_FAKE_RT_EXCLUDE)
+
+
 Q_BOOKING_CURVE_FULL_MONTHS = """
 DECLARE @today    DATE = CAST(GETDATE() AS DATE);
 DECLARE @stly_cap DATE = DATEADD(YEAR, -1, @today);

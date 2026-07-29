@@ -177,5 +177,16 @@ check("present cancel_daily not flagged missing",
 check("cancel_daily counted in rows_fetched",
       dq3["rows_fetched"].get("cancel_daily") == 1)
 
+# consumed_by_source (Q15, ADR bridge) — same optional treatment
+check("missing consumed_by_source is tracked",
+      "consumed_by_source" in dq["missing_fields"])
+check("missing consumed_by_source does NOT block", dq["complete"] is True)
+dq4 = build_data_quality(dict(core, consumed_by_source=[{"period": "TY"}]),
+                         total_rooms=100)
+check("present consumed_by_source not flagged missing",
+      "consumed_by_source" not in dq4["missing_fields"])
+check("consumed_by_source counted in rows_fetched",
+      dq4["rows_fetched"].get("consumed_by_source") == 1)
+
 print(f"\n{PASS} passed, {FAIL} failed")
 raise SystemExit(1 if FAIL else 0)

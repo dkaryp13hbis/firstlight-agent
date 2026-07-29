@@ -79,10 +79,11 @@ _SIGNAL_FIELDS = ("pickup_daily", "otb_by_date", "current_month_remaining")
 
 # Missing entries with these prefixes flag legacy_mode but never block
 # publication — old-format payloads (pre-signal fetchers) stay publishable.
-# lead_time / cancel_daily are optional even for signal-mode payloads: their
-# absence never blocks publication and never triggers legacy_mode.
+# lead_time / cancel_daily / consumed_by_source are optional even for
+# signal-mode payloads: absence never blocks, never triggers legacy_mode.
 _SIGNAL_PREFIXES = _SIGNAL_FIELDS + ("pace[].rn_stly", "pace[].rn_final_ly",
-                                     "lead_time", "cancel_daily")
+                                     "lead_time", "cancel_daily",
+                                     "consumed_by_source")
 
 _REQUIRED_YESTERDAY = ("revenue", "revenueLY", "roomNights", "roomNightsLY",
                        "adr", "adrLY", "occupancy", "occupancyLY")
@@ -151,12 +152,15 @@ def build_data_quality(data: dict[str, Any], total_rooms: int | None = None) -> 
         missing.append("lead_time")
     if not data.get("cancel_daily"):
         missing.append("cancel_daily")
+    if not data.get("consumed_by_source"):
+        missing.append("consumed_by_source")
 
     # ── Row counts ────────────────────────────────────────────────────────
     rows_fetched = {
         field: len(data.get(field) or [])
         for field in ("pace", "pickup_daily", "otb_by_date", "topChannels",
-                      "next7days", "lead_time", "cancel_daily")
+                      "next7days", "lead_time", "cancel_daily",
+                      "consumed_by_source")
     }
 
     # ── Sanity checks ─────────────────────────────────────────────────────
