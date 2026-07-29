@@ -1,0 +1,1863 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Morning Briefing · Pomegranate Wellness Spa Hotel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --n950: #061535; --n900: #0A1F4D; --n800: #0F2860; --n700: #15296B;
+    --n600: #1B3A80; --n500: #2E5BA8; --n400: #5B89CC; --n300: #8AADDD;
+    --n200: #B8CFEE; --n100: #DCE7F6; --n50: #EEF2FA;
+    --blue: #2E7CF7; --teal: #38E1F0;
+    --grad-hero: linear-gradient(135deg, #0A1F4D 0%, #2E7CF7 100%);
+    --grad-deep: linear-gradient(160deg, #061535 0%, #15296B 100%);
+    --grad-cyan: linear-gradient(135deg, #2E7CF7 0%, #38E1F0 100%);
+    --green: #1A7A50; --green-bg: rgba(26,122,80,0.05);
+    --red: #B83A1B;  --red-bg: rgba(184,58,27,0.05);
+    --grey-50: #F7F8FB; --grey-100: #F0F2F7; --grey-200: #E2E7F0;
+    --grey-300: #CDD4E0; --grey-400: #A0AAC0; --grey-500: #6E7A96;
+    --grey-600: #4D5A74; --text: #1A2540;
+    --card-bg: #FFFFFF; --card-border: #E2E7F0;
+    --font: 'Outfit', sans-serif; --mono: 'IBM Plex Mono', monospace;
+    --r: 10px; --r-lg: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--grey-100); font-family: var(--font); color: var(--text); -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 20px 16px 48px; }
+
+  /* Header */
+  .hdr { background: var(--grad-hero); border-radius: var(--r-lg); padding: 26px 28px 22px; margin-bottom: 14px; position: relative; overflow: hidden; }
+  .hdr::before { content:""; position:absolute; right:-60px; top:-50px; width:220px; height:220px; border-radius:50%; background:radial-gradient(circle,rgba(56,225,240,.14),transparent 70%); pointer-events:none; }
+  .hdr::after  { content:""; position:absolute; left:30%; bottom:-60px; width:180px; height:180px; border-radius:50%; background:radial-gradient(circle,rgba(46,124,247,.12),transparent 70%); pointer-events:none; }
+  .hdr-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; position:relative; z-index:1; }
+  .hdr-logo { display:flex; align-items:center; gap:8px; }
+  .hdr-logo svg { width:20px; height:20px; }
+  .hdr-logo-t { font-weight:700; font-size:15px; color:#fff; letter-spacing:-0.02em; }
+  .hdr-badge { font-family:var(--mono); font-size:9px; letter-spacing:0.12em; text-transform:uppercase; color:var(--teal); border:1px solid rgba(56,225,240,.25); padding:4px 10px; border-radius:999px; }
+  .hdr-hotel { font-weight:700; font-size:20px; color:#fff; letter-spacing:-0.01em; line-height:1.3; position:relative; z-index:1; }
+  .hdr-meta { font-family:var(--mono); font-size:10px; color:rgba(255,255,255,.45); margin-top:4px; position:relative; z-index:1; }
+  .hdr-meta em { color:var(--teal); font-style:normal; }
+
+  /* Section label */
+  .sl { display:flex; align-items:center; gap:7px; font-size:13px; font-weight:700; color:var(--n800); margin:18px 0 8px; letter-spacing:-0.01em; }
+  .sl svg { flex-shrink:0; color:var(--blue); opacity:.75; }
+
+  /* AI Summary */
+  .ai-sum { background:var(--grad-deep); border-radius:var(--r-lg); padding:18px 22px; margin-bottom:14px; position:relative; overflow:hidden; }
+  .ai-sum::before { content:""; position:absolute; right:-30px; top:-30px; width:140px; height:140px; border-radius:50%; background:radial-gradient(circle,rgba(46,124,247,.10),transparent 70%); pointer-events:none; }
+  .ai-sum-tag { display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:9px; letter-spacing:0.1em; text-transform:uppercase; color:var(--teal); font-weight:500; margin-bottom:10px; position:relative; z-index:1; }
+  .ai-sum-tag::before { content:""; width:5px; height:5px; background:var(--teal); border-radius:50%; }
+  .ai-sum p { font-size:13.5px; line-height:1.75; color:rgba(255,255,255,.72); position:relative; z-index:1; }
+
+  /* KPI cards */
+  .kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:6px; }
+  .kpi-card { background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--r); padding:14px 12px 12px; text-align:center; position:relative; }
+  .kpi-card::before { content:""; position:absolute; top:0; left:0; right:0; height:3px; background:var(--grad-cyan); border-radius:var(--r) var(--r) 0 0; }
+  .kpi-label { font-size:11px; font-weight:600; color:var(--n700); margin-bottom:6px; }
+  .kpi-value { font-weight:800; font-size:22px; color:var(--text); letter-spacing:-0.03em; line-height:1; margin-bottom:8px; }
+  .kpi-var { font-size:11px; font-weight:600; }
+  .kpi-var.up { color:var(--green); }
+  .kpi-var.dn { color:var(--red); }
+  .kpi-ly { display:block; font-family:var(--mono); font-size:9px; color:var(--grey-400); margin-top:2px; }
+
+  /* MTD strip */
+  .mtd-strip { display:grid; grid-template-columns:repeat(4,1fr); background:var(--grey-50); border:1px solid var(--card-border); border-radius:var(--r); margin-bottom:14px; overflow:hidden; }
+  .mtd-cell { padding:8px 6px; text-align:center; border-right:1px solid var(--grey-200); }
+  .mtd-cell:last-child { border-right:none; }
+  .mtd-lbl { font-size:9px; font-weight:600; color:var(--grey-500); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:2px; }
+  .mtd-val { font-weight:700; font-size:14px; color:var(--text); letter-spacing:-0.02em; }
+  .mtd-chg { font-size:9px; font-weight:600; }
+
+  /* OTB by month */
+  .otb-row { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-bottom:14px; }
+  .otb-card { background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--r); padding:14px 14px 12px; text-align:center; }
+  .otb-card .top-bar { height:3px; border-radius:var(--r) var(--r) 0 0; margin:-14px -14px 12px -14px; }
+  .otb-mo { font-size:10px; font-weight:600; color:var(--grey-500); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px; }
+  .otb-rev { font-weight:800; font-size:20px; color:var(--text); letter-spacing:-0.03em; line-height:1; }
+  .otb-detail { font-size:11px; color:var(--grey-500); margin-top:6px; line-height:1.4; }
+  .otb-detail b { color:var(--text); font-weight:600; }
+  .otb-occ { font-size:13px; font-weight:700; }
+  .otb-vs { font-size:10px; font-weight:600; margin-top:4px; }
+
+  /* Card */
+  .card { background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--r-lg); padding:16px 18px; margin-bottom:6px; }
+
+  /* Pickup table */
+  .pu { width:100%; border-collapse:collapse; }
+  .pu th { font-family:var(--mono); font-size:9px; text-transform:uppercase; letter-spacing:0.08em; color:var(--grey-400); padding:0 3px 10px; text-align:center; font-weight:500; }
+  .pu th:first-child { text-align:left; padding-left:0; }
+  .pu td { padding:6px 3px; text-align:center; border-top:1px solid var(--grey-100); }
+  .pu td:first-child { text-align:left; padding-left:0; font-family:var(--mono); font-size:9px; letter-spacing:0.06em; color:var(--grey-500); text-transform:uppercase; font-weight:500; }
+  .pu td:nth-child(4), .pu td:nth-child(6), .pu td:nth-child(8) { border-left:1px solid var(--grey-200); }
+  .pu th:nth-child(4), .pu th:nth-child(6), .pu th:nth-child(8) { border-left:1px solid var(--grey-200); }
+  .pu-v { font-weight:700; font-size:12px; color:var(--text); display:block; letter-spacing:-0.01em; }
+  .pu-v.blue { color:var(--blue); }
+  .pu-v.red  { color:var(--red); font-size:10px; font-weight:600; }
+  .pu-sub { display:flex; gap:6px; margin-bottom:14px; }
+  .pu-sub-card { flex:1; background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--r); padding:10px 12px; }
+
+  /* Chart cards */
+  .chart-card { background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--r-lg); padding:16px 16px 12px; margin-bottom:8px; }
+  .chart-h { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px; }
+  .chart-title { font-weight:700; font-size:13px; color:var(--text); }
+  .chart-subtitle { font-family:var(--mono); font-size:10px; color:var(--grey-500); margin-top:2px; }
+  .chart-legend { display:flex; gap:12px; font-family:var(--mono); font-size:8px; color:var(--grey-500); letter-spacing:0.04em; }
+  .chart-legend span { display:flex; align-items:center; gap:4px; }
+  .lg-box { width:8px; height:8px; border-radius:2px; }
+  .lg-line { width:12px; height:0; border-top:2px dashed; }
+  .lg-dot { width:8px; height:3px; border-radius:2px; }
+
+  /* Channels */
+  .ch-row { display:flex; align-items:center; padding:7px 0; border-top:1px solid var(--grey-100); gap:10px; }
+  .ch-row:first-child { border-top:none; }
+  .ch-name { font-weight:600; font-size:12px; flex:0 0 90px; min-width:0; }
+  .ch-bar-wrap { flex:1; background:var(--grey-100); border-radius:4px; height:6px; overflow:visible; position:relative; }
+  .ch-bar { height:100%; background:var(--grad-cyan); border-radius:4px; }
+  .ch-nights { font-family:var(--mono); font-size:10px; color:var(--grey-600); min-width:36px; text-align:right; }
+  .badge-pos { background:var(--green-bg); color:var(--green); font-family:var(--mono); font-size:9px; font-weight:600; padding:2px 6px; border-radius:4px; }
+  .badge-neg { background:var(--red-bg);   color:var(--red);   font-family:var(--mono); font-size:9px; font-weight:600; padding:2px 6px; border-radius:4px; }
+
+  /* AI Insight Cards */
+  .icard {
+    background:#fff; border:1px solid rgba(10,31,77,.08); border-radius:16px;
+    padding:20px 20px 8px 24px; margin-bottom:12px; overflow:hidden;
+    position:relative; box-shadow:0 6px 20px rgba(10,31,77,.07),0 2px 4px rgba(10,31,77,.04);
+  }
+  .icard::before {
+    content:""; position:absolute; left:0; top:0; bottom:0; width:3px; border-radius:3px 0 0 3px;
+  }
+  .icard.ic-warn::before { background:linear-gradient(180deg,#C7411B 0%,#E0A82E 100%); }
+  .icard.ic-pos::before  { background:linear-gradient(180deg,#2E7CF7 0%,#38E1F0 100%); }
+  .icard.ic-info::before { background:linear-gradient(180deg,#2E7CF7 0%,#56FFC4 100%); }
+  .icard.ic-mon::before  { background:linear-gradient(180deg,#7C5BFF 0%,#38E1F0 100%); }
+  .icard-head { display:flex; align-items:flex-start; gap:12px; margin-bottom:14px; }
+  .icard-title { font-weight:700; font-size:14px; color:#0A1F4D; line-height:1.38; flex:1; }
+  .icard-badge {
+    font-family:var(--mono); font-size:9px; font-weight:500; letter-spacing:.14em;
+    text-transform:uppercase; padding:5px 10px; border-radius:999px; flex-shrink:0; white-space:nowrap; margin-top:2px;
+  }
+  .icard-badge.ic-warn { background:rgba(199,65,27,.10); color:#C7411B; border:1px solid rgba(199,65,27,.22); }
+  .icard-badge.ic-pos  { background:rgba(46,124,247,.10); color:#1E6DD8; border:1px solid rgba(46,124,247,.22); }
+  .icard-badge.ic-info { background:rgba(46,124,247,.08); color:#1E6DD8; border:1px solid rgba(46,124,247,.18); }
+  .icard-badge.ic-mon  { background:rgba(124,91,255,.10); color:#6344D9; border:1px solid rgba(124,91,255,.22); }
+  /* ── Metric chips ── */
+  .icard-kpis { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; }
+  .kpi-chip {
+    background:#F4F7FC; border:1px solid rgba(10,31,77,.07); border-radius:12px;
+    padding:13px 15px;
+  }
+  .kpi-label { font-family:var(--mono); font-size:9px; color:#8A93AE; text-transform:uppercase; letter-spacing:.10em; margin-bottom:8px; }
+  .kpi-val {
+    font-family:var(--font-display,var(--mono)); font-weight:700; font-size:18px;
+    color:#0A1F4D; line-height:1.1; letter-spacing:-.015em;
+    display:flex; align-items:baseline; gap:6px; flex-wrap:wrap; margin-bottom:5px;
+  }
+  .kpi-ty   { font-weight:700; }
+  .kpi-ty.kup   { color:#1A7A50; }
+  .kpi-ty.kdown { color:#B83A1B; }
+  .kpi-sep  { font-weight:400; color:#A0AAC0; font-size:11px; }
+  .kpi-ly   { color:#5A6486; font-weight:500; font-size:14px; }
+  .kpi-sub  { font-family:var(--mono); font-size:11px; color:#5A6486; }
+  .kpi-sub .kup   { color:#1A7A50; font-weight:600; }
+  .kpi-sub .kdown { color:#B83A1B; font-weight:600; }
+
+  /* ── Finding bullets ── */
+  .icard-findings { margin-bottom:16px; display:flex; flex-direction:column; gap:8px; }
+  .ifinding {
+    display:grid; grid-template-columns:6px 1fr; gap:11px; align-items:flex-start;
+    font-size:13px; color:#2A3354; line-height:1.6;
+  }
+  .ifinding::before {
+    content:""; width:6px; height:6px; border-radius:50%; background:#2E7CF7;
+    flex-shrink:0; margin-top:7px; box-shadow:0 0 0 3px rgba(46,124,247,.12);
+  }
+  .icard.ic-warn .ifinding::before { background:#C7411B; box-shadow:0 0 0 3px rgba(199,65,27,.12); }
+
+  /* ── Action box ── */
+  .icard-action {
+    background:linear-gradient(135deg,rgba(46,124,247,.06),rgba(86,255,196,.06));
+    border:1px solid rgba(46,124,247,.14); border-radius:10px;
+    padding:13px 15px; display:flex; gap:12px; align-items:flex-start; margin-bottom:14px;
+  }
+  .icard.ic-warn .icard-action { background:linear-gradient(135deg,rgba(199,65,27,.05),rgba(224,168,46,.06)); border-color:rgba(199,65,27,.16); }
+  .iaction-icon {
+    width:28px; height:28px; border-radius:8px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; color:#fff;
+    box-shadow:0 4px 10px -2px rgba(46,124,247,.4);
+  }
+  .iaction-icon.ic-warn { background:linear-gradient(135deg,#C7411B,#E0A82E); box-shadow:0 4px 10px -2px rgba(199,65,27,.4); }
+  .iaction-icon.ic-pos  { background:linear-gradient(135deg,#2E7CF7,#38E1F0); }
+  .iaction-icon.ic-info { background:linear-gradient(135deg,#2E7CF7,#56FFC4); }
+  .iaction-icon.ic-mon  { background:linear-gradient(135deg,#7C5BFF,#38E1F0); }
+  .iaction-body { flex:1; }
+  .iaction-lead {
+    font-family:var(--mono); font-size:9px; text-transform:uppercase;
+    letter-spacing:.16em; color:#8A93AE; display:block; margin-bottom:3px;
+  }
+  .iaction-text { font-size:13px; color:#2A3354; line-height:1.5; margin:0; }
+  .iaction-text strong { color:#0A1F4D; font-weight:600; }
+
+  /* ── Card footer ── */
+  .icard-foot {
+    display:flex; align-items:center; gap:8px;
+    padding:12px 0 0; border-top:1px solid rgba(10,31,77,.07);
+  }
+  .icard-btn {
+    display:inline-flex; align-items:center; gap:6px;
+    padding:8px 15px; border-radius:999px;
+    background:linear-gradient(135deg,#2E7CF7,#38E1F0);
+    color:#fff; font-family:var(--mono); font-size:10px; font-weight:600;
+    text-decoration:none; letter-spacing:.04em;
+    box-shadow:0 4px 12px -3px rgba(46,124,247,.5);
+  }
+  .icard.ic-warn .icard-btn { background:linear-gradient(135deg,#C7411B,#E0A82E); box-shadow:0 4px 12px -3px rgba(199,65,27,.45); }
+  .icard.ic-mon  .icard-btn { background:linear-gradient(135deg,#7C5BFF,#38E1F0); }
+  .icard-pri {
+    margin-left:auto; font-family:var(--mono); font-size:10px;
+    text-transform:uppercase; letter-spacing:.14em; color:#A0AAC0;
+    display:flex; align-items:center; gap:6px;
+  }
+  .icard-pri::before { content:""; width:6px; height:6px; border-radius:50%; background:#56FFC4; box-shadow:0 0 0 3px rgba(86,255,196,.22); }
+  .icard.ic-warn .icard-pri::before { background:#E0A82E; box-shadow:0 0 0 3px rgba(224,168,46,.22); }
+
+  /* CTA */
+  .cta { text-align:center; margin:22px 0 14px; }
+  .cta a { display:inline-block; background:var(--grad-cyan); color:var(--n950); font-size:13px; font-weight:700; text-decoration:none; padding:12px 32px; border-radius:8px; letter-spacing:-0.01em; }
+  .cta-sub { text-align:center; font-size:10px; color:var(--grey-400); margin-top:8px; line-height:1.5; }
+
+  /* Footer */
+  .ftr { text-align:center; padding:8px 0; }
+  .ftr-b { font-family:var(--mono); font-size:9px; text-transform:uppercase; letter-spacing:0.12em; color:var(--grey-400); }
+  .ftr-s { font-size:9px; color:var(--grey-300); margin-top:2px; }
+  .ftr-s a { color:var(--grey-500); }
+
+  @media (max-width:480px) {
+    .kpi-row { grid-template-columns:1fr 1fr; }
+    .otb-row { grid-template-columns:1fr; }
+  }
+
+  /* ── Tab nav ── */
+  .tab-nav {
+    position:sticky; top:0; z-index:99;
+    background:var(--grey-50);
+    border-bottom:1px solid var(--grey-200);
+    display:flex; justify-content:center; gap:0; overflow-x:auto;
+    scrollbar-width:none; margin-bottom:4px;
+  }
+  .tab-nav::-webkit-scrollbar { display:none; }
+  .tab-btn {
+    flex-shrink:0; padding:11px 16px;
+    background:none; border:none; border-bottom:2px solid transparent;
+    font-family:var(--font); font-size:12px; font-weight:600;
+    color:var(--grey-500); cursor:pointer; white-space:nowrap;
+    transition:color .15s, border-color .15s;
+  }
+  .tab-btn.active { color:var(--blue); border-bottom-color:var(--blue); }
+  .tab-badge {
+    display:inline-flex; align-items:center; justify-content:center;
+    background:var(--blue); color:#fff; font-size:9px; font-weight:700;
+    border-radius:999px; min-width:16px; height:16px;
+    padding:0 4px; margin-left:5px; vertical-align:middle;
+  }
+
+  /* ── Section scroll anchors ── */
+  .sec-anchor { scroll-margin-top:46px; }
+
+  /* ── AI card collapse ── */
+  .icard-toggle {
+    flex-shrink:0; background:none; border:none; cursor:pointer;
+    color:var(--grey-400); padding:2px 0 0; display:flex; align-items:center;
+    transition:transform .2s;
+  }
+  .icard-toggle.open { transform:rotate(180deg); }
+  .icard-head { cursor:pointer; user-select:none; margin-bottom:0 !important; }
+  .icard-body { padding-top:14px; }
+</style>
+</head>
+<body>
+<nav class="tab-nav" id="tab-nav">
+  <button class="tab-btn active" onclick="navTo('sec-overview')">Overview</button>
+  <button class="tab-btn" onclick="navTo('sec-pickup')">Pickup</button>
+  <button class="tab-btn" onclick="navTo('sec-pace')">Pace</button>
+  <button class="tab-btn" onclick="navTo('sec-ai')">AI Insights<span class="tab-badge">3</span></button>
+</nav>
+<div class="wrap">
+<div id="sec-overview" class="sec-anchor"></div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-row">
+    <div class="hdr-logo">
+      <svg viewBox="0 0 24 24" fill="none"><rect x="2" y="14" width="4" height="8" rx="1" fill="#fff"/><rect x="10" y="8" width="4" height="14" rx="1" fill="var(--teal)"/><rect x="18" y="2" width="4" height="20" rx="1" fill="#fff"/></svg>
+      <span class="hdr-logo-t">FirstLight</span>
+    </div>
+    <span class="hdr-badge">Morning Briefing</span>
+  </div>
+  <div class="hdr-hotel">Pomegranate Wellness Spa Hotel</div>
+  <div class="hdr-meta">Tuesday, July 28, 2026 &middot; Generated at <em>21:00</em> &middot; Protel PMS</div>
+</div>
+
+<!-- AI EXECUTIVE SUMMARY -->
+
+<div class="ai-sum">
+  <div class="ai-sum-tag">Smart Summary</div>
+  <p>Good morning. Yesterday delivered €80,801 in revenue, up +125.6% on last year, driven by occupancy reaching 86% against last year&#39;s 34%, though ADR of €557 trailed last year&#39;s €628 by −11.3%. July MTD stands at €1,989,990, +26.7% ahead of last year, with the same pattern of occupancy gains offsetting softer rates. That rate gap represents an opportunity worth €5,624 in July alone, as volume runs well ahead while pricing trails. August is pacing +48.9% ahead of the same point last year, and three hot dates are approaching capacity where discounts may no longer be warranted.</p>
+</div>
+
+
+<!-- YESTERDAY KPIs -->
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>Yesterday</div>
+<div class="kpi-row">
+  <div class="kpi-card">
+    <div class="kpi-label">Total Revenue</div>
+    <div class="kpi-value">€81.598</div>
+    <div class="kpi-var up">
+      ▲ +137.5%
+    </div>
+    <span class="kpi-ly">vs LY €34.364</span>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Occupancy</div>
+    <div class="kpi-value">88.0%</div>
+    <div class="kpi-var up">
+      ▲ +162.5%
+    </div>
+    <span class="kpi-ly">vs LY 33.5%</span>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">ADR</div>
+    <div class="kpi-value">555&thinsp;€</div>
+    <div class="kpi-var dn">
+      ▼ -9.5%
+    </div>
+    <span class="kpi-ly">vs LY 614&thinsp;€</span>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Room Nights</div>
+    <div class="kpi-value">147</div>
+    <div class="kpi-var up">
+      ▲ +162.5%
+    </div>
+    <span class="kpi-ly">vs LY 56</span>
+  </div>
+</div>
+
+<!-- MTD STRIP -->
+<div class="mtd-strip">
+  <div class="mtd-cell">
+    <div class="mtd-lbl">MTD Rev</div>
+    <div class="mtd-val">€2075.6k</div>
+    <div class="mtd-chg" style="color:var(--green)">
+      ▲ +29.3%
+    </div>
+  </div>
+  <div class="mtd-cell">
+    <div class="mtd-lbl">MTD Occ</div>
+    <div class="mtd-val">86.0%</div>
+    <div class="mtd-chg" style="color:var(--green)">
+      ▲ +48.2%
+    </div>
+  </div>
+  <div class="mtd-cell">
+    <div class="mtd-lbl">MTD ADR</div>
+    <div class="mtd-val">516&thinsp;€</div>
+    <div class="mtd-chg" style="color:var(--red)">
+      ▼ -12.7%
+    </div>
+  </div>
+  <div class="mtd-cell">
+    <div class="mtd-lbl">MTD Rooms</div>
+    <div class="mtd-val">4021</div>
+    <div class="mtd-chg" style="color:var(--green)">
+      ▲ +48.2%
+    </div>
+  </div>
+</div>
+
+<!-- OTB BY MONTH (next 3 months from pace) -->
+
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>On The Books &mdash; Next 3 Months</div>
+<div class="otb-row">
+  
+    
+    
+    <div class="otb-card">
+      <div class="top-bar" style="background:var(--grad-cyan)"></div>
+      <div class="otb-mo">Jul</div>
+      <div class="otb-rev">€2.241.198</div>
+      <div class="otb-detail"><b>4317</b> rn &middot; <span class="otb-occ" style="color:var(--green)">83.4%</span> occ</div>
+      <div class="otb-vs" style="color:var(--green)">
+        ▲ +33% vs STLY
+      </div>
+    </div>
+  
+    
+    
+    <div class="otb-card">
+      <div class="top-bar" style="background:var(--grad-cyan)"></div>
+      <div class="otb-mo">Aug</div>
+      <div class="otb-rev">€1.652.281</div>
+      <div class="otb-detail"><b>2893</b> rn &middot; <span class="otb-occ" style="color:var(--green)">55.9%</span> occ</div>
+      <div class="otb-vs" style="color:var(--green)">
+        ▲ +41% vs STLY
+      </div>
+    </div>
+  
+    
+    
+    <div class="otb-card">
+      <div class="top-bar" style="background:var(--grad-cyan)"></div>
+      <div class="otb-mo">Sep</div>
+      <div class="otb-rev">€499.749</div>
+      <div class="otb-detail"><b>1409</b> rn &middot; <span class="otb-occ" style="color:var(--green)">28.1%</span> occ</div>
+      <div class="otb-vs" style="color:var(--green)">
+        ▲ +14% vs STLY
+      </div>
+    </div>
+  
+</div>
+
+
+<!-- PICKUP -->
+<div id="sec-pickup" class="sec-anchor"></div>
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>Pickup Activity</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+
+  
+  <div class="card" style="padding:12px">
+    <div style="font-size:10px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Today</div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
+      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
+      <span style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--green)">+0 rn &middot; €0</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Cancel</span>
+      <span style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--red)">-0 rn &middot; -€0</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:6px;border-top:1px solid var(--grey-100)">
+      <span style="font-size:9px;font-weight:700;color:var(--grey-600);text-transform:uppercase;letter-spacing:.05em">Net</span>
+      <span style="font-family:var(--mono);font-size:12px;font-weight:700">0 rn &middot; €0</span>
+    </div>
+  </div>
+
+  
+  <div class="card" style="padding:12px">
+    <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Yesterday <span style="font-weight:400;font-size:9px;color:var(--grey-400)">28/07</span></div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
+      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
+      <span style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--blue)">+137 rn &middot; €58.2k</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Cancel</span>
+      <span style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--red)">-25 rn &middot; -€10.5k</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:6px;border-top:1px solid var(--grey-100)">
+      <span style="font-size:9px;font-weight:700;color:var(--grey-600);text-transform:uppercase;letter-spacing:.05em">Net</span>
+      <span style="font-family:var(--mono);font-size:12px;font-weight:700">112 rn &middot; €47.7k</span>
+    </div>
+  </div>
+
+  
+  <div class="card" style="padding:12px">
+    <div style="font-size:10px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">3-Day <span style="font-weight:400;font-size:9px;color:var(--grey-400)">27/07–29/07</span></div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
+      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
+      <span style="font-family:var(--mono);font-size:11px;font-weight:700">+303 rn &middot; €143.4k</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Cancel</span>
+      <span style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--red)">-52 rn &middot; -€25.7k</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:6px;border-top:1px solid var(--grey-100)">
+      <span style="font-size:9px;font-weight:700;color:var(--grey-600);text-transform:uppercase;letter-spacing:.05em">Net</span>
+      <span style="font-family:var(--mono);font-size:12px;font-weight:700">251 rn &middot; €117.7k</span>
+    </div>
+  </div>
+
+  
+  <div class="card" style="padding:12px">
+    <div style="font-size:10px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">7-Day <span style="font-weight:400;font-size:9px;color:var(--grey-400)">23/07–29/07</span></div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
+      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
+      <span style="font-family:var(--mono);font-size:11px;font-weight:700">+760 rn &middot; €401.0k</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Cancel</span>
+      <span style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--red)">-170 rn &middot; -€102.7k</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:6px;border-top:1px solid var(--grey-100)">
+      <span style="font-size:9px;font-weight:700;color:var(--grey-600);text-transform:uppercase;letter-spacing:.05em">Net</span>
+      <span style="font-family:var(--mono);font-size:12px;font-weight:700">590 rn &middot; €298.2k</span>
+    </div>
+  </div>
+
+</div>
+
+<style>
+.fl-card{background:#fff;border:1px solid #E2E7F0;border-radius:14px;padding:16px;margin-top:12px}
+.fl-title{font-size:14px;font-weight:700;color:var(--text)}
+.fl-how{font-size:11px;color:#4D5A74;line-height:1.45;margin:3px 0 10px}
+.fl-key{display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:10px;color:#4D5A74;font-weight:600;margin:6px 0}
+.fl-kb{display:inline-block;width:16px;height:8px;border-radius:4px;vertical-align:middle;margin-right:4px}
+.fl-kt{display:inline-block;width:3px;height:13px;border-radius:2px;vertical-align:middle;margin-right:4px}
+.fl-row{display:flex;gap:10px;padding:11px 0;border-bottom:1px solid #F0F2F7;align-items:flex-start}
+.fl-row:last-child{border-bottom:none;padding-bottom:2px}
+.fl-mon{width:32px;font-weight:800;font-size:13px}
+.fl-mid{flex:1}
+.fl-lane{display:flex;align-items:center}
+.fl-track{height:16px;background:#EEF1F7;border-radius:8px;position:relative}
+.fl-lane .fl-track{width:82%}
+.fl-bar{height:16px}
+.fl-over{height:16px;background:#1A7A50;border-radius:0 8px 8px 0;margin-left:1px}
+.fl-tick{position:absolute;top:-3px;width:3px;height:22px;background:#A0AAC0;border-radius:2px}
+.fl-under{display:flex;justify-content:space-between;gap:6px;font-size:9px;color:#A0AAC0;margin-top:4px}
+.fl-under b{color:#4D5A74;font-weight:600}
+.fl-val{width:104px;text-align:right}
+.fl-big{font-size:14px;font-weight:700;font-family:var(--mono)}
+.fl-vs{font-size:9px;color:#A0AAC0}
+.fl-togo{font-size:10px;color:#4D5A74;margin-top:4px;line-height:1.3}
+.fl-vtrack{height:10px;background:#EEF1F7;border-radius:5px;position:relative}
+.fl-vbar{height:10px;border-radius:5px}
+.fl-vtick{position:absolute;top:-3px;width:3px;height:16px;border-radius:2px}
+.fl-v{font-size:12px;font-weight:700;font-family:var(--mono);line-height:1.5}
+.fl-unit{font-size:8px;color:#A0AAC0;font-weight:400;margin-left:3px}
+.fl-fw{display:flex;align-items:center;height:8px}
+.fl-fl{flex:1;display:flex;justify-content:flex-end}
+.fl-flb{height:8px;border-radius:4px 0 0 4px}
+.fl-fax{width:1.5px;height:14px;background:#C9D1E0}
+.fl-fr{flex:1}
+.fl-frb{height:8px;border-radius:0 4px 4px 0}
+.fl-alert{background:#FFF7EA;border:1px solid rgba(247,144,9,.35);color:#7A5B22;border-radius:10px;font-size:11px;padding:7px 10px;margin-top:10px}
+.fl-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.fl-cell{aspect-ratio:1;border-radius:7px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
+.fl-occ{font-size:11.5px;font-weight:700;font-family:var(--mono)}
+.fl-date{font-size:8px;font-weight:500}
+.fl-mdiv{grid-column:1/-1;font-size:10px;font-weight:700;letter-spacing:.1em;color:#4D5A74;border-top:2px solid #0F2860;padding:4px 0 0;margin-top:4px}
+.fl-dow{text-align:center;font-family:var(--mono);font-size:9px;color:#A0AAC0}
+.fl-legend{display:flex;align-items:center;gap:3px;font-size:9.5px;color:#4D5A74;margin-top:10px;flex-wrap:wrap}
+.fl-lsw{width:13px;height:9px;border-radius:2px;display:inline-block}
+.fl-brow{display:flex;align-items:center;gap:8px;padding:4px 0}
+.fl-blbl{width:52px;font-size:10px;font-weight:700;color:#4D5A74}
+.fl-btrk{flex:1;height:14px;background:#F4F6FA;border-radius:7px;position:relative}
+.fl-bbar{position:absolute;top:0;height:14px;border-radius:4px}
+.fl-bval{width:52px;text-align:right;font-size:12px;font-weight:700;font-family:var(--mono)}
+</style>
+
+
+<div class="fl-card">
+  <div class="fl-title">Booked vs cancelled — by stay month</div>
+  <div class="fl-key">
+    <span><span class="fl-kb" style="background:#0F2860"></span>booked · 7d</span>
+    <span><span class="fl-kb" style="background:#2E7CF7"></span>booked · 14d</span>
+    <span><span class="fl-kb" style="background:#B83A1B"></span>cancelled · 7d</span>
+    <span><span class="fl-kb" style="background:#DC8B77"></span>cancelled · 14d</span>
+  </div>
+  <div style="display:flex;font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;margin-bottom:2px">
+    <div style="flex:1;color:#B83A1B">◀ CANCELLED</div><div style="flex:1;text-align:right;color:#2E7CF7">BOOKED ▶</div>
+  </div>
+  
+  <div class="fl-row" style="align-items:center">
+    <div class="fl-mon">Jul</div>
+    <div class="fl-mid">
+      <div class="fl-fw"><div class="fl-fl"><div class="fl-flb" style="width:0.5%;background:#B83A1B"></div></div><div class="fl-fax"></div><div class="fl-fr"><div class="fl-frb" style="width:3.9%;background:#0F2860"></div></div></div>
+      <div style="height:3px"></div>
+      <div class="fl-fw"><div class="fl-fl"><div class="fl-flb" style="width:0.5%;background:#DC8B77"></div></div><div class="fl-fax"></div><div class="fl-fr"><div class="fl-frb" style="width:5.7%;background:#2E7CF7"></div></div></div>
+    </div>
+    <div class="fl-val" style="width:88px">
+      <div class="fl-v" style="color:#1A7A50">+27<span class="fl-unit">net·7d</span></div>
+      <div class="fl-v" style="color:#1A7A50">+42<span class="fl-unit">net·14d</span></div>
+    </div>
+  </div>
+  
+  <div class="fl-row" style="align-items:center">
+    <div class="fl-mon">Aug</div>
+    <div class="fl-mid">
+      <div class="fl-fw"><div class="fl-fl"><div class="fl-flb" style="width:23.3%;background:#B83A1B"></div></div><div class="fl-fax"></div><div class="fl-fr"><div class="fl-frb" style="width:63.2%;background:#0F2860"></div></div></div>
+      <div style="height:3px"></div>
+      <div class="fl-fw"><div class="fl-fl"><div class="fl-flb" style="width:35.9%;background:#DC8B77"></div></div><div class="fl-fax"></div><div class="fl-fr"><div class="fl-frb" style="width:92.6%;background:#2E7CF7"></div></div></div>
+    </div>
+    <div class="fl-val" style="width:88px">
+      <div class="fl-v" style="color:#1A7A50">+320<span class="fl-unit">net·7d</span></div>
+      <div class="fl-v" style="color:#1A7A50">+455<span class="fl-unit">net·14d</span></div>
+    </div>
+  </div>
+  
+  <div class="fl-row" style="align-items:center">
+    <div class="fl-mon">Sep</div>
+    <div class="fl-mid">
+      <div class="fl-fw"><div class="fl-fl"><div class="fl-flb" style="width:2.5%;background:#B83A1B"></div></div><div class="fl-fax"></div><div class="fl-fr"><div class="fl-frb" style="width:21.6%;background:#0F2860"></div></div></div>
+      <div style="height:3px"></div>
+      <div class="fl-fw"><div class="fl-fl"><div class="fl-flb" style="width:4.6%;background:#DC8B77"></div></div><div class="fl-fax"></div><div class="fl-fr"><div class="fl-frb" style="width:37.5%;background:#2E7CF7"></div></div></div>
+    </div>
+    <div class="fl-val" style="width:88px">
+      <div class="fl-v" style="color:#1A7A50">+153<span class="fl-unit">net·7d</span></div>
+      <div class="fl-v" style="color:#1A7A50">+264<span class="fl-unit">net·14d</span></div>
+    </div>
+  </div>
+  
+  <div class="fl-row" style="align-items:center">
+    <div class="fl-mon">Oct</div>
+    <div class="fl-mid">
+      <div class="fl-fw"><div class="fl-fl"><div class="fl-flb" style="width:0.0%;background:#B83A1B"></div></div><div class="fl-fax"></div><div class="fl-fr"><div class="fl-frb" style="width:0.0%;background:#0F2860"></div></div></div>
+      <div style="height:3px"></div>
+      <div class="fl-fw"><div class="fl-fl"><div class="fl-flb" style="width:0.4%;background:#DC8B77"></div></div><div class="fl-fax"></div><div class="fl-fr"><div class="fl-frb" style="width:1.9%;background:#2E7CF7"></div></div></div>
+    </div>
+    <div class="fl-val" style="width:88px">
+      <div class="fl-v" style="color:#1A7A50">+0<span class="fl-unit">net·7d</span></div>
+      <div class="fl-v" style="color:#1A7A50">+12<span class="fl-unit">net·14d</span></div>
+    </div>
+  </div>
+  
+  <div class="fl-alert">⚠ Aug: cancellations are 39% of the rooms booked in the last 14 days — the highest churn of any month.</div>
+</div>
+
+
+<div class="fl-card">
+  <div class="fl-title">Booking speed — rooms per day</div>
+  <div class="fl-key">
+    <span><span class="fl-kb" style="background:#0F2860"></span>last 7 days</span>
+    <span><span class="fl-kb" style="background:#2E7CF7"></span>last 14 days</span>
+    <span><span class="fl-kt" style="background:#A0AAC0"></span>LY speed</span>
+    <span><span class="fl-kt" style="background:#B47D09"></span>needed for LY final</span>
+  </div>
+  
+  <div class="fl-row">
+    <div class="fl-mon" style="padding-top:1px">Jul</div>
+    <div class="fl-mid">
+      <div class="fl-vtrack"><div class="fl-vbar" style="width:7.5%;background:#0F2860"></div><div class="fl-vtick" style="left:70.2%;background:#A0AAC0"></div></div>
+      <div style="height:4px"></div>
+      <div class="fl-vtrack"><div class="fl-vbar" style="width:5.9%;background:#2E7CF7"></div><div class="fl-vtick" style="left:70.2%;background:#A0AAC0"></div></div>
+      <div style="font-size:10px;margin-top:5px;color:#1A7A50;font-weight:700">✓ passed LY final (+1.488 rn)</div>
+    </div>
+    <div class="fl-val" style="width:92px">
+      <div class="fl-v" style="color:#0F2860">3.9<span class="fl-unit">/day·7d</span></div>
+      <div class="fl-v" style="color:#2E7CF7">3.0<span class="fl-unit">/day·14d</span></div>
+      <div style="font-size:9px;font-weight:600;color:#1A7A50">speeding up</div>
+    </div>
+  </div>
+  
+  <div class="fl-row">
+    <div class="fl-mon" style="padding-top:1px">Aug</div>
+    <div class="fl-mid">
+      <div class="fl-vtrack"><div class="fl-vbar" style="width:89.3%;background:#0F2860"></div><div class="fl-vtick" style="left:57.9%;background:#A0AAC0"></div><div class="fl-vtick" style="left:36.9%;background:#B47D09"></div></div>
+      <div style="height:4px"></div>
+      <div class="fl-vtrack"><div class="fl-vbar" style="width:63.5%;background:#2E7CF7"></div><div class="fl-vtick" style="left:57.9%;background:#A0AAC0"></div><div class="fl-vtick" style="left:36.9%;background:#B47D09"></div></div>
+      <div style="font-size:10px;margin-top:5px;color:#4D5A74">need 18.9/day to reach LY final</div>
+    </div>
+    <div class="fl-val" style="width:92px">
+      <div class="fl-v" style="color:#0F2860">45.7<span class="fl-unit">/day·7d</span></div>
+      <div class="fl-v" style="color:#2E7CF7">32.5<span class="fl-unit">/day·14d</span></div>
+      <div style="font-size:9px;font-weight:600;color:#1A7A50">speeding up</div>
+    </div>
+  </div>
+  
+  <div class="fl-row">
+    <div class="fl-mon" style="padding-top:1px">Sep</div>
+    <div class="fl-mid">
+      <div class="fl-vtrack"><div class="fl-vbar" style="width:42.7%;background:#0F2860"></div><div class="fl-vtick" style="left:20.9%;background:#A0AAC0"></div><div class="fl-vtick" style="left:59.6%;background:#B47D09"></div></div>
+      <div style="height:4px"></div>
+      <div class="fl-vtrack"><div class="fl-vbar" style="width:36.8%;background:#2E7CF7"></div><div class="fl-vtick" style="left:20.9%;background:#A0AAC0"></div><div class="fl-vtick" style="left:59.6%;background:#B47D09"></div></div>
+      <div style="font-size:10px;margin-top:5px;color:#4D5A74">need 30.5/day to reach LY final</div>
+    </div>
+    <div class="fl-val" style="width:92px">
+      <div class="fl-v" style="color:#0F2860">21.9<span class="fl-unit">/day·7d</span></div>
+      <div class="fl-v" style="color:#2E7CF7">18.9<span class="fl-unit">/day·14d</span></div>
+      <div style="font-size:9px;font-weight:600;color:#1A7A50">speeding up</div>
+    </div>
+  </div>
+  
+  <div class="fl-row">
+    <div class="fl-mon" style="padding-top:1px">Oct</div>
+    <div class="fl-mid">
+      <div class="fl-vtrack"><div class="fl-vbar" style="width:0.0%;background:#0F2860"></div><div class="fl-vtick" style="left:45.7%;background:#A0AAC0"></div><div class="fl-vtick" style="left:19.8%;background:#B47D09"></div></div>
+      <div style="height:4px"></div>
+      <div class="fl-vtrack"><div class="fl-vbar" style="width:1.7%;background:#2E7CF7"></div><div class="fl-vtick" style="left:45.7%;background:#A0AAC0"></div><div class="fl-vtick" style="left:19.8%;background:#B47D09"></div></div>
+      <div style="font-size:10px;margin-top:5px;color:#4D5A74">need 10.1/day to reach LY final</div>
+    </div>
+    <div class="fl-val" style="width:92px">
+      <div class="fl-v" style="color:#0F2860">0.0<span class="fl-unit">/day·7d</span></div>
+      <div class="fl-v" style="color:#2E7CF7">0.9<span class="fl-unit">/day·14d</span></div>
+      <div style="font-size:9px;font-weight:600;color:#B83A1B">slowing down</div>
+    </div>
+  </div>
+  
+</div>
+
+
+<!-- PACE CHARTS -->
+
+<div id="sec-pace" class="sec-anchor"></div>
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Pace &mdash; OTB vs STLY vs Final LY</div>
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  
+
+  
+  
+  
+
+  
+  
+  
+
+  
+  
+  
+
+  
+  
+  
+
+  
+  
+  
+
+  
+  
+  
+
+
+<div class="chart-card">
+  <div class="chart-h">
+    <div class="chart-title">Revenue OTB</div>
+    <div class="chart-legend">
+      <span><span class="lg-box" style="background:var(--n800)"></span> OTB TY</span>
+      <span><span class="lg-box" style="background:var(--grey-300)"></span> STLY</span>
+      <span><span class="lg-line" style="border-color:var(--green)"></span> Final LY</span>
+    </div>
+  </div>
+  <svg viewBox="0 0 560 162" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+    <line x1="80" y1="10"  x2="520" y2="10"  stroke="#E2E7F0" stroke-width="0.5"/>
+    <line x1="80" y1="45"  x2="520" y2="45"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="80" y1="80"  x2="520" y2="80"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="80" y1="115" x2="520" y2="115" stroke="#E2E7F0" stroke-width="0.5"/>
+    <text x="76" y="14"  text-anchor="end" font-size="8" fill="#A0AAC0" font-family="IBM Plex Mono">€2,241,198</text>
+    <text x="76" y="49"  text-anchor="end" font-size="8" fill="#A0AAC0" font-family="IBM Plex Mono">€1,501,603</text>
+    <text x="76" y="84"  text-anchor="end" font-size="8" fill="#A0AAC0" font-family="IBM Plex Mono">€739,595</text>
+    <text x="76" y="119" text-anchor="end" font-size="8" fill="#A0AAC0" font-family="IBM Plex Mono">€0</text>
+    
+      
+      
+      
+      
+      
+      
+      
+      
+      <rect x="98.4" y="111.7"   width="12" height="3.3"   rx="1.5" fill="#1A7A50"/>
+      <rect x="112.4"      y="113.4" width="12" height="1.6" rx="1.5" fill="#CDD4E0"/>
+      <line x1="96.4" y1="113.4" x2="126.4" y2="113.4" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
+      <rect x="93.4" y="137" width="36" height="13" rx="3" fill="rgba(26,122,80,0.10)"/>
+      <text x="111.4" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">Apr</text>
+      <text x="111.4" y="146" text-anchor="middle" font-size="10" fill="#1A7A50" font-family="IBM Plex Mono" font-weight="600">+106%</text>
+    
+      
+      
+      
+      
+      
+      
+      
+      
+      <rect x="161.3" y="92.8"   width="12" height="22.2"   rx="1.5" fill="#1A7A50"/>
+      <rect x="175.3"      y="96.4" width="12" height="18.6" rx="1.5" fill="#CDD4E0"/>
+      <line x1="159.3" y1="96.4" x2="189.3" y2="96.4" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
+      <rect x="156.3" y="137" width="36" height="13" rx="3" fill="rgba(26,122,80,0.10)"/>
+      <text x="174.3" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">May</text>
+      <text x="174.3" y="146" text-anchor="middle" font-size="10" fill="#1A7A50" font-family="IBM Plex Mono" font-weight="600">+20%</text>
+    
+      
+      
+      
+      
+      
+      
+      
+      
+      <rect x="224.1" y="49.099999999999994"   width="12" height="65.9"   rx="1.5" fill="#1A7A50"/>
+      <rect x="238.1"      y="53.4" width="12" height="61.6" rx="1.5" fill="#CDD4E0"/>
+      <line x1="222.1" y1="53.4" x2="252.1" y2="53.4" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
+      <rect x="219.1" y="137" width="36" height="13" rx="3" fill="rgba(26,122,80,0.10)"/>
+      <text x="237.1" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">Jun</text>
+      <text x="237.1" y="146" text-anchor="middle" font-size="10" fill="#1A7A50" font-family="IBM Plex Mono" font-weight="600">+7%</text>
+    
+      
+      
+      
+      
+      
+      
+      
+      
+      <rect x="287.0" y="14.0"   width="12" height="101.0"   rx="1.5" fill="#1A7A50"/>
+      <rect x="301.0"      y="39.3" width="12" height="75.7" rx="1.5" fill="#CDD4E0"/>
+      <line x1="285.0" y1="39.3" x2="315.0" y2="39.3" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
+      <rect x="282.0" y="137" width="36" height="13" rx="3" fill="rgba(26,122,80,0.10)"/>
+      <text x="300.0" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">Jul</text>
+      <text x="300.0" y="146" text-anchor="middle" font-size="10" fill="#1A7A50" font-family="IBM Plex Mono" font-weight="600">+33%</text>
+    
+      
+      
+      
+      
+      
+      
+      
+      
+      <rect x="349.9" y="40.5"   width="12" height="74.5"   rx="1.5" fill="#0F2860"/>
+      <rect x="363.9"      y="62.1" width="12" height="52.9" rx="1.5" fill="#CDD4E0"/>
+      <line x1="347.9" y1="24.700000000000003" x2="377.9" y2="24.700000000000003" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
+      <rect x="344.9" y="137" width="36" height="13" rx="3" fill="rgba(26,122,80,0.10)"/>
+      <text x="362.9" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">Aug</text>
+      <text x="362.9" y="146" text-anchor="middle" font-size="10" fill="#1A7A50" font-family="IBM Plex Mono" font-weight="600">+41%</text>
+    
+      
+      
+      
+      
+      
+      
+      
+      
+      <rect x="412.7" y="92.5"   width="12" height="22.5"   rx="1.5" fill="#0F2860"/>
+      <rect x="426.7"      y="95.3" width="12" height="19.7" rx="1.5" fill="#CDD4E0"/>
+      <line x1="410.7" y1="58.5" x2="440.7" y2="58.5" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
+      <rect x="407.7" y="137" width="36" height="13" rx="3" fill="rgba(26,122,80,0.10)"/>
+      <text x="425.7" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">Sep</text>
+      <text x="425.7" y="146" text-anchor="middle" font-size="10" fill="#1A7A50" font-family="IBM Plex Mono" font-weight="600">+14%</text>
+    
+      
+      
+      
+      
+      
+      
+      
+      
+      <rect x="475.6" y="111.8"   width="12" height="3.2"   rx="1.5" fill="#0F2860"/>
+      <rect x="489.6"      y="107.7" width="12" height="7.3" rx="1.5" fill="#CDD4E0"/>
+      <line x1="473.6" y1="101.8" x2="503.6" y2="101.8" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
+      <rect x="470.6" y="137" width="36" height="13" rx="3" fill="rgba(184,58,27,0.10)"/>
+      <text x="488.6" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">Oct</text>
+      <text x="488.6" y="146" text-anchor="middle" font-size="10" fill="#B83A1B" font-family="IBM Plex Mono" font-weight="600">-56%</text>
+    
+  </svg>
+</div>
+
+
+
+
+  
+  
+  
+
+  
+  
+  
+
+  
+  
+  
+
+  
+  
+  
+
+  
+  
+  
+
+  
+  
+  
+
+  
+  
+  
+
+
+
+  
+  
+  
+  
+  
+    
+    
+    
+  
+  
+  
+  
+  
+  
+  
+
+  
+  
+  
+  
+  
+    
+    
+    
+    
+  
+  
+  
+  
+  
+  
+  
+
+  
+  
+  
+  
+  
+    
+    
+    
+    
+  
+  
+  
+  
+  
+  
+  
+
+  
+  
+  
+  
+  
+    
+    
+    
+    
+  
+  
+  
+  
+  
+  
+  
+    
+  
+
+  
+  
+  
+  
+  
+    
+    
+    
+    
+  
+  
+  
+  
+  
+  
+  
+    
+  
+
+  
+  
+  
+  
+  
+    
+    
+    
+    
+  
+  
+  
+  
+  
+  
+  
+    
+  
+
+  
+  
+  
+  
+  
+    
+    
+    
+    
+  
+  
+  
+  
+  
+  
+  
+    
+  
+
+
+
+<div class="chart-card">
+  <div class="chart-h">
+    <div class="chart-title">Occupancy</div>
+    <div class="chart-legend">
+      <span><span class="lg-dot" style="background:var(--n800)"></span> OTB TY</span>
+      <span><span class="lg-dot" style="background:var(--grey-300)"></span> STLY</span>
+      <span><span class="lg-line" style="border-color:var(--green)"></span> Final LY</span>
+    </div>
+  </div>
+  <svg viewBox="0 0 560 162" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+    <line x1="80" y1="10"  x2="520" y2="10"  stroke="#E2E7F0" stroke-width="0.5"/>
+    <line x1="80" y1="45"  x2="520" y2="45"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="80" y1="80"  x2="520" y2="80"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="80" y1="115" x2="520" y2="115" stroke="#E2E7F0" stroke-width="0.5"/>
+    <text x="76" y="14"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">100%</text>
+    <text x="76" y="49"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">67%</text>
+    <text x="76" y="84"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">33%</text>
+    <text x="76" y="119" text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">0%</text>
+    
+    <path d="M111.4,106.1 C132.4,106.1 153.3,76.8 174.3,76.8 C195.3,76.8 216.1,40.0 237.1,40.0 C258.1,40.0 279.0,30.8 300.0,30.8 C321.0,30.8 341.9,58.6 362.9,58.6 C383.9,58.6 404.7,86.6 425.7,86.6 C446.7,86.6 467.6,107.5 488.6,107.5 L488.6,115 L111.4,115 Z" fill="rgba(15,40,96,0.07)"/>
+    
+    <polyline points="300.0,59.8 362.9,46.4 425.7,47.9 488.6,88.9 " fill="none" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="4,3" stroke-linecap="round"/>
+    
+    <path d="M111.4,111.8 C132.4,111.8 153.3,85.8 174.3,85.8 C195.3,85.8 216.1,47.2 237.1,47.2 C258.1,47.2 279.0,59.8 300.0,59.8 C321.0,59.8 341.9,77.2 362.9,77.2 C383.9,77.2 404.7,92.5 425.7,92.5 C446.7,92.5 467.6,100.0 488.6,100.0" fill="none" stroke="#CDD4E0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M111.4,106.1 C132.4,106.1 153.3,76.8 174.3,76.8 C195.3,76.8 216.1,40.0 237.1,40.0 C258.1,40.0 279.0,30.8 300.0,30.8 C321.0,30.8 341.9,58.6 362.9,58.6 C383.9,58.6 404.7,86.6 425.7,86.6 C446.7,86.6 467.6,107.5 488.6,107.5" fill="none" stroke="#0F2860" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    
+    
+      
+      
+      
+      
+      <circle cx="111.4" cy="111.8" r="3" fill="#CDD4E0" stroke="#fff" stroke-width="1.5"/>
+      <circle cx="111.4" cy="106.1"   r="4" fill="#1A7A50" stroke="#fff" stroke-width="1.5"/>
+      <rect x="95.4" y="86.1" width="32" height="14" rx="3" fill="white"/>
+      <text x="111.4" y="97.1" text-anchor="middle" font-size="11" fill="#1A7A50" font-family="IBM Plex Mono" font-weight="600">9%</text>
+      <rect x="93.4" y="137" width="36" height="13" rx="3" fill="rgba(26,122,80,0.10)"/>
+      <text x="111.4" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">Apr</text>
+      <text x="111.4" y="146" text-anchor="middle" font-size="10" fill="#1A7A50" font-family="IBM Plex Mono" font-weight="600">+181%</text>
+    
+      
+      
+      
+      
+      <circle cx="174.3" cy="85.8" r="3" fill="#CDD4E0" stroke="#fff" stroke-width="1.5"/>
+      <circle cx="174.3" cy="76.8"   r="4" fill="#1A7A50" stroke="#fff" stroke-width="1.5"/>
+      <rect x="158.3" y="56.8" width="32" height="14" rx="3" fill="white"/>
+      <text x="174.3" y="67.8" text-anchor="middle" font-size="11" fill="#1A7A50" font-family="IBM Plex Mono" font-weight="600">38%</text>
+      <rect x="156.3" y="137" width="36" height="13" rx="3" fill="rgba(26,122,80,0.10)"/>
+      <text x="174.3" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">May</text>
+      <text x="174.3" y="146" text-anchor="middle" font-size="10" fill="#1A7A50" font-family="IBM Plex Mono" font-weight="600">+31%</text>
+    
+      
+      
+      
+      
+      <circle cx="237.1" cy="47.2" r="3" fill="#CDD4E0" stroke="#fff" stroke-width="1.5"/>
+      <circle cx="237.1" cy="40.0"   r="4" fill="#1A7A50" stroke="#fff" stroke-width="1.5"/>
+      <rect x="221.1" y="20.0" width="32" height="14" rx="3" fill="white"/>
+      <text x="237.1" y="31.0" text-anchor="middle" font-size="11" fill="#1A7A50" font-family="IBM Plex Mono" font-weight="600">74%</text>
+      <rect x="219.1" y="137" width="36" height="13" rx="3" fill="rgba(26,122,80,0.10)"/>
+      <text x="237.1" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">Jun</text>
+      <text x="237.1" y="146" text-anchor="middle" font-size="10" fill="#1A7A50" font-family="IBM Plex Mono" font-weight="600">+11%</text>
+    
+      
+      
+      
+      
+      <circle cx="300.0" cy="59.8" r="3" fill="#CDD4E0" stroke="#fff" stroke-width="1.5"/>
+      <circle cx="300.0" cy="30.8"   r="4" fill="#1A7A50" stroke="#fff" stroke-width="1.5"/>
+      <rect x="284.0" y="10.8" width="32" height="14" rx="3" fill="white"/>
+      <text x="300.0" y="21.8" text-anchor="middle" font-size="11" fill="#1A7A50" font-family="IBM Plex Mono" font-weight="600">83%</text>
+      <rect x="282.0" y="137" width="36" height="13" rx="3" fill="rgba(26,122,80,0.10)"/>
+      <text x="300.0" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">Jul</text>
+      <text x="300.0" y="146" text-anchor="middle" font-size="10" fill="#1A7A50" font-family="IBM Plex Mono" font-weight="600">+53%</text>
+    
+      
+      
+      
+      
+      <circle cx="362.9" cy="77.2" r="3" fill="#CDD4E0" stroke="#fff" stroke-width="1.5"/>
+      <circle cx="362.9" cy="58.6"   r="4" fill="#0F2860" stroke="#fff" stroke-width="1.5"/>
+      <rect x="346.9" y="38.6" width="32" height="14" rx="3" fill="white"/>
+      <text x="362.9" y="49.6" text-anchor="middle" font-size="11" fill="#0F2860" font-family="IBM Plex Mono" font-weight="600">56%</text>
+      <rect x="344.9" y="137" width="36" height="13" rx="3" fill="rgba(26,122,80,0.10)"/>
+      <text x="362.9" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">Aug</text>
+      <text x="362.9" y="146" text-anchor="middle" font-size="10" fill="#1A7A50" font-family="IBM Plex Mono" font-weight="600">+49%</text>
+    
+      
+      
+      
+      
+      <circle cx="425.7" cy="92.5" r="3" fill="#CDD4E0" stroke="#fff" stroke-width="1.5"/>
+      <circle cx="425.7" cy="86.6"   r="4" fill="#0F2860" stroke="#fff" stroke-width="1.5"/>
+      <rect x="409.7" y="66.6" width="32" height="14" rx="3" fill="white"/>
+      <text x="425.7" y="77.6" text-anchor="middle" font-size="11" fill="#0F2860" font-family="IBM Plex Mono" font-weight="600">28%</text>
+      <rect x="407.7" y="137" width="36" height="13" rx="3" fill="rgba(26,122,80,0.10)"/>
+      <text x="425.7" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">Sep</text>
+      <text x="425.7" y="146" text-anchor="middle" font-size="10" fill="#1A7A50" font-family="IBM Plex Mono" font-weight="600">+26%</text>
+    
+      
+      
+      
+      
+      <circle cx="488.6" cy="100.0" r="3" fill="#CDD4E0" stroke="#fff" stroke-width="1.5"/>
+      <circle cx="488.6" cy="107.5"   r="4" fill="#0F2860" stroke="#fff" stroke-width="1.5"/>
+      <rect x="472.6" y="87.5" width="32" height="14" rx="3" fill="white"/>
+      <text x="488.6" y="98.5" text-anchor="middle" font-size="11" fill="#0F2860" font-family="IBM Plex Mono" font-weight="600">7%</text>
+      <rect x="470.6" y="137" width="36" height="13" rx="3" fill="rgba(184,58,27,0.10)"/>
+      <text x="488.6" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">Oct</text>
+      <text x="488.6" y="146" text-anchor="middle" font-size="10" fill="#B83A1B" font-family="IBM Plex Mono" font-weight="600">-50%</text>
+    
+  </svg>
+</div>
+
+
+
+
+  
+  
+  
+
+  
+  
+  
+
+  
+  
+  
+
+  
+  
+  
+
+  
+  
+  
+
+  
+  
+  
+
+  
+  
+  
+
+
+<div class="chart-card">
+  <div class="chart-h">
+    <div class="chart-title">ADR</div>
+    <div class="chart-legend">
+      <span><span class="lg-box" style="background:var(--n800)"></span> OTB TY</span>
+      <span><span class="lg-box" style="background:var(--grey-300)"></span> STLY</span>
+      <span><span class="lg-line" style="border-color:var(--green)"></span> Final LY</span>
+    </div>
+  </div>
+  <svg viewBox="0 0 560 162" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+    <line x1="80" y1="10"  x2="520" y2="10"  stroke="#E2E7F0" stroke-width="0.5"/>
+    <line x1="80" y1="45"  x2="520" y2="45"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="80" y1="80"  x2="520" y2="80"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="80" y1="115" x2="520" y2="115" stroke="#E2E7F0" stroke-width="0.5"/>
+    <text x="76" y="14"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€606</text>
+    <text x="76" y="49"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€406</text>
+    <text x="76" y="84"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€200</text>
+    <text x="76" y="119" text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€0</text>
+    
+      
+      
+      
+      
+      
+      
+      
+      
+      <rect x="98.4" y="87.8"   width="12" height="27.2"   rx="1.5" fill="#0F2860"/>
+      <rect x="112.4"      y="78.0" width="12" height="37.0" rx="1.5" fill="#CDD4E0"/>
+      <line x1="96.4" y1="78.0" x2="126.4" y2="78.0" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
+      <rect x="93.4" y="137" width="36" height="13" rx="3" fill="rgba(184,58,27,0.10)"/>
+      <text x="111.4" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">Apr</text>
+      <text x="111.4" y="146" text-anchor="middle" font-size="10" fill="#B83A1B" font-family="IBM Plex Mono" font-weight="600">-26%</text>
+    
+      
+      
+      
+      
+      
+      
+      
+      
+      <rect x="161.3" y="73.0"   width="12" height="42.0"   rx="1.5" fill="#0F2860"/>
+      <rect x="175.3"      y="69.1" width="12" height="45.9" rx="1.5" fill="#CDD4E0"/>
+      <line x1="159.3" y1="69.1" x2="189.3" y2="69.1" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
+      <rect x="156.3" y="137" width="36" height="13" rx="3" fill="rgba(184,58,27,0.10)"/>
+      <text x="174.3" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">May</text>
+      <text x="174.3" y="146" text-anchor="middle" font-size="10" fill="#B83A1B" font-family="IBM Plex Mono" font-weight="600">-8%</text>
+    
+      
+      
+      
+      
+      
+      
+      
+      
+      <rect x="224.1" y="49.5"   width="12" height="65.5"   rx="1.5" fill="#0F2860"/>
+      <rect x="238.1"      y="47.2" width="12" height="67.8" rx="1.5" fill="#CDD4E0"/>
+      <line x1="222.1" y1="47.2" x2="252.1" y2="47.2" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
+      <rect x="219.1" y="137" width="36" height="13" rx="3" fill="rgba(184,58,27,0.10)"/>
+      <text x="237.1" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">Jun</text>
+      <text x="237.1" y="146" text-anchor="middle" font-size="10" fill="#B83A1B" font-family="IBM Plex Mono" font-weight="600">-3%</text>
+    
+      
+      
+      
+      
+      
+      
+      
+      
+      <rect x="287.0" y="28.400000000000006"   width="12" height="86.6"   rx="1.5" fill="#0F2860"/>
+      <rect x="301.0"      y="16.0" width="12" height="99.0" rx="1.5" fill="#CDD4E0"/>
+      <line x1="285.0" y1="16.0" x2="315.0" y2="16.0" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
+      <rect x="282.0" y="137" width="36" height="13" rx="3" fill="rgba(184,58,27,0.10)"/>
+      <text x="300.0" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">Jul</text>
+      <text x="300.0" y="146" text-anchor="middle" font-size="10" fill="#B83A1B" font-family="IBM Plex Mono" font-weight="600">-13%</text>
+    
+      
+      
+      
+      
+      
+      
+      
+      
+      <rect x="349.9" y="19.799999999999997"   width="12" height="95.2"   rx="1.5" fill="#1A7A50"/>
+      <rect x="363.9"      y="14.0" width="12" height="101.0" rx="1.5" fill="#CDD4E0"/>
+      <line x1="347.9" y1="20.0" x2="377.9" y2="20.0" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
+      <rect x="344.9" y="137" width="36" height="13" rx="3" fill="rgba(184,58,27,0.10)"/>
+      <text x="362.9" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">Aug</text>
+      <text x="362.9" y="146" text-anchor="middle" font-size="10" fill="#B83A1B" font-family="IBM Plex Mono" font-weight="600">-6%</text>
+    
+      
+      
+      
+      
+      
+      
+      
+      
+      <rect x="412.7" y="55.9"   width="12" height="59.1"   rx="1.5" fill="#0F2860"/>
+      <rect x="426.7"      y="49.5" width="12" height="65.5" rx="1.5" fill="#CDD4E0"/>
+      <line x1="410.7" y1="52.3" x2="440.7" y2="52.3" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
+      <rect x="407.7" y="137" width="36" height="13" rx="3" fill="rgba(184,58,27,0.10)"/>
+      <text x="425.7" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">Sep</text>
+      <text x="425.7" y="146" text-anchor="middle" font-size="10" fill="#B83A1B" font-family="IBM Plex Mono" font-weight="600">-10%</text>
+    
+      
+      
+      
+      
+      
+      
+      
+      
+      <rect x="475.6" y="84.0"   width="12" height="31.0"   rx="1.5" fill="#0F2860"/>
+      <rect x="489.6"      y="80.2" width="12" height="34.8" rx="1.5" fill="#CDD4E0"/>
+      <line x1="473.6" y1="78.4" x2="503.6" y2="78.4" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
+      <rect x="470.6" y="137" width="36" height="13" rx="3" fill="rgba(184,58,27,0.10)"/>
+      <text x="488.6" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">Oct</text>
+      <text x="488.6" y="146" text-anchor="middle" font-size="10" fill="#B83A1B" font-family="IBM Plex Mono" font-weight="600">-11%</text>
+    
+  </svg>
+</div>
+
+
+<div class="fl-card">
+  <div class="fl-title">ADR bridge — why the rate moved</div>
+  <div class="fl-how">July 1–28 vs last year (day-of-week aligned). <b style="color:#2E7CF7">Mix</b> = selling a different
+  book of business · <b style="color:#B47D09">Rate</b> = selling at different prices. They sum exactly
+  to the ADR change.</div>
+  <div class="fl-brow"><div class="fl-blbl">LY ADR</div><div class="fl-btrk"><div class="fl-bbar" style="left:0;width:94.3%;background:#CDD4E0"></div></div><div class="fl-bval">€595</div></div>
+  <div class="fl-brow"><div class="fl-blbl">Mix</div><div class="fl-btrk"><div class="fl-bbar" style="left:91.3%;width:3.0%;background:#2E7CF7"></div></div><div class="fl-bval" style="color:#2E7CF7">-19</div></div>
+  <div class="fl-brow"><div class="fl-blbl">Rate</div><div class="fl-btrk"><div class="fl-bbar" style="left:81.9%;width:9.399999999999991%;background:#B47D09"></div></div><div class="fl-bval" style="color:#B47D09">-59</div></div>
+  <div class="fl-brow"><div class="fl-blbl">TY ADR</div><div class="fl-btrk"><div class="fl-bbar" style="left:0;width:81.9%;background:#0F2860"></div></div><div class="fl-bval">€516</div></div>
+  <div style="font-size:11.5px;color:#1C2333;line-height:1.5;margin-top:10px">July ADR is €79 below last year, with €59 of it rate movement at constant mix. The largest single contribution is T.Os at €-44.</div>
+  <div style="margin-top:10px;border-top:1px solid #F0F2F7;padding-top:6px">
+    <div style="display:flex;font-size:9px;color:#A0AAC0;font-weight:600;padding:2px 0"><div style="flex:1.2">CHANNEL</div><div style="flex:1">SHARE</div><div style="flex:1">ADR</div><div style="width:38px;text-align:right;color:#2E7CF7">MIX</div><div style="width:38px;text-align:right;color:#B47D09">RATE</div></div>
+    
+    <div style="display:flex;font-size:10.5px;padding:3px 0;border-top:1px solid #F7F8FB"><div style="flex:1.2;font-weight:600">T.Os</div><div style="flex:1;color:#4D5A74">39% → 52%</div><div style="flex:1;color:#4D5A74">€541 → €445</div><div style="width:38px;text-align:right;font-family:var(--mono)">-8</div><div style="width:38px;text-align:right;font-family:var(--mono)">-44</div></div>
+    
+    <div style="display:flex;font-size:10.5px;padding:3px 0;border-top:1px solid #F7F8FB"><div style="flex:1.2;font-weight:600">O.T.As</div><div style="flex:1;color:#4D5A74">16% → 12%</div><div style="flex:1;color:#4D5A74">€722 → €624</div><div style="width:38px;text-align:right;font-family:var(--mono)">-5</div><div style="width:38px;text-align:right;font-family:var(--mono)">-14</div></div>
+    
+    <div style="display:flex;font-size:10.5px;padding:3px 0;border-top:1px solid #F7F8FB"><div style="flex:1.2;font-weight:600">Direct</div><div style="flex:1;color:#4D5A74">44% → 31%</div><div style="flex:1;color:#4D5A74">€610 → €588</div><div style="width:38px;text-align:right;font-family:var(--mono)">-6</div><div style="width:38px;text-align:right;font-family:var(--mono)">-8</div></div>
+    
+    <div style="display:flex;font-size:10.5px;padding:3px 0;border-top:1px solid #F7F8FB"><div style="flex:1.2;font-weight:600">Tompoulidis Apollon</div><div style="flex:1;color:#4D5A74">0% → 4%</div><div style="flex:1;color:#4D5A74">€450 → €789</div><div style="width:38px;text-align:right;font-family:var(--mono)">+2</div><div style="width:38px;text-align:right;font-family:var(--mono)">+6</div></div>
+    
+    <div style="display:flex;font-size:10.5px;padding:3px 0;border-top:1px solid #F7F8FB"><div style="flex:1.2;font-weight:600">Other</div><div style="flex:1;color:#4D5A74">1% → 2%</div><div style="flex:1;color:#4D5A74">€25 → €63</div><div style="width:38px;text-align:right;font-family:var(--mono)">-3</div><div style="width:38px;text-align:right;font-family:var(--mono)">+1</div></div>
+    
+  </div>
+</div>
+
+
+
+<div class="fl-card">
+  <div class="fl-title">Where each month stands</div>
+  <div class="fl-how">Track = last year's final month · bar = booked now · tick = LY same date.
+  Green spill past the end = above LY final · red bar = behind LY pace. All numbers are room nights.</div>
+  
+  <div class="fl-row">
+    <div class="fl-mon" style="padding-top:1px">Jul</div>
+    <div class="fl-mid">
+      <div class="fl-lane">
+        <div class="fl-track"><div class="fl-bar" style="width:100%;background:#0F2860;border-radius:9px 0 0 9px"></div><div class="fl-tick" style="left:98%"></div></div>
+        <div class="fl-over" style="width:16.4%"></div>
+      </div>
+      <div class="fl-under"><span>booked: <b>4.317 rn</b></span><span>▲ LY same date: 2.827</span><span>LY final: 2.829</span></div>
+    </div>
+    <div class="fl-val">
+      <div class="fl-big" style="color:#1A7A50">+1.490 rn</div>
+      <div class="fl-vs">vs LY pace</div>
+      <div class="fl-togo" style="color:#1A7A50;font-weight:700">+1.488 rn above LY final</div>
+    </div>
+  </div>
+  
+  <div class="fl-row">
+    <div class="fl-mon" style="padding-top:1px">Aug</div>
+    <div class="fl-mid">
+      <div class="fl-lane">
+        <div class="fl-track"><div class="fl-bar" style="width:82.3%;background:#0F2860;border-radius:9px"></div><div class="fl-tick" style="left:55.1%"></div></div>
+        
+      </div>
+      <div class="fl-under"><span>booked: <b>2.893 rn</b></span><span>▲ LY same date: 1.936</span><span>LY final: 3.516</span></div>
+    </div>
+    <div class="fl-val">
+      <div class="fl-big" style="color:#1A7A50">+957 rn</div>
+      <div class="fl-vs">vs LY pace</div>
+      <div class="fl-togo">623 rn to reach LY final</div>
+    </div>
+  </div>
+  
+  <div class="fl-row">
+    <div class="fl-mon" style="padding-top:1px">Sep</div>
+    <div class="fl-mid">
+      <div class="fl-lane">
+        <div class="fl-track"><div class="fl-bar" style="width:42.3%;background:#0F2860;border-radius:9px"></div><div class="fl-tick" style="left:33.5%"></div></div>
+        
+      </div>
+      <div class="fl-under"><span>booked: <b>1.409 rn</b></span><span>▲ LY same date: 1.115</span><span>LY final: 3.330</span></div>
+    </div>
+    <div class="fl-val">
+      <div class="fl-big" style="color:#1A7A50">+294 rn</div>
+      <div class="fl-vs">vs LY pace</div>
+      <div class="fl-togo">1.921 rn to reach LY final</div>
+    </div>
+  </div>
+  
+  <div class="fl-row">
+    <div class="fl-mon" style="padding-top:1px">Oct</div>
+    <div class="fl-mid">
+      <div class="fl-lane">
+        <div class="fl-track"><div class="fl-bar" style="width:28.9%;background:#B83A1B;border-radius:9px"></div><div class="fl-tick" style="left:57.7%"></div></div>
+        
+      </div>
+      <div class="fl-under"><span>booked: <b>386 rn</b></span><span>▲ LY same date: 771</span><span>LY final: 1.337</span></div>
+    </div>
+    <div class="fl-val">
+      <div class="fl-big" style="color:#B83A1B">−385 rn</div>
+      <div class="fl-vs">vs LY pace</div>
+      <div class="fl-togo">951 rn to reach LY final</div>
+    </div>
+  </div>
+  
+</div>
+
+
+
+<div class="fl-card">
+  <div class="fl-title">Demand heat — next 60 days</div>
+  <div class="fl-how">Occupancy on the books per stay date — darker = fuller. A red outline marks a date far behind last year.</div>
+  <div class="fl-grid" style="margin-bottom:3px"><div class="fl-dow">M</div><div class="fl-dow">T</div><div class="fl-dow">W</div><div class="fl-dow">T</div><div class="fl-dow">F</div><div class="fl-dow">S</div><div class="fl-dow">S</div></div>
+  <div class="fl-grid">
+  <div></div>
+  <div></div>
+  <div></div>
+  <div></div>
+  <div class="fl-cell" style="background:#2E7CF7"><div class="fl-occ" style="color:#fff">91%</div><div class="fl-date" style="color:rgba(255,255,255,.75)">31/07</div></div>
+  <div class="fl-cell" style="background:#5E9BF3;border:2px solid #0F2860"><div class="fl-occ" style="color:#fff">80%</div><div class="fl-date" style="color:rgba(255,255,255,.75);font-weight:700;color:#0F2860">01/08</div></div>
+  <div class="fl-cell" style="background:#2E7CF7"><div class="fl-occ" style="color:#fff">82%</div><div class="fl-date" style="color:rgba(255,255,255,.75)">02/08</div></div>
+  <div class="fl-cell" style="background:#2E7CF7"><div class="fl-occ" style="color:#fff">85%</div><div class="fl-date" style="color:rgba(255,255,255,.75)">03/08</div></div>
+  <div class="fl-cell" style="background:#5E9BF3"><div class="fl-occ" style="color:#fff">81%</div><div class="fl-date" style="color:rgba(255,255,255,.75)">04/08</div></div>
+  <div class="fl-cell" style="background:#5E9BF3"><div class="fl-occ" style="color:#fff">77%</div><div class="fl-date" style="color:rgba(255,255,255,.75)">05/08</div></div>
+  <div class="fl-cell" style="background:#5E9BF3"><div class="fl-occ" style="color:#fff">75%</div><div class="fl-date" style="color:rgba(255,255,255,.75)">06/08</div></div>
+  <div class="fl-cell" style="background:#9AC1F7"><div class="fl-occ" style="color:#1C2333">69%</div><div class="fl-date" style="color:#A0AAC0">07/08</div></div>
+  <div class="fl-cell" style="background:#9AC1F7"><div class="fl-occ" style="color:#1C2333">68%</div><div class="fl-date" style="color:#A0AAC0">08/08</div></div>
+  <div class="fl-cell" style="background:#9AC1F7"><div class="fl-occ" style="color:#1C2333">68%</div><div class="fl-date" style="color:#A0AAC0">09/08</div></div>
+  <div class="fl-cell" style="background:#5E9BF3"><div class="fl-occ" style="color:#fff">71%</div><div class="fl-date" style="color:rgba(255,255,255,.75)">10/08</div></div>
+  <div class="fl-cell" style="background:#5E9BF3"><div class="fl-occ" style="color:#fff">71%</div><div class="fl-date" style="color:rgba(255,255,255,.75)">11/08</div></div>
+  <div class="fl-cell" style="background:#5E9BF3"><div class="fl-occ" style="color:#fff">74%</div><div class="fl-date" style="color:rgba(255,255,255,.75)">12/08</div></div>
+  <div class="fl-cell" style="background:#9AC1F7"><div class="fl-occ" style="color:#1C2333">69%</div><div class="fl-date" style="color:#A0AAC0">13/08</div></div>
+  <div class="fl-cell" style="background:#9AC1F7"><div class="fl-occ" style="color:#1C2333">68%</div><div class="fl-date" style="color:#A0AAC0">14/08</div></div>
+  <div class="fl-cell" style="background:#9AC1F7"><div class="fl-occ" style="color:#1C2333">65%</div><div class="fl-date" style="color:#A0AAC0">15/08</div></div>
+  <div class="fl-cell" style="background:#BBD4FA"><div class="fl-occ" style="color:#1C2333">54%</div><div class="fl-date" style="color:#A0AAC0">16/08</div></div>
+  <div class="fl-cell" style="background:#BBD4FA"><div class="fl-occ" style="color:#1C2333">50%</div><div class="fl-date" style="color:#A0AAC0">17/08</div></div>
+  <div class="fl-cell" style="background:#BBD4FA"><div class="fl-occ" style="color:#1C2333">46%</div><div class="fl-date" style="color:#A0AAC0">18/08</div></div>
+  <div class="fl-cell" style="background:#BBD4FA"><div class="fl-occ" style="color:#1C2333">45%</div><div class="fl-date" style="color:#A0AAC0">19/08</div></div>
+  <div class="fl-cell" style="background:#BBD4FA"><div class="fl-occ" style="color:#1C2333">44%</div><div class="fl-date" style="color:#A0AAC0">20/08</div></div>
+  <div class="fl-cell" style="background:#BBD4FA"><div class="fl-occ" style="color:#1C2333">45%</div><div class="fl-date" style="color:#A0AAC0">21/08</div></div>
+  <div class="fl-cell" style="background:#BBD4FA"><div class="fl-occ" style="color:#1C2333">44%</div><div class="fl-date" style="color:#A0AAC0">22/08</div></div>
+  <div class="fl-cell" style="background:#DCE7FB"><div class="fl-occ" style="color:#1C2333">37%</div><div class="fl-date" style="color:#A0AAC0">23/08</div></div>
+  <div class="fl-cell" style="background:#DCE7FB"><div class="fl-occ" style="color:#1C2333">37%</div><div class="fl-date" style="color:#A0AAC0">24/08</div></div>
+  <div class="fl-cell" style="background:#DCE7FB"><div class="fl-occ" style="color:#1C2333">37%</div><div class="fl-date" style="color:#A0AAC0">25/08</div></div>
+  <div class="fl-cell" style="background:#DCE7FB"><div class="fl-occ" style="color:#1C2333">37%</div><div class="fl-date" style="color:#A0AAC0">26/08</div></div>
+  <div class="fl-cell" style="background:#BBD4FA"><div class="fl-occ" style="color:#1C2333">40%</div><div class="fl-date" style="color:#A0AAC0">27/08</div></div>
+  <div class="fl-cell" style="background:#DCE7FB"><div class="fl-occ" style="color:#1C2333">36%</div><div class="fl-date" style="color:#A0AAC0">28/08</div></div>
+  <div class="fl-cell" style="background:#DCE7FB"><div class="fl-occ" style="color:#1C2333">33%</div><div class="fl-date" style="color:#A0AAC0">29/08</div></div>
+  <div class="fl-cell" style="background:#DCE7FB"><div class="fl-occ" style="color:#1C2333">27%</div><div class="fl-date" style="color:#A0AAC0">30/08</div></div>
+  <div class="fl-cell" style="background:#EDF1F8"><div class="fl-occ" style="color:#1C2333">19%</div><div class="fl-date" style="color:#A0AAC0">31/08</div></div>
+  <div class="fl-cell" style="background:#EDF1F8;border:2px solid #0F2860"><div class="fl-occ" style="color:#1C2333">21%</div><div class="fl-date" style="color:#A0AAC0;font-weight:700;color:#0F2860">01/09</div></div>
+  <div class="fl-cell" style="background:#DCE7FB"><div class="fl-occ" style="color:#1C2333">25%</div><div class="fl-date" style="color:#A0AAC0">02/09</div></div>
+  <div class="fl-cell" style="background:#DCE7FB"><div class="fl-occ" style="color:#1C2333">34%</div><div class="fl-date" style="color:#A0AAC0">03/09</div></div>
+  <div class="fl-cell" style="background:#BBD4FA"><div class="fl-occ" style="color:#1C2333">41%</div><div class="fl-date" style="color:#A0AAC0">04/09</div></div>
+  <div class="fl-cell" style="background:#BBD4FA"><div class="fl-occ" style="color:#1C2333">51%</div><div class="fl-date" style="color:#A0AAC0">05/09</div></div>
+  <div class="fl-cell" style="background:#BBD4FA"><div class="fl-occ" style="color:#1C2333">49%</div><div class="fl-date" style="color:#A0AAC0">06/09</div></div>
+  <div class="fl-cell" style="background:#BBD4FA"><div class="fl-occ" style="color:#1C2333">49%</div><div class="fl-date" style="color:#A0AAC0">07/09</div></div>
+  <div class="fl-cell" style="background:#BBD4FA"><div class="fl-occ" style="color:#1C2333">49%</div><div class="fl-date" style="color:#A0AAC0">08/09</div></div>
+  <div class="fl-cell" style="background:#BBD4FA"><div class="fl-occ" style="color:#1C2333">45%</div><div class="fl-date" style="color:#A0AAC0">09/09</div></div>
+  <div class="fl-cell" style="background:#DCE7FB"><div class="fl-occ" style="color:#1C2333">39%</div><div class="fl-date" style="color:#A0AAC0">10/09</div></div>
+  <div class="fl-cell" style="background:#BBD4FA"><div class="fl-occ" style="color:#1C2333">50%</div><div class="fl-date" style="color:#A0AAC0">11/09</div></div>
+  <div class="fl-cell" style="background:#BBD4FA"><div class="fl-occ" style="color:#1C2333">45%</div><div class="fl-date" style="color:#A0AAC0">12/09</div></div>
+  <div class="fl-cell" style="background:#BBD4FA"><div class="fl-occ" style="color:#1C2333">43%</div><div class="fl-date" style="color:#A0AAC0">13/09</div></div>
+  <div class="fl-cell" style="background:#DCE7FB"><div class="fl-occ" style="color:#1C2333">27%</div><div class="fl-date" style="color:#A0AAC0">14/09</div></div>
+  <div class="fl-cell" style="background:#EDF1F8"><div class="fl-occ" style="color:#1C2333">17%</div><div class="fl-date" style="color:#A0AAC0">15/09</div></div>
+  <div class="fl-cell" style="background:#EDF1F8"><div class="fl-occ" style="color:#1C2333">17%</div><div class="fl-date" style="color:#A0AAC0">16/09</div></div>
+  <div class="fl-cell" style="background:#EDF1F8"><div class="fl-occ" style="color:#1C2333">23%</div><div class="fl-date" style="color:#A0AAC0">17/09</div></div>
+  <div class="fl-cell" style="background:#EDF1F8"><div class="fl-occ" style="color:#1C2333">23%</div><div class="fl-date" style="color:#A0AAC0">18/09</div></div>
+  <div class="fl-cell" style="background:#DCE7FB"><div class="fl-occ" style="color:#1C2333">26%</div><div class="fl-date" style="color:#A0AAC0">19/09</div></div>
+  <div class="fl-cell" style="background:#EDF1F8"><div class="fl-occ" style="color:#1C2333">23%</div><div class="fl-date" style="color:#A0AAC0">20/09</div></div>
+  <div class="fl-cell" style="background:#EDF1F8"><div class="fl-occ" style="color:#1C2333">21%</div><div class="fl-date" style="color:#A0AAC0">21/09</div></div>
+  <div class="fl-cell" style="background:#EDF1F8"><div class="fl-occ" style="color:#1C2333">17%</div><div class="fl-date" style="color:#A0AAC0">22/09</div></div>
+  <div class="fl-cell" style="background:#EDF1F8;box-shadow:inset 0 0 0 2px #B83A1B"><div class="fl-occ" style="color:#1C2333">20%</div><div class="fl-date" style="color:#A0AAC0">23/09</div></div>
+  <div class="fl-cell" style="background:#EDF1F8;box-shadow:inset 0 0 0 2px #B83A1B"><div class="fl-occ" style="color:#1C2333">21%</div><div class="fl-date" style="color:#A0AAC0">24/09</div></div>
+  <div class="fl-cell" style="background:#EDF1F8;box-shadow:inset 0 0 0 2px #B83A1B"><div class="fl-occ" style="color:#1C2333">13%</div><div class="fl-date" style="color:#A0AAC0">25/09</div></div>
+  <div class="fl-cell" style="background:#EDF1F8"><div class="fl-occ" style="color:#1C2333">14%</div><div class="fl-date" style="color:#A0AAC0">26/09</div></div>
+  <div class="fl-cell" style="background:#EDF1F8"><div class="fl-occ" style="color:#1C2333">13%</div><div class="fl-date" style="color:#A0AAC0">27/09</div></div>
+  <div class="fl-cell" style="background:#EDF1F8"><div class="fl-occ" style="color:#1C2333">11%</div><div class="fl-date" style="color:#A0AAC0">28/09</div></div>
+  <div></div>
+  <div></div>
+  <div></div>
+  <div></div>
+  <div></div>
+  <div></div>
+  
+  </div>
+  <div class="fl-legend">empty <span class="fl-lsw" style="background:#EDF1F8"></span><span class="fl-lsw" style="background:#DCE7FB"></span><span class="fl-lsw" style="background:#BBD4FA"></span><span class="fl-lsw" style="background:#9AC1F7"></span><span class="fl-lsw" style="background:#5E9BF3"></span><span class="fl-lsw" style="background:#2E7CF7"></span><span class="fl-lsw" style="background:#1E5FD0"></span> full
+    <span style="margin-left:6px"><span class="fl-lsw" style="background:#EDF1F8;box-shadow:inset 0 0 0 2px #B83A1B"></span> behind LY</span>
+    <span style="margin-left:6px"><span class="fl-lsw" style="background:#EDF1F8;border:2px solid #0F2860;box-sizing:border-box"></span> new month</span></div>
+  <div class="fl-alert">⚠ Dates far behind last year: 23/09, 24/09, 25/09</div>
+</div>
+
+
+
+
+
+<!-- TOP SOURCES OTB -->
+<div id="sec-sources" class="sec-anchor"></div>
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg>Top Sources &mdash; OTB Full Year</div>
+<div class="card" style="margin-bottom:14px;">
+  
+  
+  
+  
+  
+  <div class="ch-row">
+    <div class="ch-name">T.Os</div>
+    <div class="ch-bar-wrap">
+      <div class="ch-bar" style="width:42%"></div>
+      <div style="position:absolute;top:-3px;left:25%;width:2px;height:12px;background:var(--blue);border-radius:1px;opacity:0.5"></div>
+    </div>
+    <div class="ch-nights" style="min-width:52px">€2750.7k</div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--grey-400);min-width:48px;text-align:right">€1626.0k</div>
+    <div style="text-align:right;min-width:52px;">
+      
+        <span class="badge-pos">&#9650; +69.2%</span>
+      
+    </div>
+  </div>
+  
+  
+  
+  
+  <div class="ch-row">
+    <div class="ch-name">Direct</div>
+    <div class="ch-bar-wrap">
+      <div class="ch-bar" style="width:37%"></div>
+      <div style="position:absolute;top:-3px;left:33%;width:2px;height:12px;background:var(--blue);border-radius:1px;opacity:0.5"></div>
+    </div>
+    <div class="ch-nights" style="min-width:52px">€2380.4k</div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--grey-400);min-width:48px;text-align:right">€2138.4k</div>
+    <div style="text-align:right;min-width:52px;">
+      
+        <span class="badge-pos">&#9650; +11.3%</span>
+      
+    </div>
+  </div>
+  
+  
+  
+  
+  <div class="ch-row">
+    <div class="ch-name">O.T.As</div>
+    <div class="ch-bar-wrap">
+      <div class="ch-bar" style="width:12%"></div>
+      <div style="position:absolute;top:-3px;left:14%;width:2px;height:12px;background:var(--blue);border-radius:1px;opacity:0.5"></div>
+    </div>
+    <div class="ch-nights" style="min-width:52px">€803.9k</div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--grey-400);min-width:48px;text-align:right">€920.2k</div>
+    <div style="text-align:right;min-width:52px;">
+      
+        <span class="badge-neg">&#9660; -12.6%</span>
+      
+    </div>
+  </div>
+  
+  
+  
+  
+  <div class="ch-row">
+    <div class="ch-name">Tompoulidis Apollon</div>
+    <div class="ch-bar-wrap">
+      <div class="ch-bar" style="width:5%"></div>
+      <div style="position:absolute;top:-3px;left:1%;width:2px;height:12px;background:var(--blue);border-radius:1px;opacity:0.5"></div>
+    </div>
+    <div class="ch-nights" style="min-width:52px">€298.1k</div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--grey-400);min-width:48px;text-align:right">€52.8k</div>
+    <div style="text-align:right;min-width:52px;">
+      
+        <span class="badge-pos">&#9650; +464.8%</span>
+      
+    </div>
+  </div>
+  
+  
+  
+  
+  <div class="ch-row">
+    <div class="ch-name">Mice</div>
+    <div class="ch-bar-wrap">
+      <div class="ch-bar" style="width:4%"></div>
+      <div style="position:absolute;top:-3px;left:8%;width:2px;height:12px;background:var(--blue);border-radius:1px;opacity:0.5"></div>
+    </div>
+    <div class="ch-nights" style="min-width:52px">€247.2k</div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--grey-400);min-width:48px;text-align:right">€519.1k</div>
+    <div style="text-align:right;min-width:52px;">
+      
+        <span class="badge-neg">&#9660; -52.4%</span>
+      
+    </div>
+  </div>
+  
+  
+  
+  
+  <div class="ch-row">
+    <div class="ch-name">Complimentary</div>
+    <div class="ch-bar-wrap">
+      <div class="ch-bar" style="width:0%"></div>
+      <div style="position:absolute;top:-3px;left:0%;width:2px;height:12px;background:var(--blue);border-radius:1px;opacity:0.5"></div>
+    </div>
+    <div class="ch-nights" style="min-width:52px">€11.3k</div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--grey-400);min-width:48px;text-align:right">€3.4k</div>
+    <div style="text-align:right;min-width:52px;">
+      
+        <span class="badge-pos">&#9650; +238.2%</span>
+      
+    </div>
+  </div>
+  
+</div>
+
+<!-- AI INSIGHTS -->
+
+<div id="sec-ai" class="sec-anchor"></div>
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>AI Insights</div>
+
+  
+    
+  
+<div class="icard ic-pos">
+  <div class="icard-head" onclick="toggleCard(this)">
+    <h2 class="icard-title">Jul volume far ahead of last year, rates trailing</h2>
+    <span class="icard-badge ic-pos">Opportunity</span>
+    <button class="icard-toggle" aria-label="Expand">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>
+  </div>
+  <div class="icard-body" style="display:none">
+  
+  <div class="icard-kpis">
+    
+    <div class="kpi-chip">
+      <div class="kpi-label">PACE (Jul full month)</div>
+      
+      
+      <div class="kpi-val">
+        <span class="kpi-ty kup">+52.4%</span>
+      </div>
+      
+      <div class="kpi-sub">vs same time last year</div>
+    </div>
+    
+    <div class="kpi-chip">
+      <div class="kpi-label">ADR OTB vs FINAL LY</div>
+      
+      
+      <div class="kpi-val">
+        <span class="kpi-ty kdown">€518</span><span class="kpi-sep"> vs </span><span class="kpi-ly">€594</span>
+      </div>
+      
+      <div class="kpi-sub">−€76 per room night</div>
+    </div>
+    
+  </div>
+  
+  
+  
+  <div class="icard-findings">
+    
+    <div class="ifinding"><span>Jul full-month OTB is pacing <strong style="color:#1A7A50">+52.4%</strong> vs same time last year.</span></div>
+    
+    <div class="ifinding"><span>ADR <strong>€518 </strong>trails final last year <strong>€594</strong>; early-season rate codes may still be open (confidence: Medium).</span></div>
+    
+  </div>
+  
+  
+  
+  <div class="icard-action">
+    <div class="iaction-icon ic-pos">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M5 19l2-2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </div>
+    <div class="iaction-body">
+      <span class="iaction-lead">Recommended action</span>
+      <p class="iaction-text">Worth reviewing whether the lowest rate codes still need to be open for Jul. By when: This week — about 2 selling days left. At stake: <strong>€5,624.</strong></p>
+    </div>
+  </div>
+  
+  </div>
+</div>
+
+  
+    
+  
+<div class="icard ic-pos">
+  <div class="icard-head" onclick="toggleCard(this)">
+    <h2 class="icard-title">Aug pacing <strong style="color:#1A7A50">+48.9%</strong> ahead of same time last year</h2>
+    <span class="icard-badge ic-pos">Opportunity</span>
+    <button class="icard-toggle" aria-label="Expand">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>
+  </div>
+  <div class="icard-body" style="display:none">
+  
+  <div class="icard-kpis">
+    
+    <div class="kpi-chip">
+      <div class="kpi-label">PACE (Aug full month)</div>
+      
+      
+      <div class="kpi-val">
+        <span class="kpi-ty kup">+48.9%</span>
+      </div>
+      
+      <div class="kpi-sub">vs same time last year</div>
+    </div>
+    
+    <div class="kpi-chip">
+      <div class="kpi-label">REVENUE LEAD</div>
+      
+      
+      <div class="kpi-val">
+        <span class="kpi-ty kup">+€472,265</span>
+      </div>
+      
+      <div class="kpi-sub">vs same time last year</div>
+    </div>
+    
+  </div>
+  
+  
+  
+  <div class="icard-findings">
+    
+    <div class="ifinding"><span>Aug full-month OTB revenue is +<strong>€472,265 </strong>vs same time last year.</span></div>
+    
+    <div class="ifinding"><span>Demand is running above last year; remaining inventory may be underpriced for this demand level (confidence: Medium).</span></div>
+    
+  </div>
+  
+  
+  
+  <div class="icard-action">
+    <div class="iaction-icon ic-pos">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M5 19l2-2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </div>
+    <div class="iaction-body">
+      <span class="iaction-lead">Recommended action</span>
+      <p class="iaction-text">The position could support a higher rate on Aug peak nights. By when: Next 2–3 days.</p>
+    </div>
+  </div>
+  
+  </div>
+</div>
+
+  
+    
+  
+<div class="icard ic-pos">
+  <div class="icard-head" onclick="toggleCard(this)">
+    <h2 class="icard-title">3 hot dates near capacity — discounts may no longer be needed</h2>
+    <span class="icard-badge ic-pos">Opportunity</span>
+    <button class="icard-toggle" aria-label="Expand">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>
+  </div>
+  <div class="icard-body" style="display:none">
+  
+  <div class="icard-kpis">
+    
+    <div class="kpi-chip">
+      <div class="kpi-label">Jul 31 Occupancy (OTB)</div>
+      
+      
+      <div class="kpi-val">
+        <span class="kpi-ty ">87%</span>
+      </div>
+      
+      <div class="kpi-sub">Only 22 rooms remaining</div>
+    </div>
+    
+    <div class="kpi-chip">
+      <div class="kpi-label">Aug 1 Occupancy (OTB)</div>
+      
+      
+      <div class="kpi-val">
+        <span class="kpi-ty ">75%</span>
+      </div>
+      
+      <div class="kpi-sub">41 rooms remaining — softest of the 3 dates</div>
+    </div>
+    
+  </div>
+  
+  
+  
+  <div class="icard-findings">
+    
+    <div class="ifinding"><span>Jul 30–Aug 1 are tracking at 83%, 87%, and 75% occupancy with 29, 22, and 41 rooms left respectively.</span></div>
+    
+    <div class="ifinding"><span>Demand is outpacing remaining supply across all 3 dates, likely driven by close-in compression. Discounted rates may be giving away revenue the market would pay at full price (confidence: High).</span></div>
+    
+  </div>
+  
+  
+  
+  <div class="icard-action">
+    <div class="iaction-icon ic-pos">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M5 19l2-2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </div>
+    <div class="iaction-body">
+      <span class="iaction-lead">Recommended action</span>
+      <p class="iaction-text">It may be worth pulling discounts and promotions on remaining rooms for Jul 30–Aug 1 before further bookings arrive at reduced rates. By when: Today — Jul 30 is 1 day out</p>
+    </div>
+  </div>
+  
+  </div>
+</div>
+
+
+
+<!-- CTA -->
+<div class="cta">
+  <a href="https://app.hbis.io">Open Hotel BI for full report &rarr;</a>
+  <div class="cta-sub">Booking curves &middot; Channel detail &middot; Room type breakdown &middot; Lead time &amp; LOS</div>
+</div>
+
+<!-- FOOTER -->
+<div class="ftr">
+  <div class="ftr-b">FirstLight &middot; AI Morning Briefing v2.0</div>
+  <div class="ftr-s">Data from Protel PMS &middot; Generated 21:00 &middot; <a href="#">Manage preferences</a></div>
+</div>
+
+</div>
+
+<script>
+// ── Tab navigation ───────────────────────────────────────────────
+function navTo(id) {
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Highlight active tab based on scroll position
+const _sections = ['sec-overview','sec-pickup','sec-pace','sec-ai'];
+const _tabs = document.querySelectorAll('.tab-btn');
+const _obs = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      const idx = _sections.indexOf(e.target.id);
+      if (idx >= 0) {
+        _tabs.forEach((t,i) => t.classList.toggle('active', i === idx));
+      }
+    }
+  });
+}, { rootMargin: '-40px 0px -60% 0px', threshold: 0 });
+_sections.forEach(id => { const el = document.getElementById(id); if (el) _obs.observe(el); });
+
+// ── AI Insight card toggle ───────────────────────────────────────
+function toggleCard(head) {
+  const body   = head.nextElementSibling;
+  const toggle = head.querySelector('.icard-toggle');
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : 'block';
+  toggle.classList.toggle('open', !isOpen);
+}
+</script>
+</body>
+</html>
