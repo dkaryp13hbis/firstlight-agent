@@ -298,6 +298,13 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
   fixable backend-side without touching the PWA
 - PWA multiproperty bug: switching hotel jumps straight to AI insights section —
   should reset scroll to top of the report (requested 2026-07-24)
+- PWA: ⓘ info button on EVERY section (requested 2026-07-27) — tap opens a
+  tooltip/sheet explaining what the section shows and how to read it (e.g.
+  Pace: "rooms on the books per month vs the same point last year; Final LY =
+  where the month actually ended"). Copy written per section, kept in a
+  translations file from day one so the Greek toggle covers it; definitions
+  should match db/adapters/SEMANTICS.md wording so app language = metric truth.
+  Phase B scope.
 - 7-day history with day-over-day KPI deltas (requested 2026-07-24). Design:
   NO new PMS queries — deltas come from stored daily snapshots (briefings has one
   row per hotel per report_date already). Backend: (a) new `briefings.kpi_summary`
