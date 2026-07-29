@@ -298,6 +298,16 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
   fixable backend-side without touching the PWA
 - PWA multiproperty bug: switching hotel jumps straight to AI insights section —
   should reset scroll to top of the report (requested 2026-07-24)
+- Mobile chart library (design handoff received 2026-07-27; test gallery with
+  REAL Pome data built same day for keep/adjust/skip decision). User placements:
+  1 Curve position meter → under OTB charts · 2 Velocity bullet → under Pickup ·
+  3 Churn butterfly → REPLACES "Top month" in Pickup · 4 Sparkline multiples →
+  Pickup (trend) · 5 Demand heat strip → under OTB (demand dates).
+  Data readiness: charts 1/2/4/5 run on data already shipped; chart 3 needs
+  Q14 (cancellations by stay month, 28d window — ~half day incl. contract);
+  chart 4 full fidelity wants Q9 widened 14→30 days. Implementation = Phase B
+  React components per handoff tokens (44px rows, 14px marks, no chart lib,
+  Outfit + IBM Plex Mono).
 - PWA: ⓘ info button on EVERY section (requested 2026-07-27) — tap opens a
   tooltip/sheet explaining what the section shows and how to read it (e.g.
   Pace: "rooms on the books per month vs the same point last year; Final LY =
