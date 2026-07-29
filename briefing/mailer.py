@@ -38,7 +38,8 @@ def _highlight(text: str) -> str:
 _TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
 
 
-def _render(data: dict[str, Any], ai: dict[str, Any]) -> str:
+def _render(data: dict[str, Any], ai: dict[str, Any],
+            charts: dict[str, Any] | None = None) -> str:
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATE_DIR)),
         autoescape=True,
@@ -55,7 +56,8 @@ def _render(data: dict[str, Any], ai: dict[str, Any]) -> str:
     from datetime import date as _d
     env.globals["current_month_num"] = _d.today().month
 
-    return env.get_template("email.html").render(data=data, ai=ai)
+    return env.get_template("email.html").render(data=data, ai=ai,
+                                                 charts=charts or {})
 
 
 def _subject(data: dict[str, Any]) -> str:
@@ -92,6 +94,9 @@ def send(data: dict[str, Any], ai: dict[str, Any]) -> bool:
 
 
 def save_preview(data: dict[str, Any], ai: dict[str, Any], path: str = "preview.html") -> None:
-    html = _render(data, ai)
+    """App-facing HTML: includes the mobile chart set. Email (send) does not —
+    email clients cannot render the grid/flex layouts."""
+    from briefing.charts import compute_chart_series
+    html = _render(data, ai, charts=compute_chart_series(data))
     Path(path).write_text(html, encoding="utf-8")
     print(f"[mailer] Preview saved -> {path}")

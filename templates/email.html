@@ -489,12 +489,120 @@
   </div>
 
 </div>
+{% if charts %}
+<style>
+.fl-card{background:#fff;border:1px solid #E2E7F0;border-radius:14px;padding:16px;margin-top:12px}
+.fl-title{font-size:14px;font-weight:700;color:var(--text)}
+.fl-how{font-size:11px;color:#4D5A74;line-height:1.45;margin:3px 0 10px}
+.fl-key{display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:10px;color:#4D5A74;font-weight:600;margin:6px 0}
+.fl-kb{display:inline-block;width:16px;height:8px;border-radius:4px;vertical-align:middle;margin-right:4px}
+.fl-kt{display:inline-block;width:3px;height:13px;border-radius:2px;vertical-align:middle;margin-right:4px}
+.fl-row{display:flex;gap:10px;padding:11px 0;border-bottom:1px solid #F0F2F7;align-items:flex-start}
+.fl-row:last-child{border-bottom:none;padding-bottom:2px}
+.fl-mon{width:32px;font-weight:800;font-size:13px}
+.fl-mid{flex:1}
+.fl-lane{display:flex;align-items:center}
+.fl-track{height:16px;background:#EEF1F7;border-radius:8px;position:relative}
+.fl-lane .fl-track{width:82%}
+.fl-bar{height:16px}
+.fl-over{height:16px;background:#1A7A50;border-radius:0 8px 8px 0;margin-left:1px}
+.fl-tick{position:absolute;top:-3px;width:3px;height:22px;background:#A0AAC0;border-radius:2px}
+.fl-under{display:flex;justify-content:space-between;gap:6px;font-size:9px;color:#A0AAC0;margin-top:4px}
+.fl-under b{color:#4D5A74;font-weight:600}
+.fl-val{width:104px;text-align:right}
+.fl-big{font-size:14px;font-weight:700;font-family:var(--mono)}
+.fl-vs{font-size:9px;color:#A0AAC0}
+.fl-togo{font-size:10px;color:#4D5A74;margin-top:4px;line-height:1.3}
+.fl-vtrack{height:10px;background:#EEF1F7;border-radius:5px;position:relative}
+.fl-vbar{height:10px;border-radius:5px}
+.fl-vtick{position:absolute;top:-3px;width:3px;height:16px;border-radius:2px}
+.fl-v{font-size:12px;font-weight:700;font-family:var(--mono);line-height:1.5}
+.fl-unit{font-size:8px;color:#A0AAC0;font-weight:400;margin-left:3px}
+.fl-fw{display:flex;align-items:center;height:8px}
+.fl-fl{flex:1;display:flex;justify-content:flex-end}
+.fl-flb{height:8px;border-radius:4px 0 0 4px}
+.fl-fax{width:1.5px;height:14px;background:#C9D1E0}
+.fl-fr{flex:1}
+.fl-frb{height:8px;border-radius:0 4px 4px 0}
+.fl-alert{background:#FFF7EA;border:1px solid rgba(247,144,9,.35);color:#7A5B22;border-radius:10px;font-size:11px;padding:7px 10px;margin-top:10px}
+.fl-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.fl-cell{aspect-ratio:1;border-radius:7px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
+.fl-occ{font-size:11.5px;font-weight:700;font-family:var(--mono)}
+.fl-date{font-size:8px;font-weight:500}
+.fl-mdiv{grid-column:1/-1;font-size:10px;font-weight:700;letter-spacing:.1em;color:#4D5A74;border-top:2px solid #0F2860;padding:4px 0 0;margin-top:4px}
+.fl-dow{text-align:center;font-family:var(--mono);font-size:9px;color:#A0AAC0}
+.fl-legend{display:flex;align-items:center;gap:3px;font-size:9.5px;color:#4D5A74;margin-top:10px;flex-wrap:wrap}
+.fl-lsw{width:13px;height:9px;border-radius:2px;display:inline-block}
+.fl-brow{display:flex;align-items:center;gap:8px;padding:4px 0}
+.fl-blbl{width:52px;font-size:10px;font-weight:700;color:#4D5A74}
+.fl-btrk{flex:1;height:14px;background:#F4F6FA;border-radius:7px;position:relative}
+.fl-bbar{position:absolute;top:0;height:14px;border-radius:4px}
+.fl-bval{width:52px;text-align:right;font-size:12px;font-weight:700;font-family:var(--mono)}
+</style>
+{% endif %}
+{% if charts.butterfly %}
+<div class="fl-card">
+  <div class="fl-title">Booked vs cancelled — by stay month</div>
+  <div class="fl-key">
+    <span><span class="fl-kb" style="background:#0F2860"></span>booked · 7d</span>
+    <span><span class="fl-kb" style="background:#2E7CF7"></span>booked · 14d</span>
+    <span><span class="fl-kb" style="background:#B83A1B"></span>cancelled · 7d</span>
+    <span><span class="fl-kb" style="background:#DC8B77"></span>cancelled · 14d</span>
+  </div>
+  <div style="display:flex;font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;margin-bottom:2px">
+    <div style="flex:1;color:#B83A1B">◀ CANCELLED</div><div style="flex:1;text-align:right;color:#2E7CF7">BOOKED ▶</div>
+  </div>
+  {% for r in charts.butterfly.rows %}
+  <div class="fl-row" style="align-items:center">
+    <div class="fl-mon">{{ r.m }}</div>
+    <div class="fl-mid">
+      <div class="fl-fw"><div class="fl-fl"><div class="fl-flb" style="width:{{ r.lw7 }}%;background:#B83A1B"></div></div><div class="fl-fax"></div><div class="fl-fr"><div class="fl-frb" style="width:{{ r.rw7 }}%;background:#0F2860"></div></div></div>
+      <div style="height:3px"></div>
+      <div class="fl-fw"><div class="fl-fl"><div class="fl-flb" style="width:{{ r.lw14 }}%;background:#DC8B77"></div></div><div class="fl-fax"></div><div class="fl-fr"><div class="fl-frb" style="width:{{ r.rw14 }}%;background:#2E7CF7"></div></div></div>
+    </div>
+    <div class="fl-val" style="width:88px">
+      <div class="fl-v" style="color:{{ r.n7_col }}">{{ r.n7_txt }}<span class="fl-unit">net·7d</span></div>
+      <div class="fl-v" style="color:{{ r.n14_col }}">{{ r.n14_txt }}<span class="fl-unit">net·14d</span></div>
+    </div>
+  </div>
+  {% endfor %}
+  {% if charts.butterfly.alert %}<div class="fl-alert">⚠ {{ charts.butterfly.alert }}</div>{% endif %}
+</div>
+{% else %}
 <div class="pu-sub">
   <div class="pu-sub-card">
     <div style="font-size:9px;font-weight:600;color:var(--grey-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Top month (7d)</div>
     <div style="font-weight:700;font-size:15px;color:var(--text)">{{ pu.topMonth }} <span style="font-size:11px;color:var(--grey-500);font-weight:400">+{{ pu.topMonthNights }} rn booked</span></div>
   </div>
 </div>
+{% endif %}
+{% if charts.velocity %}
+<div class="fl-card">
+  <div class="fl-title">Booking speed — rooms per day</div>
+  <div class="fl-key">
+    <span><span class="fl-kb" style="background:#0F2860"></span>last 7 days</span>
+    <span><span class="fl-kb" style="background:#2E7CF7"></span>last 14 days</span>
+    <span><span class="fl-kt" style="background:#A0AAC0"></span>LY speed</span>
+    <span><span class="fl-kt" style="background:#B47D09"></span>needed for LY final</span>
+  </div>
+  {% for r in charts.velocity.rows %}
+  <div class="fl-row">
+    <div class="fl-mon" style="padding-top:1px">{{ r.m }}</div>
+    <div class="fl-mid">
+      <div class="fl-vtrack"><div class="fl-vbar" style="width:{{ r.w7 }}%;background:#0F2860"></div><div class="fl-vtick" style="left:{{ r.lyx }}%;background:#A0AAC0"></div>{% if r.needx is not none %}<div class="fl-vtick" style="left:{{ r.needx }}%;background:#B47D09"></div>{% endif %}</div>
+      <div style="height:4px"></div>
+      <div class="fl-vtrack"><div class="fl-vbar" style="width:{{ r.w14 }}%;background:#2E7CF7"></div><div class="fl-vtick" style="left:{{ r.lyx }}%;background:#A0AAC0"></div>{% if r.needx is not none %}<div class="fl-vtick" style="left:{{ r.needx }}%;background:#B47D09"></div>{% endif %}</div>
+      <div style="font-size:10px;margin-top:5px;{% if r.passed %}color:#1A7A50;font-weight:700{% else %}color:#4D5A74{% endif %}">{{ r.under }}</div>
+    </div>
+    <div class="fl-val" style="width:92px">
+      <div class="fl-v" style="color:#0F2860">{{ r.v7_txt }}<span class="fl-unit">/day·7d</span></div>
+      <div class="fl-v" style="color:#2E7CF7">{{ r.v14_txt }}<span class="fl-unit">/day·14d</span></div>
+      <div style="font-size:9px;font-weight:600;color:{{ r.accel_col }}">{{ r.accel_txt }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
 
 <!-- PACE CHARTS -->
 {% if data.pace %}
@@ -673,6 +781,70 @@
     {% endfor %}
   </svg>
 </div>
+
+{% if charts.bridge %}
+<div class="fl-card">
+  <div class="fl-title">ADR bridge — why the rate moved</div>
+  <div class="fl-how">{{ charts.bridge.period }}. <b style="color:#2E7CF7">Mix</b> = selling a different
+  book of business · <b style="color:#B47D09">Rate</b> = selling at different prices. They sum exactly
+  to the ADR change.</div>
+  <div class="fl-brow"><div class="fl-blbl">LY ADR</div><div class="fl-btrk"><div class="fl-bbar" style="left:0;width:{{ charts.bridge.ly_w }}%;background:#CDD4E0"></div></div><div class="fl-bval">{{ charts.bridge.adr_ly_txt }}</div></div>
+  <div class="fl-brow"><div class="fl-blbl">Mix</div><div class="fl-btrk"><div class="fl-bbar" style="left:{{ charts.bridge.mix_x }}%;width:{{ charts.bridge.mix_w }}%;background:#2E7CF7"></div></div><div class="fl-bval" style="color:#2E7CF7">{{ charts.bridge.mix_txt }}</div></div>
+  <div class="fl-brow"><div class="fl-blbl">Rate</div><div class="fl-btrk"><div class="fl-bbar" style="left:{{ charts.bridge.rate_x }}%;width:{{ charts.bridge.rate_w }}%;background:#B47D09"></div></div><div class="fl-bval" style="color:#B47D09">{{ charts.bridge.rate_txt }}</div></div>
+  <div class="fl-brow"><div class="fl-blbl">TY ADR</div><div class="fl-btrk"><div class="fl-bbar" style="left:0;width:{{ charts.bridge.ty_w }}%;background:#0F2860"></div></div><div class="fl-bval">{{ charts.bridge.adr_ty_txt }}</div></div>
+  <div style="font-size:11.5px;color:#1C2333;line-height:1.5;margin-top:10px">{{ charts.bridge.sentence }}</div>
+  <div style="margin-top:10px;border-top:1px solid #F0F2F7;padding-top:6px">
+    <div style="display:flex;font-size:9px;color:#A0AAC0;font-weight:600;padding:2px 0"><div style="flex:1.2">CHANNEL</div><div style="flex:1">SHARE</div><div style="flex:1">ADR</div><div style="width:38px;text-align:right;color:#2E7CF7">MIX</div><div style="width:38px;text-align:right;color:#B47D09">RATE</div></div>
+    {% for r in charts.bridge.rows %}
+    <div style="display:flex;font-size:10.5px;padding:3px 0;border-top:1px solid #F7F8FB"><div style="flex:1.2;font-weight:600">{{ r.channel }}</div><div style="flex:1;color:#4D5A74">{{ r.share }}</div><div style="flex:1;color:#4D5A74">{{ r.adr }}</div><div style="width:38px;text-align:right;font-family:var(--mono)">{{ r.mix_txt }}</div><div style="width:38px;text-align:right;font-family:var(--mono)">{{ r.rate_txt }}</div></div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if charts.meter %}
+<div class="fl-card">
+  <div class="fl-title">Where each month stands</div>
+  <div class="fl-how">Track = last year's final month · bar = booked now · tick = LY same date.
+  Green spill past the end = above LY final · red bar = behind LY pace. All numbers are room nights.</div>
+  {% for r in charts.meter.rows %}
+  <div class="fl-row">
+    <div class="fl-mon" style="padding-top:1px">{{ r.m }}</div>
+    <div class="fl-mid">
+      <div class="fl-lane">
+        <div class="fl-track"><div class="fl-bar" style="width:{{ r.bw }}%;background:{{ r.bar_col }};border-radius:{{ r.bar_radius }}"></div><div class="fl-tick" style="left:{{ r.tx }}%"></div></div>
+        {% if r.over_w %}<div class="fl-over" style="width:{{ r.over_w }}%"></div>{% endif %}
+      </div>
+      <div class="fl-under"><span>booked: <b>{{ r.rn_txt }} rn</b></span><span>▲ LY same date: {{ r.sly_txt }}</span><span>LY final: {{ r.fin_txt }}</span></div>
+    </div>
+    <div class="fl-val">
+      <div class="fl-big" style="color:{{ r.d_col }}">{{ r.d_txt }} rn</div>
+      <div class="fl-vs">vs LY pace</div>
+      <div class="fl-togo"{% if r.beat %} style="color:#1A7A50;font-weight:700"{% endif %}>{{ r.second }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if charts.heat %}
+<div class="fl-card">
+  <div class="fl-title">Demand heat — next 60 days</div>
+  <div class="fl-how">Occupancy on the books per stay date — darker = fuller. A red outline marks a date far behind last year.</div>
+  <div class="fl-grid" style="margin-bottom:3px">{% for d in ['M','T','W','T','F','S','S'] %}<div class="fl-dow">{{ d }}</div>{% endfor %}</div>
+  <div class="fl-grid">
+  {% for c in charts.heat.cells %}
+    {%- if c.empty %}<div></div>
+    {%- else %}<div class="fl-cell" style="background:{{ c.bg }}{% if c.ring %};box-shadow:inset 0 0 0 2px #B83A1B{% endif %}{% if c.new_month %};border:2px solid #0F2860{% endif %}"><div class="fl-occ" style="color:{{ c.fg }}">{{ c.occ_txt }}</div><div class="fl-date" style="color:{{ c.sub }}{% if c.new_month %};font-weight:700;color:#0F2860{% endif %}">{{ c.date_txt }}</div></div>
+    {%- endif %}
+  {% endfor %}
+  </div>
+  <div class="fl-legend">empty {% for cc in charts.heat.ramp %}<span class="fl-lsw" style="background:{{ cc }}"></span>{% endfor %} full
+    <span style="margin-left:6px"><span class="fl-lsw" style="background:#EDF1F8;box-shadow:inset 0 0 0 2px #B83A1B"></span> behind LY</span>
+    <span style="margin-left:6px"><span class="fl-lsw" style="background:#EDF1F8;border:2px solid #0F2860;box-sizing:border-box"></span> new month</span></div>
+  {% if charts.heat.alert %}<div class="fl-alert">⚠ {{ charts.heat.alert }}</div>{% endif %}
+</div>
+{% endif %}
 {% endif %}
 
 {% if false %}{# BOOKING REVENUE CURVE — removed #}
