@@ -44,7 +44,8 @@ Required core (every adapter, every PMS):
 
 Signal fields (power the v1.2 analyst; absent → legacy_mode):
   pickup_daily            [ {ref_date, stay_month, stay_year, net_rn, net_rev} ]
-                          (last 14 days × future stay month)
+                          (last 14 days × stay month — ALL stay dates, so it
+                          reconciles exactly with the pickup card)
   otb_by_date             [ {stay_date, rn_ty, rev_ty, rn_stly, rev_stly} ]
                           (next 90 days, STLY at same lead time)
   current_month_remaining {rn_remaining_otb_ty, rev_remaining_otb_ty,

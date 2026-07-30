@@ -225,6 +225,9 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             m_name      = _cal.month_abbr[sm]
             month_label = f"{m_name} {sy}"
             m_start, m_end = _month_bounds(sy, sm)
+            if m_end < today:
+                continue  # Q9 now includes consumed-night bookings (reconciles
+                          # with the Pickup card) — a finished month is never a card
             days_to_start  = max(0, (m_start - today).days)
             window_left    = max(0, (m_end - today).days)
 

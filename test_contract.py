@@ -18,6 +18,17 @@ from test_analyst import DUMMY_DATA
 from db.contract import build_data_quality, is_publishable
 
 ROOMS = 167
+
+# Date-independence: remaining-month OTB must fit rooms × days-left REGARDLESS
+# of which day the suite runs (the fixed 480 failed near month-end). Clamp the
+# happy-path copy to today's capacity; the over-capacity test still uses 99_999.
+import calendar as _cal
+from datetime import date as _date
+_today = _date.today()
+_rem_days = max(1, (_date(_today.year, _today.month,
+                          _cal.monthrange(_today.year, _today.month)[1]) - _today).days + 1)
+DUMMY_DATA = copy.deepcopy(DUMMY_DATA)
+DUMMY_DATA["current_month_remaining"]["rn_remaining_otb_ty"] = min(480, ROOMS * _rem_days)
 passed = failed = 0
 
 

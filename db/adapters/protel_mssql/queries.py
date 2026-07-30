@@ -431,16 +431,19 @@ ORDER BY stay_year, stay_month, period, days_bucket DESC;
 
 
 # ------------------------------------------------------------------
-# Q9: Daily net pickup — last 14 days by future stay month
-# Used to compute trailing mean, σ, and z-score for Signal 1 (Pickup).
-# Covers new bookings (SystemDate) minus cancellations (Canceled date).
+# Q9: Daily net pickup — last 14 days by stay month (ALL stay dates)
+# Used to compute trailing mean, σ, and z-score for Signal 1 (Pickup),
+# the velocity chart and the churn butterfly.
+# Scope decision 2026-07-30 (user): NO stay-date restriction — bookings for
+# already-consumed nights (walk-ins, same-day arrivals) count, so these rows
+# RECONCILE EXACTLY with the Pickup Activity card (Q3), which has the same
+# book-date-axis, any-stay-date convention.
 # Returns one row per (ref_date, stay_month, stay_year) combination.
 # ------------------------------------------------------------------
 
 Q_PICKUP_DAILY = """
 DECLARE @today        DATE = CAST(GETDATE() AS DATE);
 DECLARE @window_start DATE = DATEADD(DAY, -13, @today);  -- 14 days including today
-DECLARE @max_future   DATE = DATEADD(YEAR,  1, @today);  -- cap scan at 1 year out
 
 SELECT ref_date, stay_month, stay_year,
        SUM(net_rn)  AS net_rn,
@@ -456,8 +459,6 @@ FROM (
     WHERE h.mpehotel = ?
       AND h.reschar < 2
       AND {fake_rt}
-      AND h.date  >  @today
-      AND h.date  <= @max_future
       AND CAST(h.SystemDate AS DATE) BETWEEN @window_start AND @today
 
     UNION ALL
@@ -472,8 +473,6 @@ FROM (
     WHERE h.mpehotel = ?
       AND h.reschar = 2
       AND {fake_rt}
-      AND h.date  >  @today
-      AND h.date  <= @max_future
       AND CAST(h.Canceled AS DATE) BETWEEN @window_start AND @today
 ) t
 GROUP BY ref_date, stay_month, stay_year
@@ -677,19 +676,19 @@ ORDER BY period, stay_year, stay_month;
 
 
 # ------------------------------------------------------------------
-# Q14: Daily cancellations by future stay month — last 14 days.
+# Q14: Daily cancellations by stay month — last 14 days (ALL stay dates).
 # The cancellation branch of Q9 as its own series: Q9 ships NET pickup;
 # this ships the cancel side so gross bookings = net + cancels.
 # Powers the churn butterfly (booked vs cancelled per stay month, 7d/14d
 # windows) and, later, the cancellation-spike card.
-# Same conventions as Q9: future stays only, capped 1 year out, room
-# nights counted per stay night (day-use rows excluded via datumbis>date).
+# Scope matches Q9 and the Pickup card (Q3): NO stay-date restriction —
+# the butterfly reconciles exactly with Pickup Activity (user decision
+# 2026-07-30). Day-use rows excluded via datumbis>date.
 # ------------------------------------------------------------------
 
 Q_CANCEL_DAILY = """
 DECLARE @today        DATE = CAST(GETDATE() AS DATE);
 DECLARE @window_start DATE = DATEADD(DAY, -13, @today);  -- 14 days incl. today
-DECLARE @max_future   DATE = DATEADD(YEAR,  1, @today);
 
 SELECT CAST(h.Canceled AS DATE) AS ref_date,
        MONTH(h.date)            AS stay_month,
@@ -701,8 +700,6 @@ FROM bidata.proteluser.Hitia h
 WHERE h.mpehotel = ?
   AND h.reschar = 2
   AND {fake_rt}
-  AND h.date  >  @today
-  AND h.date  <= @max_future
   AND CAST(h.Canceled AS DATE) BETWEEN @window_start AND @today
 GROUP BY CAST(h.Canceled AS DATE), MONTH(h.date), YEAR(h.date)
 ORDER BY ref_date, stay_month;
