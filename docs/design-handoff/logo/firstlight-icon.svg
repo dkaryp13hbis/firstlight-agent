@@ -29,7 +29,12 @@
   <polyline points="137,200 190,168 233,190 288,148" stroke="url(#line)"
             stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
   <circle cx="291" cy="146" r="18" fill="#38E1F0"/>
-  <!-- FL letterforms, centred -->
-  <text x="230" y="330" text-anchor="middle" font-family="Manrope, 'Segoe UI', sans-serif"
-        font-size="150" font-weight="800" letter-spacing="18" fill="#16213B">FL</text>
+  <!-- FL letterforms — solid bars, SQUARE terminals (no radius) -->
+  <g fill="#16213B">
+    <rect x="146" y="223" width="34" height="132"/>
+    <rect x="146" y="223" width="92" height="34"/>
+    <rect x="146" y="280" width="76" height="32"/>
+    <rect x="262" y="223" width="34" height="132"/>
+    <rect x="262" y="321" width="90" height="34"/>
+  </g>
 </svg>

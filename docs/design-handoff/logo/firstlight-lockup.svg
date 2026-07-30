@@ -17,9 +17,14 @@
     <polyline points="47,72 66,60 82,68 102,52" stroke="#2E7CF7"
               stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
     <circle cx="103" cy="51" r="6.5" fill="#38E1F0"/>
-    <!-- FL letterforms, centred under the line -->
-    <text x="80" y="118" text-anchor="middle" font-family="Manrope, 'Segoe UI', sans-serif"
-          font-size="52" font-weight="800" letter-spacing="6" fill="#16213B">FL</text>
+    <!-- FL letterforms — solid bars, SQUARE terminals (no radius) -->
+    <g fill="#16213B">
+      <rect x="51" y="78" width="12" height="47"/>
+      <rect x="51" y="78" width="33" height="12"/>
+      <rect x="51" y="99" width="27" height="11"/>
+      <rect x="93" y="78" width="12" height="47"/>
+      <rect x="93" y="113" width="32" height="12"/>
+    </g>
   </g>
   <!-- wordmark -->
   <text x="168" y="102" font-family="Manrope, 'Segoe UI', sans-serif" font-size="64"
