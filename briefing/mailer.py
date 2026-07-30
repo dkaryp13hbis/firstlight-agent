@@ -35,17 +35,21 @@ def _highlight(text: str) -> str:
     )
     return text
 
+_DARK_NUM = re.compile(r'[+\-−]?€?\d(?:[\d,]*\d)?(?:\.\d+)?(?:[KkMm]\b)?%?')
+
+
 def _highlight_dark(text: str) -> str:
-    """Bold numbers for dark surfaces (the hero): € white, +% mint, -% coral."""
-    text = re.sub(r'\+(\d+\.?\d*%)',
-                  r'<strong style="color:#56FFC4">+\1</strong>', text)
-    text = re.sub(r'[-−](\d+\.?\d*%)',
-                  r'<strong style="color:#FF9B8A">-\1</strong>', text)
-    text = re.sub(r'€([\d,\.]+\s*[KkMm]?)',
-                  r'<strong style="color:#fff">€\1</strong>', text)
-    text = re.sub(r'(?<![\d,\.€%>])(\d[\d,\.]*%?)(?![\d,\.%<])',
-                  r'<strong style="color:#fff">\1</strong>', text)
-    return text
+    """Bold numbers for dark surfaces (the hero): € white, +% mint, −% coral.
+    SINGLE regex pass — chained substitutions would re-match the digits inside
+    the inserted hex colours (#56FFC4 → '56') and shred the markup."""
+    def repl(m):
+        tok = m.group(0)
+        if tok.endswith('%') and tok.startswith('+'):
+            return f'<strong style="color:#56FFC4">{tok}</strong>'
+        if tok.endswith('%') and tok[0] in '-−':
+            return f'<strong style="color:#FF9B8A">{tok}</strong>'
+        return f'<strong style="color:#fff">{tok}</strong>'
+    return _DARK_NUM.sub(repl, text)
 
 
 _TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
