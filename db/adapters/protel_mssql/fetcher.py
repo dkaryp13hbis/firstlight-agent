@@ -28,6 +28,17 @@ from db.contract import attach_data_quality
 # Helpers
 # ------------------------------------------------------------------
 
+def _display_now() -> datetime:
+    """Display timestamps in the hotel's timezone (Athens for the Greek fleet;
+    per-hotel timezones arrive with Phase 4). Falls back to server time."""
+    try:
+        from zoneinfo import ZoneInfo
+        import os as _os
+        return datetime.now(ZoneInfo(_os.getenv("DISPLAY_TZ", "Europe/Athens")))
+    except Exception:
+        return datetime.now()
+
+
 def _adr(revenue: float, room_nights: float) -> float:
     return round(revenue / room_nights, 2) if room_nights else 0.0
 
@@ -481,7 +492,7 @@ def fetch_snapshot(conn: pyodbc.Connection, hotel_ctx: dict[str, Any]) -> dict[s
     payload = {
         "hotel_name": hotel_name,
         "report_date": f"{yesterday.strftime('%A, %B')} {yesterday.day}, {yesterday.year}",
-        "generated_at": datetime.now().strftime("%H:%M"),
+        "generated_at": _display_now().strftime("%H:%M"),
 
         "yesterday": {
             "revenue":      round(rev_yd_ty, 0),

@@ -71,11 +71,18 @@ def _render(data: dict[str, Any], ai: dict[str, Any],
 
     # Closed months (fully in the past) show STLY only in the occupancy chart —
     # their Final LY equals STLY, so drawing both duplicates one value.
-    from datetime import date as _d
+    from datetime import date as _d, datetime as _dtn
     env.globals["current_month_num"] = _d.today().month
     # Shown in the Smart Summary header as the LAST REFRESH date (renders
-    # happen at refresh time, so render date == refresh date).
-    env.globals["render_date"] = _d.today().strftime("%d %b").upper()
+    # happen at refresh time, so render date == refresh date). Displayed in
+    # the hotel's timezone (Athens), not server UTC.
+    try:
+        from zoneinfo import ZoneInfo
+        import os as _osz
+        _tznow = _dtn.now(ZoneInfo(_osz.getenv("DISPLAY_TZ", "Europe/Athens")))
+    except Exception:
+        _tznow = _dtn.now()
+    env.globals["render_date"] = _tznow.strftime("%d %b").upper()
 
     return env.get_template("email.html").render(data=data, ai=ai,
                                                  charts=charts or {})

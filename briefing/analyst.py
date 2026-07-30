@@ -1682,6 +1682,16 @@ def _harden_card(card: dict, wrapper: dict) -> dict:
     return card
 
 
+def _display_hhmm() -> str:
+    """HH:MM in the hotel display timezone (Athens; Phase 4 makes it per-hotel)."""
+    from datetime import datetime as _dtz
+    try:
+        from zoneinfo import ZoneInfo
+        return _dtz.now(ZoneInfo(_os.getenv("DISPLAY_TZ", "Europe/Athens"))).strftime("%H:%M")
+    except Exception:
+        return _dtz.now().strftime("%H:%M")
+
+
 def _driver_hint(vol_pct: float | None, adr_pct: float | None) -> str:
     """What drove a revenue variance: volume (room nights), rate (ADR), or both."""
     if vol_pct is None or adr_pct is None:
@@ -1964,7 +1974,7 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None,
             # The hero is written ONCE per day; data refreshes intraday. This
             # stamp lets the UI label the narrative with ITS time, so small
             # drifts vs the live KPI cards read as timing, not as errors.
-            "generated_at": _dtnow.now().strftime("%H:%M"),
+            "generated_at": _display_hhmm(),
             "insights": [_card_to_insight(c, i + 1) for i, c in enumerate(cards)],
             "_meta": meta,
         }
