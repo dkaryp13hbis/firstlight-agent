@@ -1943,8 +1943,13 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None) -> dict
         summary = _narrate_hero(hotel_name, _build_hero_slots(data), cards, meta=meta)
         meta["fallback_cards"] = sum(1 for a in meta["cards_audit"] if a["fallback_used"])
         meta["estimated_cost_usd"] = _estimate_cost_usd(meta["usage"])
+        from datetime import datetime as _dtnow
         result = {
             "executive_summary": summary,
+            # The hero is written ONCE per day; data refreshes intraday. This
+            # stamp lets the UI label the narrative with ITS time, so small
+            # drifts vs the live KPI cards read as timing, not as errors.
+            "generated_at": _dtnow.now().strftime("%H:%M"),
             "insights": [_card_to_insight(c, i + 1) for i, c in enumerate(cards)],
             "_meta": meta,
         }
