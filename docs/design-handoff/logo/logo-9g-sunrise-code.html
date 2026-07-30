@@ -1,0 +1,132 @@
+<!-- ────────────────────────────────────────────────────────────────
+FirstLight — 9g "Sunrise" logo mark · CANONICAL SVG CODE
+Copy these verbatim. Do not redraw, do not "improve" the paths.
+viewBox is always "0 0 100 100" — scale via width/height only.
+(Per product owner 2026-07-30: the GRADIENT TILE variant was removed —
+ the app tile is the WHITE tile with the gradient ring, section 3.)
+──────────────────────────────────────────────────────────────── -->
+
+<!-- ──────────────────────────────────────────────
+1 · MARK, INK-ON-LIGHT (default — headers, light UI)
+Letters: #0f1b34 · line: gradient #2E7CF7→#38E1F0 · dot: #38E1F0
+Corona: 8 cyan rays at 16% opacity around the whole monogram
+NOTE: gradient ids must be UNIQUE per page — rename g9g-1 etc.
+if you place several copies in one document.
+─────────────────────────────────────────────── -->
+<svg width="28" height="28" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="g9g-1" x1="16" y1="44" x2="84" y2="14" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2E7CF7"/>
+      <stop offset="1" stop-color="#38E1F0"/>
+    </linearGradient>
+  </defs>
+  <!-- corona rays -->
+  <g stroke="#38E1F0" stroke-width="3" stroke-linecap="round" opacity=".16">
+    <path d="M50 -2 50 6"/>
+    <path d="M96 14 89 18"/>
+    <path d="M102 50 94 50"/>
+    <path d="M96 86 89 82"/>
+    <path d="M50 102 50 94"/>
+    <path d="M4 86 11 82"/>
+    <path d="M-2 50 6 50"/>
+    <path d="M4 14 11 18"/>
+  </g>
+  <!-- monogram, scaled to sit inside the corona -->
+  <g transform="translate(50,50) scale(.78) translate(-52,-50)">
+    <!-- chart line + end dot -->
+    <path d="M18 38 38 28 54 33 74 16" stroke="url(#g9g-1)" stroke-width="8"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="74" cy="16" r="5" fill="#38E1F0"/>
+    <!-- F -->
+    <rect x="18" y="50" width="8"  height="36" rx="4" fill="#0f1b34"/>
+    <rect x="18" y="50" width="26" height="8"  rx="4" fill="#0f1b34"/>
+    <rect x="18" y="64" width="19" height="8"  rx="4" fill="#0f1b34"/>
+    <!-- L -->
+    <rect x="62" y="50" width="8"  height="36" rx="4" fill="#0f1b34"/>
+    <rect x="62" y="78" width="24" height="8"  rx="4" fill="#0f1b34"/>
+  </g>
+</svg>
+
+<!-- ──────────────────────────────────────────────
+2 · MARK, WHITE-ON-DARK (navy headers, dark surfaces)
+Same geometry; letters #fff, rays 22% opacity.
+─────────────────────────────────────────────── -->
+<svg width="26" height="26" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="g9g-2" x1="16" y1="44" x2="84" y2="14" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2E7CF7"/>
+      <stop offset="1" stop-color="#38E1F0"/>
+    </linearGradient>
+  </defs>
+  <g stroke="#38E1F0" stroke-width="3" stroke-linecap="round" opacity=".22">
+    <path d="M50 -2 50 6"/><path d="M96 14 89 18"/><path d="M102 50 94 50"/>
+    <path d="M96 86 89 82"/><path d="M50 102 50 94"/><path d="M4 86 11 82"/>
+    <path d="M-2 50 6 50"/><path d="M4 14 11 18"/>
+  </g>
+  <g transform="translate(50,50) scale(.78) translate(-52,-50)">
+    <path d="M18 38 38 28 54 33 74 16" stroke="url(#g9g-2)" stroke-width="8"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="74" cy="16" r="5" fill="#38E1F0"/>
+    <rect x="18" y="50" width="8"  height="36" rx="4" fill="#fff"/>
+    <rect x="18" y="50" width="26" height="8"  rx="4" fill="#fff"/>
+    <rect x="18" y="64" width="19" height="8"  rx="4" fill="#fff"/>
+    <rect x="62" y="50" width="8"  height="36" rx="4" fill="#fff"/>
+    <rect x="62" y="78" width="24" height="8"  rx="4" fill="#fff"/>
+  </g>
+</svg>
+
+<!-- ──────────────────────────────────────────────
+3 · APP TILE (150px rounded square, thin gradient ring) — THE app icon
+Ring: 2.5px, gradient border via padding-box/border-box trick.
+Inside: large-tile monogram (10 rays, scale .72, NO glow on the dot).
+─────────────────────────────────────────────── -->
+<div style="width:150px;height:150px;border-radius:34px;border:2.5px solid transparent;
+            background:linear-gradient(#fff,#fff) padding-box,
+                       linear-gradient(160deg,#2E7CF7,#38E1F0) border-box;
+            display:flex;align-items:center;justify-content:center">
+  <svg width="120" height="120" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="g9g-3" x1="16" y1="44" x2="84" y2="14" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#2E7CF7"/><stop offset="1" stop-color="#38E1F0"/>
+      </linearGradient>
+    </defs>
+    <g transform="translate(50,50) scale(.72) translate(-52,-50)">
+      <path d="M18 38 38 28 54 33 74 16" stroke="url(#g9g-3)" stroke-width="7"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="74" cy="16" r="5" fill="#38E1F0"/>
+      <rect x="18" y="50" width="7"  height="36" rx="3.5" fill="#0f1b34"/>
+      <rect x="18" y="50" width="26" height="7"  rx="3.5" fill="#0f1b34"/>
+      <rect x="18" y="64" width="19" height="7"  rx="3.5" fill="#0f1b34"/>
+      <rect x="62" y="50" width="7"  height="36" rx="3.5" fill="#0f1b34"/>
+      <rect x="62" y="79" width="24" height="7"  rx="3.5" fill="#0f1b34"/>
+    </g>
+    <g stroke="#38E1F0" stroke-width="2.5" stroke-linecap="round" opacity=".16">
+      <path d="M50 -2 50 6"/><path d="M78 1 75.5 8.5"/><path d="M96 14 89 18"/>
+      <path d="M102 50 94 50"/><path d="M96 86 89 82"/><path d="M50 102 50 94"/>
+      <path d="M4 86 11 82"/><path d="M-2 50 6 50"/><path d="M4 14 11 18"/>
+      <path d="M22 1 24.5 8.5"/>
+    </g>
+  </svg>
+</div>
+
+<!-- ──────────────────────────────────────────────
+5 · FULL LOCKUP (mark + wordmark)
+Wordmark: Outfit 700, letter-spacing -0.02em.
+"First" = ink #0f1b34 (or #fff on dark) · "Light" = #2E7CF7 (or #38E1F0 on dark).
+The 2-3px margin-top optically aligns the text with the mark. Gap 8-10px.
+─────────────────────────────────────────────── -->
+<div style="display:flex;align-items:center;gap:9px">
+  <!-- insert MARK #1 (light) or #2 (dark) here at 24-28px -->
+  <span style="font:700 19px/1 'Outfit',sans-serif;letter-spacing:-.02em;color:#0f1b34;margin-top:3px">
+    First<span style="color:#2E7CF7">Light</span>
+  </span>
+</div>
+
+<!-- ────────────────────────────────────────────────
+RULES (hard):
+- Never change path/rect coordinates — geometry is final.
+- Corona rays: 8 rays at sizes ≤32px, 10 rays on tiles; opacity .16 light / .22 dark / .35 on gradient.
+- The dot has NO glow, NO halo, NO shadow.
+- Unique gradient ids per document instance.
+- Minimum mark size 16px; drop the corona below 20px if it muddies.
+──────────────────────────────────────────────── -->
