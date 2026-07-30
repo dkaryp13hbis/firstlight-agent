@@ -48,6 +48,10 @@
   .ss-tag::before { content:""; width:5px; height:5px; background:#38E1F0; border-radius:50%; }
   .ss-date { font-family:var(--mono); font-size:10px; color:rgba(255,255,255,.55); }
   .ss-body { font-size:14.5px; line-height:1.65; color:rgba(255,255,255,.85); }
+  .ss-body strong { font-weight:800; }
+  .ss-speak { background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2);
+              border-radius:999px; width:32px; height:32px; font-size:14px; cursor:pointer;
+              display:inline-flex; align-items:center; justify-content:center; padding:0; }
 
   /* Section label */
   .sl { display:flex; align-items:center; gap:7px; font-size:13px; font-weight:700; color:var(--n800); margin:18px 0 8px; letter-spacing:-0.01em; }
@@ -286,6 +290,10 @@
     transition:transform .2s;
   }
   .icard-toggle.open { transform:rotate(180deg); }
+  .info-btn{width:18px;height:18px;border-radius:50%;border:1.5px solid #A0AAC0;color:#6E7A96;background:#fff;font-size:11px;font-weight:700;line-height:1;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;margin-left:7px;font-family:var(--font);flex-shrink:0}
+  .info-panel{display:none;background:#F7F9FC;border-radius:10px;padding:10px 12px;font-size:11.5px;line-height:1.55;color:#4D5A74;margin:8px 0;font-weight:400 !important}
+  .info-panel b{font-weight:700}
+  svg text{font-family:var(--font) !important}
   .icard-head { cursor:pointer; user-select:none; margin-bottom:0 !important; }
   .icard-body { padding-top:14px; }
 
@@ -296,8 +304,10 @@
   .kpi-value, .otb-rev, .mtd-val, .fl-big, .fl-occ, .otb-occ, .otb-detail b,
   .kpi-val, .hero-greet { font-weight:800 !important; }
   .kpi-var, .mtd-chg, .otb-vs, .badge-pos, .badge-neg, .hchip, .fl-v,
-  .pu-v, .ch-nights, .ch-name, .tab-badge { font-weight:700 !important; }
-  .kpi-label, .mtd-lbl, .otb-mo, .fl-under b, .ss-tag { font-weight:600 !important; }
+  .pu-v, .ch-nights, .ch-name, .tab-badge,
+  .kpi-ly, .ss-date, .fl-date, .fl-under b, .fl-under,
+  .fl-togo, .otb-detail { font-weight:700 !important; }
+  .kpi-label, .mtd-lbl, .otb-mo, .ss-tag { font-weight:600 !important; }
 </style>
 </head>
 <body>
@@ -334,9 +344,15 @@
 <div class="smart-summary">
   <div class="ss-head">
     <span class="ss-tag">Smart Summary</span>
-    <span class="ss-date">{{ (data.report_date.split(', ')[1] if ', ' in data.report_date else data.report_date) | upper }} · {{ data.generated_at }}</span>
+    <span style="display:flex;align-items:center;gap:10px">
+      <span class="ss-date">{{ (data.report_date.split(', ')[1] if ', ' in data.report_date else data.report_date) | upper }} · {{ data.generated_at }}</span>
+      {% if charts %}
+      <button class="ss-speak" title="Listen to the briefing"
+        onclick="var b=this;var t=b.closest('.smart-summary').querySelector('.ss-body').innerText;var s=window.speechSynthesis;if(!s){return;}if(s.speaking){s.cancel();b.textContent='🔊';return;}var u=new SpeechSynthesisUtterance(t);u.lang='en-US';u.rate=1.0;u.pitch=1.0;var vs=s.getVoices();var prefs=['Samantha','Google US English','Karen','Moira','Tessa','Martha','Google UK English Female','Microsoft Zira','Serena','Victoria','Female'];var pick=null;for(var i=0;i<prefs.length&&!pick;i++){for(var j=0;j<vs.length;j++){if(vs[j].name.indexOf(prefs[i])>-1){pick=vs[j];break;}}}if(!pick){for(var k=0;k<vs.length;k++){if(vs[k].lang&&vs[k].lang.indexOf('en')===0){pick=vs[k];break;}}}if(pick){u.voice=pick;}u.onend=function(){b.textContent='🔊';};u.onerror=function(){b.textContent='🔊';};b.textContent='⏹';s.speak(u);">🔊</button>
+      {% endif %}
+    </span>
   </div>
-  <div class="ss-body">{{ ai.executive_summary }}</div>
+  <div class="ss-body">{{ ai.executive_summary | highlight_dark | safe }}</div>
   {% set h_rn_var  = ((yd.roomNights - yd.roomNightsLY) / yd.roomNightsLY * 100) if yd.roomNightsLY else 0 %}
   {% set h_adr_var = ((yd.adr - yd.adrLY) / yd.adrLY * 100) if yd.adrLY else 0 %}
   {% set h_net     = yd.revenue - yd.revenueLY %}
@@ -349,7 +365,7 @@
 {% endif %}
 
 <!-- YESTERDAY KPIs -->
-<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>Yesterday</div>
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>Yesterday<button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-yday');n.style.display=n.style.display==='block'?'none':'block';">i</button></div><div class="info-panel" id="info-yday">Yesterday's final numbers against the same day last year — revenue, how full you were, at what average rate, and how many rooms. The four dials of the morning.</div>
 <div class="kpi-row">
   <div class="kpi-card">
     <div class="kpi-label">Total Revenue</div>
@@ -419,7 +435,7 @@
 
 <!-- OTB BY MONTH (next 3 months from pace) -->
 {% if data.pace_current %}
-<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>On The Books &mdash; Next 3 Months</div>
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>On The Books &mdash; Next 3 Months<button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-otb3');n.style.display=n.style.display==='block'?'none':'block';">i</button></div><div class="info-panel" id="info-otb3">Revenue and rooms already booked for the next three months, compared with the same date last year (STLY). Green means ahead of last year's pace.</div>
 <div class="otb-row">
   {% for p in data.pace_current %}
     {% set vs_stly = ((p.rev - p.rev_stly) / p.rev_stly * 100) if p.rev_stly else 0 %}
@@ -439,7 +455,7 @@
 
 <!-- PICKUP -->
 <div id="sec-pickup" class="sec-anchor"></div>
-<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>Pickup Activity</div>
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>Pickup Activity<button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-pickup');n.style.display=n.style.display==='block'?'none':'block';">i</button></div><div class="info-panel" id="info-pickup">The fresh demand flowing in: what was booked and cancelled today, yesterday, and over the last 3 and 7 days. Net = booked minus cancelled — what you actually kept.</div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
 
   {# TODAY #}
@@ -461,7 +477,7 @@
 
   {# YESTERDAY #}
   <div class="card" style="padding:12px">
-    <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Yesterday <span style="font-weight:400;font-size:10px;color:var(--grey-400)">{{ pu.date1d }}</span></div>
+    <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Yesterday <span style="font-weight:700;font-size:10px;color:var(--grey-400)">{{ pu.date1d }}</span></div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
       <span style="font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
       <span style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--blue)">+{{ pu.last1d.roomNights }} rn &middot; {{ pu.last1d.revenue | kilo }}</span>
@@ -478,7 +494,7 @@
 
   {# 3-DAY #}
   <div class="card" style="padding:12px">
-    <div style="font-size:10px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">3-Day <span style="font-weight:400;font-size:10px;color:var(--grey-400)">{{ pu.date3d }}</span></div>
+    <div style="font-size:10px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">3-Day <span style="font-weight:700;font-size:10px;color:var(--grey-400)">{{ pu.date3d }}</span></div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
       <span style="font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
       <span style="font-family:var(--mono);font-size:11px;font-weight:700">+{{ pu.last3d.roomNights }} rn &middot; {{ pu.last3d.revenue | kilo }}</span>
@@ -495,7 +511,7 @@
 
   {# 7-DAY #}
   <div class="card" style="padding:12px">
-    <div style="font-size:10px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">7-Day <span style="font-weight:400;font-size:10px;color:var(--grey-400)">{{ pu.date7d }}</span></div>
+    <div style="font-size:10px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">7-Day <span style="font-weight:700;font-size:10px;color:var(--grey-400)">{{ pu.date7d }}</span></div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
       <span style="font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
       <span style="font-family:var(--mono);font-size:11px;font-weight:700">+{{ pu.last7d.roomNights }} rn &middot; {{ pu.last7d.revenue | kilo }}</span>
@@ -563,7 +579,7 @@
 {% endif %}
 {% if charts.butterfly %}
 <div class="fl-card">
-  <div class="fl-title">Booked vs cancelled — by stay month</div>
+  <div class="fl-title" style="display:flex;align-items:center"><span style="flex:1">Booked vs cancelled — by stay month</span><button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-f-fly');n.style.display=n.style.display==='block'?'none':'block';">i</button></div><div class="info-panel" id="info-f-fly">Rooms booked (right, blue) against rooms cancelled (left, red) for each stay month, over the last 7 and 14 days. A long red wing means demand is leaking — the net numbers show what you kept.</div>
   <div class="fl-key">
     <span><span class="fl-kb" style="background:#0F2860"></span>booked · 7d</span>
     <span><span class="fl-kb" style="background:#2E7CF7"></span>booked · 14d</span>
@@ -599,7 +615,7 @@
 {% endif %}
 {% if charts.velocity %}
 <div class="fl-card">
-  <div class="fl-title">Booking speed — rooms per day</div>
+  <div class="fl-title" style="display:flex;align-items:center"><span style="flex:1">Booking speed — rooms per day</span><button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-f-vel');n.style.display=n.style.display==='block'?'none':'block';">i</button></div><div class="info-panel" id="info-f-vel">How fast each month is filling right now: rooms per day over the last 7 and 14 days, vs last year's speed (grey tick) and the speed needed to reach last year's final (amber tick). Speed warns you before totals do.</div>
   <div class="fl-key">
     <span><span class="fl-kb" style="background:#0F2860"></span>last 7 days</span>
     <span><span class="fl-kb" style="background:#2E7CF7"></span>last 14 days</span>
@@ -628,13 +644,13 @@
 <!-- PACE CHARTS -->
 {% if data.pace %}
 <div id="sec-pace" class="sec-anchor"></div>
-<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Pace &mdash; OTB vs STLY vs Final LY</div>
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Pace &mdash; OTB vs STLY vs Final LY<button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-pace');n.style.display=n.style.display==='block'?'none':'block';">i</button></div><div class="info-panel" id="info-pace">Each future month three ways: what's on the books now (blue), where last year stood on this same date (grey), and where the month finally ended last year (dashed). Useful to spot months running ahead or behind before they arrive.</div>
 
 {# ── Compute chart layout variables ── #}
 {% set n_mo = data.pace | length %}
 {% set step = 440.0 / n_mo %}
-{% set bot  = 115 %}
-{% set ch   = 101 %}
+{% set bot  = 145 %}
+{% set ch   = 131 %}
 {% set bw   = 12 if n_mo > 6 else 13 %}
 
 {# ── REVENUE BAR CHART ── #}
@@ -647,22 +663,22 @@
 
 <div class="chart-card">
   <div class="chart-h">
-    <div class="chart-title">Revenue OTB</div>
+    <div class="chart-title">Revenue OTB<button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-c-rev');n.style.display=n.style.display==='block'?'none':'block';">i</button><div class="info-panel" id="info-c-rev">Monthly revenue on the books (bars) vs the same time last year (grey bars). The dashed line is where that month finally ended last year — the target to beat.</div></div>
     <div class="chart-legend">
       <span><span class="lg-box" style="background:var(--n800)"></span> OTB TY</span>
       <span><span class="lg-box" style="background:var(--grey-300)"></span> STLY</span>
       <span><span class="lg-line" style="border-color:var(--green)"></span> Final LY</span>
     </div>
   </div>
-  <svg viewBox="0 0 560 162" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+  <svg viewBox="0 0 560 192" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
     <line x1="80" y1="10"  x2="520" y2="10"  stroke="#E2E7F0" stroke-width="0.5"/>
-    <line x1="80" y1="45"  x2="520" y2="45"  stroke="#F0F2F7" stroke-width="0.5"/>
-    <line x1="80" y1="80"  x2="520" y2="80"  stroke="#F0F2F7" stroke-width="0.5"/>
-    <line x1="80" y1="115" x2="520" y2="115" stroke="#E2E7F0" stroke-width="0.5"/>
-    <text x="76" y="14"  text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">{{ (ns.max_rev) | euro_full }}</text>
-    <text x="76" y="49"  text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">{{ (ns.max_rev * 0.67) | euro_full }}</text>
-    <text x="76" y="84"  text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">{{ (ns.max_rev * 0.33) | euro_full }}</text>
-    <text x="76" y="119" text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">€0</text>
+    <line x1="80" y1="55"  x2="520" y2="55"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="80" y1="100" x2="520" y2="100"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="80" y1="145" x2="520" y2="145" stroke="#E2E7F0" stroke-width="0.5"/>
+    <text x="76" y="14"  text-anchor="end" font-size="11" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="700">{{ (ns.max_rev) | euro_full }}</text>
+    <text x="76" y="59"  text-anchor="end" font-size="11" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="700">{{ (ns.max_rev * 0.67) | euro_full }}</text>
+    <text x="76" y="104"  text-anchor="end" font-size="11" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="700">{{ (ns.max_rev * 0.33) | euro_full }}</text>
+    <text x="76" y="149" text-anchor="end" font-size="11" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="700">€0</text>
     {% for p in data.pace %}
       {% set xi = (80 + (loop.index0 + 0.5) * step) | round(1) %}
       {% set bh_ty   = [((p.rev       / ns.max_rev) * ch) | round(1), 1] | max %}
@@ -675,9 +691,9 @@
       <rect x="{{ xi - bw - 1 }}" y="{{ y_ty }}"   width="{{ bw }}" height="{{ bh_ty }}"   rx="1.5" fill="{{ '#1A7A50' if p.rev >= p.rev_final else '#0F2860' }}"/>
       <rect x="{{ xi + 1 }}"      y="{{ y_stly }}" width="{{ bw }}" height="{{ bh_stly }}" rx="1.5" fill="#CDD4E0"/>
       <line x1="{{ xi - bw - 3 }}" y1="{{ ly_y }}" x2="{{ xi + bw + 3 }}" y2="{{ ly_y }}" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
-      <rect x="{{ xi - 18 }}" y="137" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
-      <text x="{{ xi }}" y="132" text-anchor="middle" font-size="11.5" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="800" letter-spacing="0.02em">{{ p.month }}</text>
-      <text x="{{ xi }}" y="146" text-anchor="middle" font-size="11" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="Manrope, sans-serif" font-weight="700">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
+      <rect x="{{ xi - 18 }}" y="167" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
+      <text x="{{ xi }}" y="162" text-anchor="middle" font-size="11.5" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="800" letter-spacing="0.02em">{{ p.month }}</text>
+      <text x="{{ xi }}" y="176" text-anchor="middle" font-size="11" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="Manrope, sans-serif" font-weight="700">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
     {% endfor %}
   </svg>
 </div>
@@ -718,22 +734,22 @@
 
 <div class="chart-card">
   <div class="chart-h">
-    <div class="chart-title">Occupancy</div>
+    <div class="chart-title">Occupancy<button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-c-occ');n.style.display=n.style.display==='block'?'none':'block';">i</button><div class="info-panel" id="info-c-occ">How full each month is so far (dark line) vs the same time last year (grey). Dashed = last year's final. Months already finished show only their final result.</div></div>
     <div class="chart-legend">
       <span><span class="lg-dot" style="background:var(--n800)"></span> OTB TY</span>
       <span><span class="lg-dot" style="background:var(--grey-300)"></span> STLY</span>
       <span><span class="lg-line" style="border-color:var(--green)"></span> Final LY</span>
     </div>
   </div>
-  <svg viewBox="0 0 560 162" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+  <svg viewBox="0 0 560 192" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
     <line x1="80" y1="10"  x2="520" y2="10"  stroke="#E2E7F0" stroke-width="0.5"/>
-    <line x1="80" y1="45"  x2="520" y2="45"  stroke="#F0F2F7" stroke-width="0.5"/>
-    <line x1="80" y1="80"  x2="520" y2="80"  stroke="#F0F2F7" stroke-width="0.5"/>
-    <line x1="80" y1="115" x2="520" y2="115" stroke="#E2E7F0" stroke-width="0.5"/>
-    <text x="76" y="14"  text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">{{ (occ_top * 100) | round(0) | int }}%</text>
-    <text x="76" y="49"  text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">{{ (occ_top * 67) | round(0) | int }}%</text>
-    <text x="76" y="84"  text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">{{ (occ_top * 33) | round(0) | int }}%</text>
-    <text x="76" y="119" text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">0%</text>
+    <line x1="80" y1="55"  x2="520" y2="55"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="80" y1="100" x2="520" y2="100"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="80" y1="145" x2="520" y2="145" stroke="#E2E7F0" stroke-width="0.5"/>
+    <text x="76" y="14"  text-anchor="end" font-size="11" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="700">{{ (occ_top * 100) | round(0) | int }}%</text>
+    <text x="76" y="59"  text-anchor="end" font-size="11" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="700">{{ (occ_top * 67) | round(0) | int }}%</text>
+    <text x="76" y="104"  text-anchor="end" font-size="11" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="700">{{ (occ_top * 33) | round(0) | int }}%</text>
+    <text x="76" y="149" text-anchor="end" font-size="11" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="700">0%</text>
     {# Smooth area fill #}
     <path d="{{ smooth_area }}" fill="rgba(15,40,96,0.07)"/>
     {# Final LY dashed line (linear reference) #}
@@ -751,9 +767,9 @@
       <circle cx="{{ xi }}" cy="{{ y_ty }}"   r="4" fill="{{ '#1A7A50' if p.occ >= p.final else '#0F2860' }}" stroke="#fff" stroke-width="1.5"/>
       <rect x="{{ xi - 16 }}" y="{{ y_ty - 20 }}" width="32" height="14" rx="3" fill="white"/>
       <text x="{{ xi }}" y="{{ y_ty - 9 }}" text-anchor="middle" font-size="11.5" fill="{{ '#1A7A50' if p.occ >= p.final else '#0F2860' }}" font-family="Manrope, sans-serif" font-weight="800">{{ (p.occ * 100) | round(0) | int }}%</text>
-      <rect x="{{ xi - 18 }}" y="137" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
-      <text x="{{ xi }}" y="132" text-anchor="middle" font-size="11.5" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="800" letter-spacing="0.02em">{{ p.month }}</text>
-      <text x="{{ xi }}" y="146" text-anchor="middle" font-size="11" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="Manrope, sans-serif" font-weight="700">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
+      <rect x="{{ xi - 18 }}" y="167" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
+      <text x="{{ xi }}" y="162" text-anchor="middle" font-size="11.5" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="800" letter-spacing="0.02em">{{ p.month }}</text>
+      <text x="{{ xi }}" y="176" text-anchor="middle" font-size="11" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="Manrope, sans-serif" font-weight="700">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
     {% endfor %}
   </svg>
 </div>
@@ -768,22 +784,22 @@
 
 <div class="chart-card">
   <div class="chart-h">
-    <div class="chart-title">ADR</div>
+    <div class="chart-title">ADR<button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-c-adr');n.style.display=n.style.display==='block'?'none':'block';">i</button><div class="info-panel" id="info-c-adr">The average nightly rate per month vs the same time last year, with last year's final rate as the dashed reference. Falling ADR with rising occupancy = trading rate for volume.</div></div>
     <div class="chart-legend">
       <span><span class="lg-box" style="background:var(--n800)"></span> OTB TY</span>
       <span><span class="lg-box" style="background:var(--grey-300)"></span> STLY</span>
       <span><span class="lg-line" style="border-color:var(--green)"></span> Final LY</span>
     </div>
   </div>
-  <svg viewBox="0 0 560 162" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+  <svg viewBox="0 0 560 192" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
     <line x1="80" y1="10"  x2="520" y2="10"  stroke="#E2E7F0" stroke-width="0.5"/>
-    <line x1="80" y1="45"  x2="520" y2="45"  stroke="#F0F2F7" stroke-width="0.5"/>
-    <line x1="80" y1="80"  x2="520" y2="80"  stroke="#F0F2F7" stroke-width="0.5"/>
-    <line x1="80" y1="115" x2="520" y2="115" stroke="#E2E7F0" stroke-width="0.5"/>
-    <text x="76" y="14"  text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">€{{ ns3.max_adr | round(0) | int }}</text>
-    <text x="76" y="49"  text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">€{{ (ns3.max_adr * 0.67) | round(0) | int }}</text>
-    <text x="76" y="84"  text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">€{{ (ns3.max_adr * 0.33) | round(0) | int }}</text>
-    <text x="76" y="119" text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">€0</text>
+    <line x1="80" y1="55"  x2="520" y2="55"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="80" y1="100" x2="520" y2="100"  stroke="#F0F2F7" stroke-width="0.5"/>
+    <line x1="80" y1="145" x2="520" y2="145" stroke="#E2E7F0" stroke-width="0.5"/>
+    <text x="76" y="14"  text-anchor="end" font-size="11" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="700">€{{ ns3.max_adr | round(0) | int }}</text>
+    <text x="76" y="59"  text-anchor="end" font-size="11" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="700">€{{ (ns3.max_adr * 0.67) | round(0) | int }}</text>
+    <text x="76" y="104"  text-anchor="end" font-size="11" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="700">€{{ (ns3.max_adr * 0.33) | round(0) | int }}</text>
+    <text x="76" y="149" text-anchor="end" font-size="11" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="700">€0</text>
     {% for p in data.pace %}
       {% set xi = (80 + (loop.index0 + 0.5) * step) | round(1) %}
       {% set bh_ty   = [((p.adr      / ns3.max_adr) * ch) | round(1), 1] | max %}
@@ -796,16 +812,16 @@
       <rect x="{{ xi - bw - 1 }}" y="{{ y_ty }}"   width="{{ bw }}" height="{{ bh_ty }}"   rx="1.5" fill="{{ '#1A7A50' if p.adr >= p.adr_final_ly else '#0F2860' }}"/>
       <rect x="{{ xi + 1 }}"      y="{{ y_stly }}" width="{{ bw }}" height="{{ bh_stly }}" rx="1.5" fill="#CDD4E0"/>
       <line x1="{{ xi - bw - 3 }}" y1="{{ ly_y }}" x2="{{ xi + bw + 3 }}" y2="{{ ly_y }}" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
-      <rect x="{{ xi - 18 }}" y="137" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
-      <text x="{{ xi }}" y="132" text-anchor="middle" font-size="11.5" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="800" letter-spacing="0.02em">{{ p.month }}</text>
-      <text x="{{ xi }}" y="146" text-anchor="middle" font-size="11" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="Manrope, sans-serif" font-weight="700">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
+      <rect x="{{ xi - 18 }}" y="167" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
+      <text x="{{ xi }}" y="162" text-anchor="middle" font-size="11.5" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="800" letter-spacing="0.02em">{{ p.month }}</text>
+      <text x="{{ xi }}" y="176" text-anchor="middle" font-size="11" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="Manrope, sans-serif" font-weight="700">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
     {% endfor %}
   </svg>
 </div>
 
 {% if charts.bridge %}
 <div class="fl-card">
-  <div class="fl-title">ADR bridge — why the rate moved</div>
+  <div class="fl-title" style="display:flex;align-items:center"><span style="flex:1">ADR bridge — why the rate moved</span><button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-f-bridge');n.style.display=n.style.display==='block'?'none':'block';">i</button></div><div class="info-panel" id="info-f-bridge">Splits the ADR change vs last year into two causes: MIX (selling a different blend of channels) and RATE (selling at different prices). They always add up exactly — so you know whether the conversation is pricing or strategy.</div>
   <div class="fl-how">{{ charts.bridge.period }}. <b style="color:#2E7CF7">Mix</b> = selling a different
   book of business · <b style="color:#B47D09">Rate</b> = selling at different prices. They sum exactly
   to the ADR change.</div>
@@ -825,7 +841,7 @@
 
 {% if charts.meter %}
 <div class="fl-card">
-  <div class="fl-title">Where each month stands</div>
+  <div class="fl-title" style="display:flex;align-items:center"><span style="flex:1">Where each month stands</span><button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-f-meter');n.style.display=n.style.display==='block'?'none':'block';">i</button></div><div class="info-panel" id="info-f-meter">Each month's progress towards last year's final total. The tick marks where last year stood on today's date — ahead of the tick means ahead of your own pace. Green spill = the month already beat last year.</div>
   <div class="fl-how">Track = last year's final month · bar = booked now · tick = LY same date.
   Green spill past the end = above LY final · red bar = behind LY pace. All numbers are room nights.</div>
   {% for r in charts.meter.rows %}
@@ -850,7 +866,7 @@
 
 {% if charts.heat %}
 <div class="fl-card">
-  <div class="fl-title">Demand heat — next 60 days</div>
+  <div class="fl-title" style="display:flex;align-items:center"><span style="flex:1">Demand heat — next 60 days</span><button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-f-heat');n.style.display=n.style.display==='block'?'none':'block';">i</button></div><div class="info-panel" id="info-f-heat">Occupancy on the books for every one of the next 60 nights — darker is fuller. A red outline flags a date far behind last year: expected demand that hasn't arrived.</div>
   <div class="fl-how">Occupancy on the books per stay date — darker = fuller. A red outline marks a date far behind last year.</div>
   <div class="fl-grid" style="margin-bottom:3px">{% for d in ['M','T','W','T','F','S','S'] %}<div class="fl-dow">{{ d }}</div>{% endfor %}</div>
   <div class="fl-grid">
@@ -994,7 +1010,7 @@
 
 <!-- TOP SOURCES OTB -->
 <div id="sec-sources" class="sec-anchor"></div>
-<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg>Top Sources &mdash; OTB Full Year</div>
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg>Top Sources &mdash; OTB Full Year<button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-sources');n.style.display=n.style.display==='block'?'none':'block';">i</button></div><div class="info-panel" id="info-sources">Where this year's revenue comes from, by booking source, compared with the same time last year. Watch for a cheap channel quietly growing its share.</div>
 <div class="card" style="margin-bottom:14px;">
   {% set total_rev_ty = (data.topChannels[0].rev / data.topChannels[0].pct) | round(0) if data.topChannels else 1 %}
   {% for ch in data.topChannels %}
@@ -1023,7 +1039,7 @@
 <!-- AI INSIGHTS -->
 {% if ai.insights %}
 <div id="sec-ai" class="sec-anchor"></div>
-<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>AI Insights</div>
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>AI Insights<button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-ai');n.style.display=n.style.display==='block'?'none':'block';">i</button></div><div class="info-panel" id="info-ai">The analyst's ranked findings for today: what happened, why it matters, a suggested action and what's at stake. Only changes that passed significance checks appear here.</div>
 {% for ins in ai.insights %}
   {% if ins.type == 'warning' %}
     {% set ic = 'warn' %}{% set il = 'Alert' %}

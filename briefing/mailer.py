@@ -35,6 +35,19 @@ def _highlight(text: str) -> str:
     )
     return text
 
+def _highlight_dark(text: str) -> str:
+    """Bold numbers for dark surfaces (the hero): € white, +% mint, -% coral."""
+    text = re.sub(r'\+(\d+\.?\d*%)',
+                  r'<strong style="color:#56FFC4">+\1</strong>', text)
+    text = re.sub(r'[-−](\d+\.?\d*%)',
+                  r'<strong style="color:#FF9B8A">-\1</strong>', text)
+    text = re.sub(r'€([\d,\.]+\s*[KkMm]?)',
+                  r'<strong style="color:#fff">€\1</strong>', text)
+    text = re.sub(r'(?<![\d,\.€%>])(\d[\d,\.]*%?)(?![\d,\.%<])',
+                  r'<strong style="color:#fff">\1</strong>', text)
+    return text
+
+
 _TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
 
 
@@ -50,6 +63,7 @@ def _render(data: dict[str, Any], ai: dict[str, Any],
     env.filters["kilo0"]     = lambda v: (f"€{round(v/1000)}k" if v >= 1000 else f"€{int(v)}")
     env.filters["euro_full"] = lambda v: f"€{int(round(v)):,}"
     env.filters["highlight"] = _highlight
+    env.filters["highlight_dark"] = _highlight_dark
 
     # Closed months (fully in the past) show STLY only in the occupancy chart —
     # their Final LY equals STLY, so drawing both duplicates one value.
