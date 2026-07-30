@@ -73,6 +73,9 @@ def _render(data: dict[str, Any], ai: dict[str, Any],
     # their Final LY equals STLY, so drawing both duplicates one value.
     from datetime import date as _d
     env.globals["current_month_num"] = _d.today().month
+    # Shown in the Smart Summary header as the LAST REFRESH date (renders
+    # happen at refresh time, so render date == refresh date).
+    env.globals["render_date"] = _d.today().strftime("%d %b").upper()
 
     return env.get_template("email.html").render(data=data, ai=ai,
                                                  charts=charts or {})

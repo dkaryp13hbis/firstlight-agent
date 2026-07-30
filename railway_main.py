@@ -194,6 +194,28 @@ def _get_existing_ai_insights(hotel_id: str) -> dict | None:
     return None
 
 
+def _get_hotel_lang(hotel: dict) -> str:
+    """Narration language: app-set preference (hotel_prefs) wins, then
+    pms_config.language, then English. Fail-open to 'en'."""
+    import requests as _req
+    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
+    try:
+        r = _req.get(
+            f"{supabase_url}/rest/v1/hotel_prefs",
+            params={"hotel_id": f"eq.{hotel['id']}", "select": "language"},
+            headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
+            timeout=10,
+        )
+        if r.ok and r.json():
+            lang = (r.json()[0].get("language") or "").strip()
+            if lang in ("en", "el"):
+                return lang
+    except Exception:
+        pass
+    return ((hotel.get("pms_config") or {}).get("language") or "en")
+
+
 def process_hotel(hotel: dict, force: bool = False, data_only: bool = False,
                   attempt: int = 1, manual: bool = False) -> str:
     """Process one hotel. Returns final status: success | degraded | failed | skipped.
@@ -295,7 +317,7 @@ def _process_hotel_locked(hotel: dict, run, force: bool, data_only: bool, result
         if ai is None:
             from briefing.analyst import generate_insights
             with run.stage("ai"):
-                _lang = ((hotel.get("pms_config") or {}).get("language") or "en")
+                _lang = _get_hotel_lang(hotel)
                 ai = generate_insights(data, hotel_id=hotel["id"], lang=_lang)
             meta = ai.pop("_meta", None)
             if meta:
