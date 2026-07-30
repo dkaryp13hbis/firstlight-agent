@@ -1585,13 +1585,19 @@ def _retry_feedback(card: dict, bad_nums: list[str], style: list[str],
             + "\n\n".join(f"- {f}" for f in fixes))
 
 
-def _narrate_card(wrapper: dict, fallback_card: dict, meta: dict | None = None) -> dict:
+def _narrate_card(wrapper: dict, fallback_card: dict, meta: dict | None = None,
+                  lang: str = "en") -> dict:
     """One Claude call per card; validated; max 2 retries; then fallback.
     When `meta` is given, appends a per-card audit entry (facts given, attempts,
     validation problems, tokens, latency, fallback flag)."""
     haystack = json.dumps(wrapper, ensure_ascii=False)
     facts    = wrapper["insight"]["facts"]
     base_prompt = json.dumps(wrapper, ensure_ascii=False, indent=2)
+    if lang == "el":
+        base_prompt += ("\n\nOUTPUT LANGUAGE: GREEK. Write every text field in natural, "
+                        "professional Greek for a hotel general manager. Copy every number, "
+                        "currency amount and percentage EXACTLY as given. Month names may "
+                        "stay as given (Aug 2026).")
     prompt = base_prompt
 
     t0 = _time.monotonic()
@@ -1631,6 +1637,8 @@ def _narrate_card(wrapper: dict, fallback_card: dict, meta: dict | None = None) 
 
         bad_nums = _bad_numbers(card, haystack)
         style    = _style_violations(card)
+        if lang != "en":  # imperative-opener list is English-only
+            style = [v for v in style if "imperative" not in v]
         period   = _period_violations(card, facts)
         problems = [f"invented number: {t}" for t in bad_nums] + style + period
         if not problems:
@@ -1728,13 +1736,13 @@ def _build_hero_slots(data: dict) -> dict:
     return slots
 
 
-def _hero_violations(text: str) -> list[str]:
+def _hero_violations(text: str, greeting: str = "Good morning") -> list[str]:
     v = []
     words = len(text.split())
     if words > _HERO_WORD_CAP:
         v.append(f"hero is {words} words (max {_HERO_WORD_CAP})")
-    if not text.strip().startswith("Good morning"):
-        v.append("hero must start with 'Good morning.'")
+    if not text.strip().startswith(greeting):
+        v.append(f"hero must start with '{greeting}.'")
     for sentence in re.split(r"(?<=[.!?])\s+", text):
         first = sentence.strip().split(" ")[0].lower().strip(",.:;")
         if first in _BANNED_IMPERATIVES:
@@ -1770,10 +1778,13 @@ def _hero_fallback(slots: dict, cards: list[dict]) -> str:
 
 
 def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
-                  meta: dict | None = None) -> str:
+                  meta: dict | None = None, lang: str = "en") -> str:
     """The hero paragraph at the top of the app: yesterday → MTD → top signals.
     One Claude call, numeric validator, deterministic fallback."""
+    greeting = "Καλημέρα" if lang == "el" else "Good morning"
     fallback = _hero_fallback(slots, cards)
+    if lang == "el":
+        fallback = greeting + "." + fallback[len("Good morning."):]
     digest = [{"tag": c["tag"], "headline": c["headline"],
                "at_stake": (c.get("at_stake") or {}).get("value")} for c in cards[:3]]
     haystack = (json.dumps(slots, ensure_ascii=False)
@@ -1786,7 +1797,7 @@ def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
         f"TOP INSIGHTS (shown as full cards below the hero — preview them, don't repeat them fully):\n"
         f"{json.dumps(digest, ensure_ascii=False, indent=2)}\n\n"
         f"Write ONE flowing paragraph of 4-6 short sentences, max {_HERO_WORD_CAP} words, starting "
-        "exactly with \"Good morning.\" Order: (1) yesterday's result and what drove it "
+        "exactly with \"" + greeting + ".\" Order: (1) yesterday's result and what drove it "
         "— occupancy vs rate, per the driver hints; (2) the month-to-date position; "
         "(3) then the most important forward-looking points from TOP INSIGHTS, each "
         "compressed to one clause or short sentence, mentioning the at-stake value only "
@@ -1795,6 +1806,9 @@ def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
         "weather) — only what the data shows. Every number must appear verbatim in the "
         "data above."
     )
+    if lang == "el":
+        prompt_base += ("\n\nOUTPUT LANGUAGE: GREEK — natural, professional hotel Greek. "
+                        "Copy every number, currency amount and percentage exactly as given.")
     t0 = _time.time()
     problems: list[str] = []
     attempts = 0
@@ -1816,7 +1830,7 @@ def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
             if meta is not None:
                 _usage_add(meta["usage"], response.usage)
             hero = next(b for b in response.content if b.type == "tool_use").input.get("hero", "")
-            problems = _hero_violations(hero)
+            problems = _hero_violations(hero, greeting)
             bad = _bad_numbers({"h": hero}, haystack)
             if bad:
                 problems.append(f"numbers not in input data: {', '.join(bad[:5])}")
@@ -1892,7 +1906,8 @@ _STUB = {"executive_summary": "", "insights": []}
 
 # ─── Layer B: entry point ────────────────────────────────────────────────────
 
-def generate_insights(data: dict[str, Any], hotel_id: str | None = None) -> dict[str, Any]:
+def generate_insights(data: dict[str, Any], hotel_id: str | None = None,
+                      lang: str = "en") -> dict[str, Any]:
     if not config.ANTHROPIC_API_KEY:
         print("[analyst] No ANTHROPIC_API_KEY — skipping AI insights.")
         return _STUB
@@ -1936,11 +1951,11 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None) -> dict
                 "capacity_rooms": config.TOTAL_ROOMS,
                 "insight":        cand["insight"],
             }
-            card = _narrate_card(wrapper, cand["fallback_card"], meta=meta)
+            card = _narrate_card(wrapper, cand["fallback_card"], meta=meta, lang=lang)
             cards.append(card)
             print(f"[analyst] Card {len(cards)}: [{card['tag']}] {card['headline'][:60]}")
 
-        summary = _narrate_hero(hotel_name, _build_hero_slots(data), cards, meta=meta)
+        summary = _narrate_hero(hotel_name, _build_hero_slots(data), cards, meta=meta, lang=lang)
         meta["fallback_cards"] = sum(1 for a in meta["cards_audit"] if a["fallback_used"])
         meta["estimated_cost_usd"] = _estimate_cost_usd(meta["usage"])
         from datetime import datetime as _dtnow

@@ -1051,7 +1051,7 @@
   {% else %}
     {% set ic = 'mon'  %}{% set il = 'Monitor' %}
   {% endif %}
-<div class="icard ic-{{ ic }}">
+<div class="icard ic-{{ ic }}"{% if ins.id %} data-card-id="{{ ins.id }}"{% endif %}>
   <div class="icard-head" onclick="toggleCard(this)">
     <h2 class="icard-title">{{ ins.title | highlight | safe }}</h2>
     <span class="icard-badge ic-{{ ic }}">{{ il }}</span>

@@ -295,7 +295,8 @@ def _process_hotel_locked(hotel: dict, run, force: bool, data_only: bool, result
         if ai is None:
             from briefing.analyst import generate_insights
             with run.stage("ai"):
-                ai = generate_insights(data, hotel_id=hotel["id"])
+                _lang = ((hotel.get("pms_config") or {}).get("language") or "en")
+                ai = generate_insights(data, hotel_id=hotel["id"], lang=_lang)
             meta = ai.pop("_meta", None)
             if meta:
                 usage = meta.get("usage", {})
