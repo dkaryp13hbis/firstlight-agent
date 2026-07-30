@@ -65,8 +65,12 @@ def _velocity(data: dict) -> dict | None:
     lt = data.get("lead_time") or []
     if not pd_rows:
         return None
-    dates = sorted({r["ref_date"] for r in pd_rows})
-    d7, d14 = set(dates[-7:]), set(dates[-14:])
+    # Calendar windows (same convention as the butterfly)
+    end = max(r["ref_date"] for r in pd_rows)
+    end_d = _dt.strptime(end[:10], "%Y-%m-%d").date()
+    lo7, lo14 = (end_d - _td(days=6)).isoformat(), (end_d - _td(days=13)).isoformat()
+    d7 = {r["ref_date"] for r in pd_rows if r["ref_date"] >= lo7}
+    d14 = {r["ref_date"] for r in pd_rows if r["ref_date"] >= lo14}
 
     def ly_rate(m):
         rn = sum(r.get("rn", 0) for r in lt if r.get("period") == "LY"
@@ -122,26 +126,29 @@ def _butterfly(data: dict) -> dict | None:
     cd_rows = data.get("cancel_daily") or []
     if not pd_rows:
         return None
-    dates = sorted({r["ref_date"] for r in pd_rows})
-    d7, d14 = set(dates[-7:]), set(dates[-14:])
-    cd_dates = sorted({r["ref_date"] for r in cd_rows})
-    cd7 = set(cd_dates[-7:]) if cd_dates else set()
+    # CALENDAR windows anchored on the newest booking ref_date — bookings and
+    # cancellations MUST share the same 7/14-day spans (distinct-date windows
+    # drifted: cancels once spanned 8 calendar days vs bookings' 7).
+    end = max(r["ref_date"] for r in pd_rows)
+    end_d = _dt.strptime(end[:10], "%Y-%m-%d").date()
+    lo7, lo14 = (end_d - _td(days=6)).isoformat(), (end_d - _td(days=13)).isoformat()
 
     agg: dict = {}
     for r in pd_rows:
         k = (r["stay_year"], r["stay_month"])
         a = agg.setdefault(k, {"n7": 0, "n14": 0})
-        if r["ref_date"] in d14:
+        if r["ref_date"] >= lo14:
             a["n14"] += r["net_rn"]
-            if r["ref_date"] in d7:
+            if r["ref_date"] >= lo7:
                 a["n7"] += r["net_rn"]
     raw = []
     for (y, m), a in sorted(agg.items()):
         c14 = sum(r["cancel_rn"] for r in cd_rows
-                  if r["stay_month"] == m and r["stay_year"] == y)
+                  if r["stay_month"] == m and r["stay_year"] == y
+                  and lo14 <= r["ref_date"] <= end)
         c7 = sum(r["cancel_rn"] for r in cd_rows
                  if r["stay_month"] == m and r["stay_year"] == y
-                 and r["ref_date"] in cd7)
+                 and lo7 <= r["ref_date"] <= end)
         raw.append({"m": calendar.month_abbr[m], "c7": c7, "c14": c14,
                     "b7": max(a["n7"] + c7, 0), "b14": max(a["n14"] + c14, 0),
                     "n7": a["n7"], "n14": a["n14"]})
