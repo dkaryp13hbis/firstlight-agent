@@ -301,31 +301,8 @@
 </style>
 </head>
 <body>
-<!-- APP HEADER (spec 12a) -->
-<div class="app-header">
-  <div class="ah-row">
-    <div class="ah-brand">
-      <svg viewBox="0 0 48 48" fill="none">
-        <g stroke="rgba(56,225,240,.22)" stroke-width="2.6" stroke-linecap="round">
-          <line x1="24" y1="3" x2="24" y2="8"/><line x1="24" y1="40" x2="24" y2="45"/>
-          <line x1="3" y1="24" x2="8" y2="24"/><line x1="40" y1="24" x2="45" y2="24"/>
-          <line x1="9" y1="9" x2="12.5" y2="12.5"/><line x1="35.5" y1="35.5" x2="39" y2="39"/>
-          <line x1="9" y1="39" x2="12.5" y2="35.5"/><line x1="35.5" y1="12.5" x2="39" y2="9"/>
-        </g>
-        <polyline points="13,22 20,17 26,20 33,13" stroke="url(#flg)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-        <circle cx="33" cy="13" r="3.2" fill="#38E1F0"/>
-        <text x="13" y="38" font-family="Manrope, sans-serif" font-size="15" font-weight="800" fill="#fff">FL</text>
-        <defs><linearGradient id="flg" x1="13" y1="22" x2="33" y2="13" gradientUnits="userSpaceOnUse">
-          <stop stop-color="#2E7CF7"/><stop offset="1" stop-color="#38E1F0"/>
-        </linearGradient></defs>
-      </svg>
-      <span class="ah-word">First<b>Light</b></span>
-    </div>
-    <span class="ah-hotel">{{ data.hotel_name.split(' ')[0] }}</span>
-  </div>
-  <div class="ah-sync">Last sync {{ data.report_date.split(', ')[1] if ', ' in data.report_date else data.report_date }} · {{ data.generated_at }}</div>
-</div>
-
+{# The PWA provides the app header (brand, share, refresh, hotel switcher) —
+   the briefing HTML must NOT render a second one. Page starts at the tabs. #}
 <nav class="tab-nav" id="tab-nav">
   <button class="tab-btn active" onclick="navTo('sec-overview')">Overview</button>
   <button class="tab-btn" onclick="navTo('sec-pickup')">Pickup</button>

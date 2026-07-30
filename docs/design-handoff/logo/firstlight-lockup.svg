@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 160" fill="none">
+  <!-- FirstLight horizontal lockup — for the PWA header ("lockup only · 24px mark").
+       Mark on the left (no border ring in the lockup), wordmark right. -->
+  <g>
+    <!-- corona rays -->
+    <g stroke="#DFF7F9" stroke-width="6" stroke-linecap="round">
+      <line x1="80" y1="22" x2="80" y2="34"/>
+      <line x1="80" y1="126" x2="80" y2="138"/>
+      <line x1="22" y1="80" x2="34" y2="80"/>
+      <line x1="126" y1="80" x2="138" y2="80"/>
+      <line x1="39" y1="39" x2="48" y2="48"/>
+      <line x1="112" y1="112" x2="121" y2="121"/>
+      <line x1="39" y1="121" x2="48" y2="112"/>
+      <line x1="112" y1="48" x2="121" y2="39"/>
+    </g>
+    <!-- chart line + first-light dot -->
+    <polyline points="47,72 66,60 82,68 102,52" stroke="#2E7CF7"
+              stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="103" cy="51" r="6.5" fill="#38E1F0"/>
+    <!-- FL letterforms, centred under the line -->
+    <text x="80" y="118" text-anchor="middle" font-family="Manrope, 'Segoe UI', sans-serif"
+          font-size="52" font-weight="800" letter-spacing="6" fill="#16213B">FL</text>
+  </g>
+  <!-- wordmark -->
+  <text x="168" y="102" font-family="Manrope, 'Segoe UI', sans-serif" font-size="64"
+        font-weight="800" letter-spacing="-1.5" fill="#16213B">First<tspan fill="#2E7CF7">Light</tspan></text>
+</svg>
