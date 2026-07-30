@@ -6,7 +6,7 @@
 <title>Morning Briefing · {{ data.hotel_name }}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
     --n950: #061535; --n900: #0A1F4D; --n800: #0F2860; --n700: #15296B;
@@ -18,94 +18,106 @@
     --grad-cyan: linear-gradient(135deg, #2E7CF7 0%, #38E1F0 100%);
     --green: #1A7A50; --green-bg: rgba(26,122,80,0.05);
     --red: #B83A1B;  --red-bg: rgba(184,58,27,0.05);
-    --grey-50: #F7F8FB; --grey-100: #F0F2F7; --grey-200: #E2E7F0;
-    --grey-300: #CDD4E0; --grey-400: #A0AAC0; --grey-500: #6E7A96;
+    --grey-50: #F7F8FB; --grey-100: #F1F3F8; --grey-200: #E2E7F0;
+    --grey-300: #CDD4E0; --grey-400: #79747E; --grey-500: #6E7A96;
     --grey-600: #4D5A74; --text: #1A2540;
-    --card-bg: #FFFFFF; --card-border: #E2E7F0;
-    --font: 'Outfit', sans-serif; --mono: 'IBM Plex Mono', monospace;
+    --card-bg: #FFFFFF; --card-border: transparent;
+    --card-shadow: 0 1px 2px rgba(15,40,96,.06), 0 8px 24px -12px rgba(15,40,96,.16);
+    --font: 'Manrope', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --mono: 'Manrope', system-ui, sans-serif;
     --r: 10px; --r-lg: 12px;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--grey-100); font-family: var(--font); color: var(--text); -webkit-font-smoothing: antialiased; }
+  body { background: #F1F3F8; font-family: var(--font); color: var(--text); -webkit-font-smoothing: antialiased; font-variant-numeric: tabular-nums; }
   .wrap { max-width: 640px; margin: 0 auto; padding: 20px 16px 48px; }
 
   /* Header */
-  .hdr { background: var(--grad-hero); border-radius: var(--r-lg); padding: 26px 28px 22px; margin-bottom: 14px; position: relative; overflow: hidden; }
-  .hdr::before { content:""; position:absolute; right:-60px; top:-50px; width:220px; height:220px; border-radius:50%; background:radial-gradient(circle,rgba(56,225,240,.14),transparent 70%); pointer-events:none; }
-  .hdr::after  { content:""; position:absolute; left:30%; bottom:-60px; width:180px; height:180px; border-radius:50%; background:radial-gradient(circle,rgba(46,124,247,.12),transparent 70%); pointer-events:none; }
-  .hdr-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; position:relative; z-index:1; }
-  .hdr-logo { display:flex; align-items:center; gap:8px; }
-  .hdr-logo svg { width:20px; height:20px; }
-  .hdr-logo-t { font-weight:700; font-size:15px; color:#fff; letter-spacing:-0.02em; }
-  .hdr-badge { font-family:var(--mono); font-size:9px; letter-spacing:0.12em; text-transform:uppercase; color:var(--teal); border:1px solid rgba(56,225,240,.25); padding:4px 10px; border-radius:999px; }
-  .hdr-hotel { font-weight:700; font-size:20px; color:#fff; letter-spacing:-0.01em; line-height:1.3; position:relative; z-index:1; }
-  .hdr-meta { font-family:var(--mono); font-size:10px; color:rgba(255,255,255,.45); margin-top:4px; position:relative; z-index:1; }
-  .hdr-meta em { color:var(--teal); font-style:normal; }
+  /* ── App top (spec 12a) ── */
+  .app-header { background:#0F2860; padding:16px 16px 14px; display:flex; flex-direction:column; gap:10px; }
+  .ah-row { display:flex; justify-content:space-between; align-items:center; }
+  .ah-brand { display:flex; align-items:center; gap:9px; }
+  .ah-brand svg { width:26px; height:26px; }
+  .ah-word { font-weight:700; font-size:17px; letter-spacing:-0.02em; color:#fff; padding-top:2px; }
+  .ah-word b { color:#38E1F0; font-weight:700; }
+  .ah-hotel { background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.14); border-radius:11px; padding:9px 13px; color:#fff; font-size:12.5px; font-weight:600; }
+  .ah-sync { text-align:right; font-family:var(--mono); font-size:10px; letter-spacing:.08em; color:rgba(255,255,255,.45); text-transform:uppercase; }
+  .smart-summary { border-radius:18px; padding:20px; margin-bottom:14px;
+    background: radial-gradient(90% 100% at 92% 0%, rgba(56,225,240,.4) 0%, rgba(46,124,247,.16) 40%, rgba(10,31,77,0) 70%), linear-gradient(160deg, #0F2860, #0A1F4D); }
+  .ss-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+  .ss-tag { display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:#38E1F0; font-weight:600; }
+  .ss-tag::before { content:""; width:5px; height:5px; background:#38E1F0; border-radius:50%; }
+  .ss-date { font-family:var(--mono); font-size:10px; color:rgba(255,255,255,.55); }
+  .ss-body { font-size:14.5px; line-height:1.65; color:rgba(255,255,255,.85); }
 
   /* Section label */
   .sl { display:flex; align-items:center; gap:7px; font-size:13px; font-weight:700; color:var(--n800); margin:18px 0 8px; letter-spacing:-0.01em; }
   .sl svg { flex-shrink:0; color:var(--blue); opacity:.75; }
 
   /* AI Summary */
-  .ai-sum { background:var(--grad-deep); border-radius:var(--r-lg); padding:18px 22px; margin-bottom:14px; position:relative; overflow:hidden; }
+  .ai-sum { background:#0F2860; border-radius:18px; padding:20px 22px; margin-bottom:14px; position:relative; overflow:hidden; }
+  .hero-chips { display:flex; gap:8px; flex-wrap:wrap; margin:14px 0 0; }
+  .hchip { font-size:11.5px; font-weight:700; padding:5px 9px; border-radius:7px; }
+  .hchip.up   { color:#146B46; background:#E4F4EC; }
+  .hchip.down { color:#A33418; background:#FBE9E4; }
+  .hchip.net  { color:#4B34A8; background:#E9E4F8; }
   .ai-sum::before { content:""; position:absolute; right:-30px; top:-30px; width:140px; height:140px; border-radius:50%; background:radial-gradient(circle,rgba(46,124,247,.10),transparent 70%); pointer-events:none; }
-  .ai-sum-tag { display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:9px; letter-spacing:0.1em; text-transform:uppercase; color:var(--teal); font-weight:500; margin-bottom:10px; position:relative; z-index:1; }
+  .ai-sum-tag { display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:var(--teal); font-weight:500; margin-bottom:10px; position:relative; z-index:1; }
   .ai-sum-tag::before { content:""; width:5px; height:5px; background:var(--teal); border-radius:50%; }
   .ai-sum p { font-size:13.5px; line-height:1.75; color:rgba(255,255,255,.72); position:relative; z-index:1; }
 
   /* KPI cards */
   .kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:6px; }
-  .kpi-card { background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--r); padding:14px 12px 12px; text-align:center; position:relative; }
+  .kpi-card { background:var(--card-bg); border:none; border-radius:var(--r-lg); padding:14px 12px 12px; text-align:center; position:relative; box-shadow:var(--card-shadow); }
   .kpi-card::before { content:""; position:absolute; top:0; left:0; right:0; height:3px; background:var(--grad-cyan); border-radius:var(--r) var(--r) 0 0; }
   .kpi-label { font-size:11px; font-weight:600; color:var(--n700); margin-bottom:6px; }
   .kpi-value { font-weight:800; font-size:22px; color:var(--text); letter-spacing:-0.03em; line-height:1; margin-bottom:8px; }
   .kpi-var { font-size:11px; font-weight:600; }
   .kpi-var.up { color:var(--green); }
   .kpi-var.dn { color:var(--red); }
-  .kpi-ly { display:block; font-family:var(--mono); font-size:9px; color:var(--grey-400); margin-top:2px; }
+  .kpi-ly { display:block; font-family:var(--mono); font-size:10px; color:var(--grey-400); margin-top:2px; }
 
   /* MTD strip */
-  .mtd-strip { display:grid; grid-template-columns:repeat(4,1fr); background:var(--grey-50); border:1px solid var(--card-border); border-radius:var(--r); margin-bottom:14px; overflow:hidden; }
+  .mtd-strip { display:grid; grid-template-columns:repeat(4,1fr); background:var(--grey-50); border:none; border-radius:var(--r-lg); margin-bottom:14px; overflow:hidden; box-shadow:var(--card-shadow); }
   .mtd-cell { padding:8px 6px; text-align:center; border-right:1px solid var(--grey-200); }
   .mtd-cell:last-child { border-right:none; }
-  .mtd-lbl { font-size:9px; font-weight:600; color:var(--grey-500); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:2px; }
+  .mtd-lbl { font-size:10px; font-weight:600; color:var(--grey-500); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:2px; }
   .mtd-val { font-weight:700; font-size:14px; color:var(--text); letter-spacing:-0.02em; }
-  .mtd-chg { font-size:9px; font-weight:600; }
+  .mtd-chg { font-size:10px; font-weight:600; }
 
   /* OTB by month */
   .otb-row { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-bottom:14px; }
-  .otb-card { background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--r); padding:14px 14px 12px; text-align:center; }
+  .otb-card { background:var(--card-bg); border:none; border-radius:var(--r-lg); padding:14px 14px 12px; text-align:center; box-shadow:var(--card-shadow); }
   .otb-card .top-bar { height:3px; border-radius:var(--r) var(--r) 0 0; margin:-14px -14px 12px -14px; }
   .otb-mo { font-size:10px; font-weight:600; color:var(--grey-500); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px; }
   .otb-rev { font-weight:800; font-size:20px; color:var(--text); letter-spacing:-0.03em; line-height:1; }
   .otb-detail { font-size:11px; color:var(--grey-500); margin-top:6px; line-height:1.4; }
-  .otb-detail b { color:var(--text); font-weight:600; }
-  .otb-occ { font-size:13px; font-weight:700; }
-  .otb-vs { font-size:10px; font-weight:600; margin-top:4px; }
+  .otb-detail b { color:var(--text); font-weight:800; }
+  .otb-occ { font-size:13px; font-weight:800; }
+  .otb-vs { font-size:11px; font-weight:700; margin-top:4px; }
 
   /* Card */
-  .card { background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--r-lg); padding:16px 18px; margin-bottom:6px; }
+  .card { background:var(--card-bg); border:none; border-radius:18px; padding:16px 18px; margin-bottom:6px; box-shadow:var(--card-shadow); }
 
   /* Pickup table */
   .pu { width:100%; border-collapse:collapse; }
-  .pu th { font-family:var(--mono); font-size:9px; text-transform:uppercase; letter-spacing:0.08em; color:var(--grey-400); padding:0 3px 10px; text-align:center; font-weight:500; }
+  .pu th { font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:var(--grey-400); padding:0 3px 10px; text-align:center; font-weight:500; }
   .pu th:first-child { text-align:left; padding-left:0; }
   .pu td { padding:6px 3px; text-align:center; border-top:1px solid var(--grey-100); }
-  .pu td:first-child { text-align:left; padding-left:0; font-family:var(--mono); font-size:9px; letter-spacing:0.06em; color:var(--grey-500); text-transform:uppercase; font-weight:500; }
+  .pu td:first-child { text-align:left; padding-left:0; font-family:var(--mono); font-size:10px; letter-spacing:0.06em; color:var(--grey-500); text-transform:uppercase; font-weight:500; }
   .pu td:nth-child(4), .pu td:nth-child(6), .pu td:nth-child(8) { border-left:1px solid var(--grey-200); }
   .pu th:nth-child(4), .pu th:nth-child(6), .pu th:nth-child(8) { border-left:1px solid var(--grey-200); }
   .pu-v { font-weight:700; font-size:12px; color:var(--text); display:block; letter-spacing:-0.01em; }
   .pu-v.blue { color:var(--blue); }
   .pu-v.red  { color:var(--red); font-size:10px; font-weight:600; }
   .pu-sub { display:flex; gap:6px; margin-bottom:14px; }
-  .pu-sub-card { flex:1; background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--r); padding:10px 12px; }
+  .pu-sub-card { flex:1; background:var(--card-bg); border:none; border-radius:var(--r-lg); padding:10px 12px; box-shadow:var(--card-shadow); }
 
   /* Chart cards */
-  .chart-card { background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--r-lg); padding:16px 16px 12px; margin-bottom:8px; }
+  .chart-card { background:var(--card-bg); border:none; border-radius:18px; padding:16px 16px 12px; margin-bottom:8px; box-shadow:var(--card-shadow); }
   .chart-h { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px; }
   .chart-title { font-weight:700; font-size:13px; color:var(--text); }
   .chart-subtitle { font-family:var(--mono); font-size:10px; color:var(--grey-500); margin-top:2px; }
-  .chart-legend { display:flex; gap:12px; font-family:var(--mono); font-size:8px; color:var(--grey-500); letter-spacing:0.04em; }
+  .chart-legend { display:flex; gap:12px; font-family:var(--mono); font-size:9.5px; color:var(--grey-500); letter-spacing:0.04em; }
   .chart-legend span { display:flex; align-items:center; gap:4px; }
   .lg-box { width:8px; height:8px; border-radius:2px; }
   .lg-line { width:12px; height:0; border-top:2px dashed; }
@@ -114,12 +126,12 @@
   /* Channels */
   .ch-row { display:flex; align-items:center; padding:7px 0; border-top:1px solid var(--grey-100); gap:10px; }
   .ch-row:first-child { border-top:none; }
-  .ch-name { font-weight:600; font-size:12px; flex:0 0 90px; min-width:0; }
+  .ch-name { font-weight:700; font-size:13px; flex:0 0 90px; min-width:0; }
   .ch-bar-wrap { flex:1; background:var(--grey-100); border-radius:4px; height:6px; overflow:visible; position:relative; }
   .ch-bar { height:100%; background:var(--grad-cyan); border-radius:4px; }
-  .ch-nights { font-family:var(--mono); font-size:10px; color:var(--grey-600); min-width:36px; text-align:right; }
-  .badge-pos { background:var(--green-bg); color:var(--green); font-family:var(--mono); font-size:9px; font-weight:600; padding:2px 6px; border-radius:4px; }
-  .badge-neg { background:var(--red-bg);   color:var(--red);   font-family:var(--mono); font-size:9px; font-weight:600; padding:2px 6px; border-radius:4px; }
+  .ch-nights { font-family:var(--mono); font-size:11px; font-weight:700; color:var(--text); min-width:40px; text-align:right; }
+  .badge-pos { background:var(--green-bg); color:var(--green); font-family:var(--mono); font-size:10.5px; font-weight:700; padding:2px 6px; border-radius:7px; }
+  .badge-neg { background:var(--red-bg);   color:var(--red);   font-family:var(--mono); font-size:10.5px; font-weight:700; padding:2px 6px; border-radius:7px; }
 
   /* AI Insight Cards */
   .icard {
@@ -137,7 +149,7 @@
   .icard-head { display:flex; align-items:flex-start; gap:12px; margin-bottom:14px; }
   .icard-title { font-weight:700; font-size:14px; color:#0A1F4D; line-height:1.38; flex:1; }
   .icard-badge {
-    font-family:var(--mono); font-size:9px; font-weight:500; letter-spacing:.14em;
+    font-family:var(--mono); font-size:10px; font-weight:500; letter-spacing:.14em;
     text-transform:uppercase; padding:5px 10px; border-radius:999px; flex-shrink:0; white-space:nowrap; margin-top:2px;
   }
   .icard-badge.ic-warn { background:rgba(199,65,27,.10); color:#C7411B; border:1px solid rgba(199,65,27,.22); }
@@ -150,7 +162,7 @@
     background:#F4F7FC; border:1px solid rgba(10,31,77,.07); border-radius:12px;
     padding:13px 15px;
   }
-  .kpi-label { font-family:var(--mono); font-size:9px; color:#8A93AE; text-transform:uppercase; letter-spacing:.10em; margin-bottom:8px; }
+  .kpi-label { font-family:var(--mono); font-size:10px; color:#8A93AE; text-transform:uppercase; letter-spacing:.10em; margin-bottom:8px; }
   .kpi-val {
     font-family:var(--font-display,var(--mono)); font-weight:700; font-size:18px;
     color:#0A1F4D; line-height:1.1; letter-spacing:-.015em;
@@ -159,7 +171,7 @@
   .kpi-ty   { font-weight:700; }
   .kpi-ty.kup   { color:#1A7A50; }
   .kpi-ty.kdown { color:#B83A1B; }
-  .kpi-sep  { font-weight:400; color:#A0AAC0; font-size:11px; }
+  .kpi-sep  { font-weight:400; color:#79747E; font-size:11px; }
   .kpi-ly   { color:#5A6486; font-weight:500; font-size:14px; }
   .kpi-sub  { font-family:var(--mono); font-size:11px; color:#5A6486; }
   .kpi-sub .kup   { color:#1A7A50; font-weight:600; }
@@ -195,7 +207,7 @@
   .iaction-icon.ic-mon  { background:linear-gradient(135deg,#7C5BFF,#38E1F0); }
   .iaction-body { flex:1; }
   .iaction-lead {
-    font-family:var(--mono); font-size:9px; text-transform:uppercase;
+    font-family:var(--mono); font-size:10px; text-transform:uppercase;
     letter-spacing:.16em; color:#8A93AE; display:block; margin-bottom:3px;
   }
   .iaction-text { font-size:13px; color:#2A3354; line-height:1.5; margin:0; }
@@ -218,7 +230,7 @@
   .icard.ic-mon  .icard-btn { background:linear-gradient(135deg,#7C5BFF,#38E1F0); }
   .icard-pri {
     margin-left:auto; font-family:var(--mono); font-size:10px;
-    text-transform:uppercase; letter-spacing:.14em; color:#A0AAC0;
+    text-transform:uppercase; letter-spacing:.14em; color:#79747E;
     display:flex; align-items:center; gap:6px;
   }
   .icard-pri::before { content:""; width:6px; height:6px; border-radius:50%; background:#56FFC4; box-shadow:0 0 0 3px rgba(86,255,196,.22); }
@@ -231,8 +243,8 @@
 
   /* Footer */
   .ftr { text-align:center; padding:8px 0; }
-  .ftr-b { font-family:var(--mono); font-size:9px; text-transform:uppercase; letter-spacing:0.12em; color:var(--grey-400); }
-  .ftr-s { font-size:9px; color:var(--grey-300); margin-top:2px; }
+  .ftr-b { font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:0.12em; color:var(--grey-400); }
+  .ftr-s { font-size:10px; color:var(--grey-300); margin-top:2px; }
   .ftr-s a { color:var(--grey-500); }
 
   @media (max-width:480px) {
@@ -240,26 +252,26 @@
     .otb-row { grid-template-columns:1fr; }
   }
 
-  /* ── Tab nav ── */
+  /* ── Tab nav (spec 12a: white bar) ── */
   .tab-nav {
     position:sticky; top:0; z-index:99;
-    background:var(--grey-50);
-    border-bottom:1px solid var(--grey-200);
-    display:flex; justify-content:center; gap:0; overflow-x:auto;
+    background:#fff; padding:0 16px;
+    border-bottom:1px solid #E2E7F0;
+    display:flex; gap:0; justify-content:center; overflow-x:auto;
     scrollbar-width:none; margin-bottom:4px;
   }
   .tab-nav::-webkit-scrollbar { display:none; }
   .tab-btn {
-    flex-shrink:0; padding:11px 16px;
-    background:none; border:none; border-bottom:2px solid transparent;
-    font-family:var(--font); font-size:12px; font-weight:600;
-    color:var(--grey-500); cursor:pointer; white-space:nowrap;
+    flex-shrink:0; padding:13px 14px 11px;
+    background:none; border:none; border-bottom:2.5px solid transparent;
+    font-family:var(--font); font-size:13.5px; font-weight:500;
+    color:#6E7A96; cursor:pointer; white-space:nowrap;
     transition:color .15s, border-color .15s;
   }
-  .tab-btn.active { color:var(--blue); border-bottom-color:var(--blue); }
+  .tab-btn.active { font-weight:700; color:#1E5FD0; border-bottom-color:#2E7CF7; }
   .tab-badge {
     display:inline-flex; align-items:center; justify-content:center;
-    background:var(--blue); color:#fff; font-size:9px; font-weight:700;
+    background:var(--blue); color:#fff; font-size:10px; font-weight:700;
     border-radius:999px; min-width:16px; height:16px;
     padding:0 4px; margin-left:5px; vertical-align:middle;
   }
@@ -276,9 +288,44 @@
   .icard-toggle.open { transform:rotate(180deg); }
   .icard-head { cursor:pointer; user-select:none; margin-bottom:0 !important; }
   .icard-body { padding-top:14px; }
+
+  /* ══ GLOBAL TYPE RULES — LAST so they win the cascade. The weight system:
+     800 = data values · 700 = deltas, chips, badges, emphasised rows ·
+     600 = captions & labels · 400-500 = body. Add new elements to these
+     groups instead of inventing one-off weights. ══ */
+  .kpi-value, .otb-rev, .mtd-val, .fl-big, .fl-occ, .otb-occ, .otb-detail b,
+  .kpi-val, .hero-greet { font-weight:800 !important; }
+  .kpi-var, .mtd-chg, .otb-vs, .badge-pos, .badge-neg, .hchip, .fl-v,
+  .pu-v, .ch-nights, .ch-name, .tab-badge { font-weight:700 !important; }
+  .kpi-label, .mtd-lbl, .otb-mo, .fl-under b, .ss-tag { font-weight:600 !important; }
 </style>
 </head>
 <body>
+<!-- APP HEADER (spec 12a) -->
+<div class="app-header">
+  <div class="ah-row">
+    <div class="ah-brand">
+      <svg viewBox="0 0 48 48" fill="none">
+        <g stroke="rgba(56,225,240,.22)" stroke-width="2.6" stroke-linecap="round">
+          <line x1="24" y1="3" x2="24" y2="8"/><line x1="24" y1="40" x2="24" y2="45"/>
+          <line x1="3" y1="24" x2="8" y2="24"/><line x1="40" y1="24" x2="45" y2="24"/>
+          <line x1="9" y1="9" x2="12.5" y2="12.5"/><line x1="35.5" y1="35.5" x2="39" y2="39"/>
+          <line x1="9" y1="39" x2="12.5" y2="35.5"/><line x1="35.5" y1="12.5" x2="39" y2="9"/>
+        </g>
+        <polyline points="13,22 20,17 26,20 33,13" stroke="url(#flg)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <circle cx="33" cy="13" r="3.2" fill="#38E1F0"/>
+        <text x="13" y="38" font-family="Manrope, sans-serif" font-size="15" font-weight="800" fill="#fff">FL</text>
+        <defs><linearGradient id="flg" x1="13" y1="22" x2="33" y2="13" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#2E7CF7"/><stop offset="1" stop-color="#38E1F0"/>
+        </linearGradient></defs>
+      </svg>
+      <span class="ah-word">First<b>Light</b></span>
+    </div>
+    <span class="ah-hotel">{{ data.hotel_name.split(' ')[0] }}</span>
+  </div>
+  <div class="ah-sync">Last sync {{ data.report_date.split(', ')[1] if ', ' in data.report_date else data.report_date }} · {{ data.generated_at }}</div>
+</div>
+
 <nav class="tab-nav" id="tab-nav">
   <button class="tab-btn active" onclick="navTo('sec-overview')">Overview</button>
   <button class="tab-btn" onclick="navTo('sec-pickup')">Pickup</button>
@@ -305,24 +352,22 @@
 {% set mtd_adr_var = ((mtd.adr - mtd.adrLY) / mtd.adrLY * 100)             if mtd.adrLY     else 0 %}
 {% set mtd_rn_var  = ((mtd.roomNights - mtd.roomNightsLY) / mtd.roomNightsLY * 100) if mtd.roomNightsLY else 0 %}
 
-<!-- HEADER -->
-<div class="hdr">
-  <div class="hdr-row">
-    <div class="hdr-logo">
-      <svg viewBox="0 0 24 24" fill="none"><rect x="2" y="14" width="4" height="8" rx="1" fill="#fff"/><rect x="10" y="8" width="4" height="14" rx="1" fill="var(--teal)"/><rect x="18" y="2" width="4" height="20" rx="1" fill="#fff"/></svg>
-      <span class="hdr-logo-t">FirstLight</span>
-    </div>
-    <span class="hdr-badge">Morning Briefing</span>
-  </div>
-  <div class="hdr-hotel">{{ data.hotel_name }}</div>
-  <div class="hdr-meta">{{ data.report_date }} &middot; Generated at <em>{{ data.generated_at }}</em> &middot; Protel PMS</div>
-</div>
-
-<!-- AI EXECUTIVE SUMMARY -->
+<!-- SMART SUMMARY — the hero card (spec 12a: navy gradient + cyan first-light glow) -->
 {% if ai.executive_summary %}
-<div class="ai-sum">
-  <div class="ai-sum-tag">Smart Summary</div>
-  <p>{{ ai.executive_summary }}</p>
+<div class="smart-summary">
+  <div class="ss-head">
+    <span class="ss-tag">Smart Summary</span>
+    <span class="ss-date">{{ (data.report_date.split(', ')[1] if ', ' in data.report_date else data.report_date) | upper }} · {{ data.generated_at }}</span>
+  </div>
+  <div class="ss-body">{{ ai.executive_summary }}</div>
+  {% set h_rn_var  = ((yd.roomNights - yd.roomNightsLY) / yd.roomNightsLY * 100) if yd.roomNightsLY else 0 %}
+  {% set h_adr_var = ((yd.adr - yd.adrLY) / yd.adrLY * 100) if yd.adrLY else 0 %}
+  {% set h_net     = yd.revenue - yd.revenueLY %}
+  <div class="hero-chips">
+    <span class="hchip {{ 'up' if h_rn_var >= 0 else 'down' }}">Room nights {{ '▲' if h_rn_var >= 0 else '▼' }}{{ h_rn_var | abs | round(0) | int }}%</span>
+    <span class="hchip {{ 'up' if h_adr_var >= 0 else 'down' }}">ADR {{ '▲' if h_adr_var >= 0 else '▼' }}{{ h_adr_var | abs | round(1) }}%</span>
+    <span class="hchip net">Revenue {{ '▲' if h_net >= 0 else '▼' }}{{ h_net | abs | kilo }}</span>
+  </div>
 </div>
 {% endif %}
 
@@ -424,66 +469,66 @@
   <div class="card" style="padding:12px">
     <div style="font-size:10px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Today</div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
-      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
+      <span style="font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
       <span style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--green)">+{{ pu.today.roomNights }} rn &middot; {{ pu.today.revenue | kilo }}</span>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
-      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Cancel</span>
+      <span style="font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Cancel</span>
       <span style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--red)">-{{ pu.cancellationsToday }} rn &middot; -{{ pu.cancellationRevenueToday | kilo }}</span>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:6px;border-top:1px solid var(--grey-100)">
-      <span style="font-size:9px;font-weight:700;color:var(--grey-600);text-transform:uppercase;letter-spacing:.05em">Net</span>
+      <span style="font-size:10px;font-weight:700;color:var(--grey-600);text-transform:uppercase;letter-spacing:.05em">Net</span>
       <span style="font-family:var(--mono);font-size:12px;font-weight:700">{{ pu.today.roomNights - pu.cancellationsToday }} rn &middot; {{ (pu.today.revenue - pu.cancellationRevenueToday) | kilo }}</span>
     </div>
   </div>
 
   {# YESTERDAY #}
   <div class="card" style="padding:12px">
-    <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Yesterday <span style="font-weight:400;font-size:9px;color:var(--grey-400)">{{ pu.date1d }}</span></div>
+    <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Yesterday <span style="font-weight:400;font-size:10px;color:var(--grey-400)">{{ pu.date1d }}</span></div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
-      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
+      <span style="font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
       <span style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--blue)">+{{ pu.last1d.roomNights }} rn &middot; {{ pu.last1d.revenue | kilo }}</span>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
-      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Cancel</span>
+      <span style="font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Cancel</span>
       <span style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--red)">-{{ pu.cancellations1d }} rn &middot; -{{ pu.cancellationRevenue | kilo }}</span>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:6px;border-top:1px solid var(--grey-100)">
-      <span style="font-size:9px;font-weight:700;color:var(--grey-600);text-transform:uppercase;letter-spacing:.05em">Net</span>
+      <span style="font-size:10px;font-weight:700;color:var(--grey-600);text-transform:uppercase;letter-spacing:.05em">Net</span>
       <span style="font-family:var(--mono);font-size:12px;font-weight:700">{{ pu.last1d.roomNights - pu.cancellations1d }} rn &middot; {{ (pu.last1d.revenue - pu.cancellationRevenue) | kilo }}</span>
     </div>
   </div>
 
   {# 3-DAY #}
   <div class="card" style="padding:12px">
-    <div style="font-size:10px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">3-Day <span style="font-weight:400;font-size:9px;color:var(--grey-400)">{{ pu.date3d }}</span></div>
+    <div style="font-size:10px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">3-Day <span style="font-weight:400;font-size:10px;color:var(--grey-400)">{{ pu.date3d }}</span></div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
-      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
+      <span style="font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
       <span style="font-family:var(--mono);font-size:11px;font-weight:700">+{{ pu.last3d.roomNights }} rn &middot; {{ pu.last3d.revenue | kilo }}</span>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
-      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Cancel</span>
+      <span style="font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Cancel</span>
       <span style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--red)">-{{ pu.cancellations3d }} rn &middot; -{{ pu.cancellationRevenue3d | kilo }}</span>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:6px;border-top:1px solid var(--grey-100)">
-      <span style="font-size:9px;font-weight:700;color:var(--grey-600);text-transform:uppercase;letter-spacing:.05em">Net</span>
+      <span style="font-size:10px;font-weight:700;color:var(--grey-600);text-transform:uppercase;letter-spacing:.05em">Net</span>
       <span style="font-family:var(--mono);font-size:12px;font-weight:700">{{ pu.last3d.roomNights - pu.cancellations3d }} rn &middot; {{ (pu.last3d.revenue - pu.cancellationRevenue3d) | kilo }}</span>
     </div>
   </div>
 
   {# 7-DAY #}
   <div class="card" style="padding:12px">
-    <div style="font-size:10px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">7-Day <span style="font-weight:400;font-size:9px;color:var(--grey-400)">{{ pu.date7d }}</span></div>
+    <div style="font-size:10px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">7-Day <span style="font-weight:400;font-size:10px;color:var(--grey-400)">{{ pu.date7d }}</span></div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
-      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
+      <span style="font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
       <span style="font-family:var(--mono);font-size:11px;font-weight:700">+{{ pu.last7d.roomNights }} rn &middot; {{ pu.last7d.revenue | kilo }}</span>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
-      <span style="font-size:9px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Cancel</span>
+      <span style="font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Cancel</span>
       <span style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--red)">-{{ pu.cancellations7d }} rn &middot; -{{ pu.cancellationRevenue7d | kilo }}</span>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:6px;border-top:1px solid var(--grey-100)">
-      <span style="font-size:9px;font-weight:700;color:var(--grey-600);text-transform:uppercase;letter-spacing:.05em">Net</span>
+      <span style="font-size:10px;font-weight:700;color:var(--grey-600);text-transform:uppercase;letter-spacing:.05em">Net</span>
       <span style="font-family:var(--mono);font-size:12px;font-weight:700">{{ pu.last7d.roomNights - pu.cancellations7d }} rn &middot; {{ (pu.last7d.revenue - pu.cancellationRevenue7d) | kilo }}</span>
     </div>
   </div>
@@ -491,13 +536,13 @@
 </div>
 {% if charts %}
 <style>
-.fl-card{background:#fff;border:1px solid #E2E7F0;border-radius:14px;padding:16px;margin-top:12px}
+.fl-card{background:#fff;border:none;border-radius:18px;padding:18px;margin-top:12px;box-shadow:0 1px 2px rgba(15,40,96,.06),0 8px 24px -12px rgba(15,40,96,.16)}
 .fl-title{font-size:14px;font-weight:700;color:var(--text)}
 .fl-how{font-size:11px;color:#4D5A74;line-height:1.45;margin:3px 0 10px}
 .fl-key{display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:10px;color:#4D5A74;font-weight:600;margin:6px 0}
 .fl-kb{display:inline-block;width:16px;height:8px;border-radius:4px;vertical-align:middle;margin-right:4px}
 .fl-kt{display:inline-block;width:3px;height:13px;border-radius:2px;vertical-align:middle;margin-right:4px}
-.fl-row{display:flex;gap:10px;padding:11px 0;border-bottom:1px solid #F0F2F7;align-items:flex-start}
+.fl-row{display:flex;gap:10px;padding:11px 0;border-bottom:1px solid #F1F3F8;align-items:flex-start}
 .fl-row:last-child{border-bottom:none;padding-bottom:2px}
 .fl-mon{width:32px;font-weight:800;font-size:13px}
 .fl-mid{flex:1}
@@ -507,30 +552,29 @@
 .fl-bar{height:16px}
 .fl-over{height:16px;background:#1A7A50;border-radius:0 8px 8px 0;margin-left:1px}
 .fl-tick{position:absolute;top:-3px;width:3px;height:22px;background:#A0AAC0;border-radius:2px}
-.fl-under{display:flex;justify-content:space-between;gap:6px;font-size:9px;color:#A0AAC0;margin-top:4px}
+.fl-under{display:flex;justify-content:space-between;gap:6px;font-size:10px;color:#79747E;margin-top:4px}
 .fl-under b{color:#4D5A74;font-weight:600}
 .fl-val{width:104px;text-align:right}
 .fl-big{font-size:14px;font-weight:700;font-family:var(--mono)}
-.fl-vs{font-size:9px;color:#A0AAC0}
+.fl-vs{font-size:10px;color:#79747E}
 .fl-togo{font-size:10px;color:#4D5A74;margin-top:4px;line-height:1.3}
 .fl-vtrack{height:10px;background:#EEF1F7;border-radius:5px;position:relative}
 .fl-vbar{height:10px;border-radius:5px}
 .fl-vtick{position:absolute;top:-3px;width:3px;height:16px;border-radius:2px}
 .fl-v{font-size:12px;font-weight:700;font-family:var(--mono);line-height:1.5}
-.fl-unit{font-size:8px;color:#A0AAC0;font-weight:400;margin-left:3px}
+.fl-unit{font-size:9.5px;color:#79747E;font-weight:400;margin-left:3px}
 .fl-fw{display:flex;align-items:center;height:8px}
 .fl-fl{flex:1;display:flex;justify-content:flex-end}
 .fl-flb{height:8px;border-radius:4px 0 0 4px}
 .fl-fax{width:1.5px;height:14px;background:#C9D1E0}
 .fl-fr{flex:1}
 .fl-frb{height:8px;border-radius:0 4px 4px 0}
-.fl-alert{background:#FFF7EA;border:1px solid rgba(247,144,9,.35);color:#7A5B22;border-radius:10px;font-size:11px;padding:7px 10px;margin-top:10px}
+.fl-alert{background:#FBEEDC;border:none;color:#6D4C00;border-radius:12px;font-size:12.5px;line-height:1.5;padding:11px 13px;margin-top:10px}
 .fl-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
-.fl-cell{aspect-ratio:1;border-radius:7px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
-.fl-occ{font-size:11.5px;font-weight:700;font-family:var(--mono)}
-.fl-date{font-size:8px;font-weight:500}
-.fl-mdiv{grid-column:1/-1;font-size:10px;font-weight:700;letter-spacing:.1em;color:#4D5A74;border-top:2px solid #0F2860;padding:4px 0 0;margin-top:4px}
-.fl-dow{text-align:center;font-family:var(--mono);font-size:9px;color:#A0AAC0}
+.fl-cell{aspect-ratio:1;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
+.fl-occ{font-size:13.5px;font-weight:800;font-family:var(--mono)}
+.fl-date{font-size:9.5px;font-weight:500}
+.fl-dow{text-align:center;font-family:var(--mono);font-size:10.5px;font-weight:700;color:#79747E}
 .fl-legend{display:flex;align-items:center;gap:3px;font-size:9.5px;color:#4D5A74;margin-top:10px;flex-wrap:wrap}
 .fl-lsw{width:13px;height:9px;border-radius:2px;display:inline-block}
 .fl-brow{display:flex;align-items:center;gap:8px;padding:4px 0}
@@ -549,7 +593,7 @@
     <span><span class="fl-kb" style="background:#B83A1B"></span>cancelled · 7d</span>
     <span><span class="fl-kb" style="background:#DC8B77"></span>cancelled · 14d</span>
   </div>
-  <div style="display:flex;font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;margin-bottom:2px">
+  <div style="display:flex;font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.1em;margin-bottom:2px">
     <div style="flex:1;color:#B83A1B">◀ CANCELLED</div><div style="flex:1;text-align:right;color:#2E7CF7">BOOKED ▶</div>
   </div>
   {% for r in charts.butterfly.rows %}
@@ -571,7 +615,7 @@
 {% else %}
 <div class="pu-sub">
   <div class="pu-sub-card">
-    <div style="font-size:9px;font-weight:600;color:var(--grey-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Top month (7d)</div>
+    <div style="font-size:10px;font-weight:600;color:var(--grey-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Top month (7d)</div>
     <div style="font-weight:700;font-size:15px;color:var(--text)">{{ pu.topMonth }} <span style="font-size:11px;color:var(--grey-500);font-weight:400">+{{ pu.topMonthNights }} rn booked</span></div>
   </div>
 </div>
@@ -597,7 +641,7 @@
     <div class="fl-val" style="width:92px">
       <div class="fl-v" style="color:#0F2860">{{ r.v7_txt }}<span class="fl-unit">/day·7d</span></div>
       <div class="fl-v" style="color:#2E7CF7">{{ r.v14_txt }}<span class="fl-unit">/day·14d</span></div>
-      <div style="font-size:9px;font-weight:600;color:{{ r.accel_col }}">{{ r.accel_txt }}</div>
+      <div style="font-size:10px;font-weight:600;color:{{ r.accel_col }}">{{ r.accel_txt }}</div>
     </div>
   </div>
   {% endfor %}
@@ -638,10 +682,10 @@
     <line x1="80" y1="45"  x2="520" y2="45"  stroke="#F0F2F7" stroke-width="0.5"/>
     <line x1="80" y1="80"  x2="520" y2="80"  stroke="#F0F2F7" stroke-width="0.5"/>
     <line x1="80" y1="115" x2="520" y2="115" stroke="#E2E7F0" stroke-width="0.5"/>
-    <text x="76" y="14"  text-anchor="end" font-size="8" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (ns.max_rev) | euro_full }}</text>
-    <text x="76" y="49"  text-anchor="end" font-size="8" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (ns.max_rev * 0.67) | euro_full }}</text>
-    <text x="76" y="84"  text-anchor="end" font-size="8" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (ns.max_rev * 0.33) | euro_full }}</text>
-    <text x="76" y="119" text-anchor="end" font-size="8" fill="#A0AAC0" font-family="IBM Plex Mono">€0</text>
+    <text x="76" y="14"  text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">{{ (ns.max_rev) | euro_full }}</text>
+    <text x="76" y="49"  text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">{{ (ns.max_rev * 0.67) | euro_full }}</text>
+    <text x="76" y="84"  text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">{{ (ns.max_rev * 0.33) | euro_full }}</text>
+    <text x="76" y="119" text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">€0</text>
     {% for p in data.pace %}
       {% set xi = (80 + (loop.index0 + 0.5) * step) | round(1) %}
       {% set bh_ty   = [((p.rev       / ns.max_rev) * ch) | round(1), 1] | max %}
@@ -655,8 +699,8 @@
       <rect x="{{ xi + 1 }}"      y="{{ y_stly }}" width="{{ bw }}" height="{{ bh_stly }}" rx="1.5" fill="#CDD4E0"/>
       <line x1="{{ xi - bw - 3 }}" y1="{{ ly_y }}" x2="{{ xi + bw + 3 }}" y2="{{ ly_y }}" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
       <rect x="{{ xi - 18 }}" y="137" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
-      <text x="{{ xi }}" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">{{ p.month }}</text>
-      <text x="{{ xi }}" y="146" text-anchor="middle" font-size="10" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="IBM Plex Mono" font-weight="600">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
+      <text x="{{ xi }}" y="132" text-anchor="middle" font-size="11.5" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="800" letter-spacing="0.02em">{{ p.month }}</text>
+      <text x="{{ xi }}" y="146" text-anchor="middle" font-size="11" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="Manrope, sans-serif" font-weight="700">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
     {% endfor %}
   </svg>
 </div>
@@ -709,10 +753,10 @@
     <line x1="80" y1="45"  x2="520" y2="45"  stroke="#F0F2F7" stroke-width="0.5"/>
     <line x1="80" y1="80"  x2="520" y2="80"  stroke="#F0F2F7" stroke-width="0.5"/>
     <line x1="80" y1="115" x2="520" y2="115" stroke="#E2E7F0" stroke-width="0.5"/>
-    <text x="76" y="14"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (occ_top * 100) | round(0) | int }}%</text>
-    <text x="76" y="49"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (occ_top * 67) | round(0) | int }}%</text>
-    <text x="76" y="84"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">{{ (occ_top * 33) | round(0) | int }}%</text>
-    <text x="76" y="119" text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">0%</text>
+    <text x="76" y="14"  text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">{{ (occ_top * 100) | round(0) | int }}%</text>
+    <text x="76" y="49"  text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">{{ (occ_top * 67) | round(0) | int }}%</text>
+    <text x="76" y="84"  text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">{{ (occ_top * 33) | round(0) | int }}%</text>
+    <text x="76" y="119" text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">0%</text>
     {# Smooth area fill #}
     <path d="{{ smooth_area }}" fill="rgba(15,40,96,0.07)"/>
     {# Final LY dashed line (linear reference) #}
@@ -729,10 +773,10 @@
       <circle cx="{{ xi }}" cy="{{ y_stly }}" r="3" fill="#CDD4E0" stroke="#fff" stroke-width="1.5"/>
       <circle cx="{{ xi }}" cy="{{ y_ty }}"   r="4" fill="{{ '#1A7A50' if p.occ >= p.final else '#0F2860' }}" stroke="#fff" stroke-width="1.5"/>
       <rect x="{{ xi - 16 }}" y="{{ y_ty - 20 }}" width="32" height="14" rx="3" fill="white"/>
-      <text x="{{ xi }}" y="{{ y_ty - 9 }}" text-anchor="middle" font-size="11" fill="{{ '#1A7A50' if p.occ >= p.final else '#0F2860' }}" font-family="IBM Plex Mono" font-weight="600">{{ (p.occ * 100) | round(0) | int }}%</text>
+      <text x="{{ xi }}" y="{{ y_ty - 9 }}" text-anchor="middle" font-size="11.5" fill="{{ '#1A7A50' if p.occ >= p.final else '#0F2860' }}" font-family="Manrope, sans-serif" font-weight="800">{{ (p.occ * 100) | round(0) | int }}%</text>
       <rect x="{{ xi - 18 }}" y="137" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
-      <text x="{{ xi }}" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">{{ p.month }}</text>
-      <text x="{{ xi }}" y="146" text-anchor="middle" font-size="10" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="IBM Plex Mono" font-weight="600">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
+      <text x="{{ xi }}" y="132" text-anchor="middle" font-size="11.5" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="800" letter-spacing="0.02em">{{ p.month }}</text>
+      <text x="{{ xi }}" y="146" text-anchor="middle" font-size="11" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="Manrope, sans-serif" font-weight="700">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
     {% endfor %}
   </svg>
 </div>
@@ -759,10 +803,10 @@
     <line x1="80" y1="45"  x2="520" y2="45"  stroke="#F0F2F7" stroke-width="0.5"/>
     <line x1="80" y1="80"  x2="520" y2="80"  stroke="#F0F2F7" stroke-width="0.5"/>
     <line x1="80" y1="115" x2="520" y2="115" stroke="#E2E7F0" stroke-width="0.5"/>
-    <text x="76" y="14"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€{{ ns3.max_adr | round(0) | int }}</text>
-    <text x="76" y="49"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€{{ (ns3.max_adr * 0.67) | round(0) | int }}</text>
-    <text x="76" y="84"  text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€{{ (ns3.max_adr * 0.33) | round(0) | int }}</text>
-    <text x="76" y="119" text-anchor="end" font-size="10" fill="#A0AAC0" font-family="IBM Plex Mono">€0</text>
+    <text x="76" y="14"  text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">€{{ ns3.max_adr | round(0) | int }}</text>
+    <text x="76" y="49"  text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">€{{ (ns3.max_adr * 0.67) | round(0) | int }}</text>
+    <text x="76" y="84"  text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">€{{ (ns3.max_adr * 0.33) | round(0) | int }}</text>
+    <text x="76" y="119" text-anchor="end" font-size="10.5" fill="#79747E" font-family="Manrope, sans-serif" font-weight="600">€0</text>
     {% for p in data.pace %}
       {% set xi = (80 + (loop.index0 + 0.5) * step) | round(1) %}
       {% set bh_ty   = [((p.adr      / ns3.max_adr) * ch) | round(1), 1] | max %}
@@ -776,8 +820,8 @@
       <rect x="{{ xi + 1 }}"      y="{{ y_stly }}" width="{{ bw }}" height="{{ bh_stly }}" rx="1.5" fill="#CDD4E0"/>
       <line x1="{{ xi - bw - 3 }}" y1="{{ ly_y }}" x2="{{ xi + bw + 3 }}" y2="{{ ly_y }}" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="3,2.5"/>
       <rect x="{{ xi - 18 }}" y="137" width="36" height="13" rx="3" fill="{{ 'rgba(26,122,80,0.10)' if vs >= 0 else 'rgba(184,58,27,0.10)' }}"/>
-      <text x="{{ xi }}" y="132" text-anchor="middle" font-size="12" fill="#4D5A74" font-family="Outfit" font-weight="600">{{ p.month }}</text>
-      <text x="{{ xi }}" y="146" text-anchor="middle" font-size="10" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="IBM Plex Mono" font-weight="600">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
+      <text x="{{ xi }}" y="132" text-anchor="middle" font-size="11.5" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="800" letter-spacing="0.02em">{{ p.month }}</text>
+      <text x="{{ xi }}" y="146" text-anchor="middle" font-size="11" fill="{{ '#1A7A50' if vs >= 0 else '#B83A1B' }}" font-family="Manrope, sans-serif" font-weight="700">{{ '+' if vs >= 0 else '' }}{{ vs | round(0) | int }}%</text>
     {% endfor %}
   </svg>
 </div>
@@ -794,7 +838,7 @@
   <div class="fl-brow"><div class="fl-blbl">TY ADR</div><div class="fl-btrk"><div class="fl-bbar" style="left:0;width:{{ charts.bridge.ty_w }}%;background:#0F2860"></div></div><div class="fl-bval">{{ charts.bridge.adr_ty_txt }}</div></div>
   <div style="font-size:11.5px;color:#1C2333;line-height:1.5;margin-top:10px">{{ charts.bridge.sentence }}</div>
   <div style="margin-top:10px;border-top:1px solid #F0F2F7;padding-top:6px">
-    <div style="display:flex;font-size:9px;color:#A0AAC0;font-weight:600;padding:2px 0"><div style="flex:1.2">CHANNEL</div><div style="flex:1">SHARE</div><div style="flex:1">ADR</div><div style="width:38px;text-align:right;color:#2E7CF7">MIX</div><div style="width:38px;text-align:right;color:#B47D09">RATE</div></div>
+    <div style="display:flex;font-size:10px;color:#79747E;font-weight:600;padding:2px 0"><div style="flex:1.2">CHANNEL</div><div style="flex:1">SHARE</div><div style="flex:1">ADR</div><div style="width:38px;text-align:right;color:#2E7CF7">MIX</div><div style="width:38px;text-align:right;color:#B47D09">RATE</div></div>
     {% for r in charts.bridge.rows %}
     <div style="display:flex;font-size:10.5px;padding:3px 0;border-top:1px solid #F7F8FB"><div style="flex:1.2;font-weight:600">{{ r.channel }}</div><div style="flex:1;color:#4D5A74">{{ r.share }}</div><div style="flex:1;color:#4D5A74">{{ r.adr }}</div><div style="width:38px;text-align:right;font-family:var(--mono)">{{ r.mix_txt }}</div><div style="width:38px;text-align:right;font-family:var(--mono)">{{ r.rate_txt }}</div></div>
     {% endfor %}
@@ -835,13 +879,12 @@
   <div class="fl-grid">
   {% for c in charts.heat.cells %}
     {%- if c.empty %}<div></div>
-    {%- else %}<div class="fl-cell" style="background:{{ c.bg }}{% if c.ring %};box-shadow:inset 0 0 0 2px #B83A1B{% endif %}{% if c.new_month %};border:2px solid #0F2860{% endif %}"><div class="fl-occ" style="color:{{ c.fg }}">{{ c.occ_txt }}</div><div class="fl-date" style="color:{{ c.sub }}{% if c.new_month %};font-weight:700;color:#0F2860{% endif %}">{{ c.date_txt }}</div></div>
+    {%- else %}<div class="fl-cell" style="background:{{ c.bg }}{% if c.ring %};box-shadow:inset 0 0 0 2px #BA1A1A{% elif c.new_month %};box-shadow:inset 2px 0 0 #1D1B20{% endif %}"><div class="fl-occ" style="color:{{ c.fg }}">{{ c.occ_txt }}</div><div class="fl-date" style="color:{{ c.sub }}">{{ c.date_txt }}</div></div>
     {%- endif %}
   {% endfor %}
   </div>
   <div class="fl-legend">empty {% for cc in charts.heat.ramp %}<span class="fl-lsw" style="background:{{ cc }}"></span>{% endfor %} full
-    <span style="margin-left:6px"><span class="fl-lsw" style="background:#EDF1F8;box-shadow:inset 0 0 0 2px #B83A1B"></span> behind LY</span>
-    <span style="margin-left:6px"><span class="fl-lsw" style="background:#EDF1F8;border:2px solid #0F2860;box-sizing:border-box"></span> new month</span></div>
+    <span style="margin-left:6px"><span class="fl-lsw" style="background:#F2F2F7;box-shadow:inset 0 0 0 2px #BA1A1A"></span> behind LY</span></div>
   {% if charts.heat.alert %}<div class="fl-alert">⚠ {{ charts.heat.alert }}</div>{% endif %}
 </div>
 {% endif %}
@@ -916,20 +959,20 @@
   <line x1="50" y1="152" x2="520" y2="152" stroke="#F0F2F7" stroke-width="0.5"/>
   <line x1="50" y1="195" x2="520" y2="195" stroke="#E2E7F0" stroke-width="0.5"/>
   {# Y axis labels #}
-  <text x="46" y="29"  text-anchor="end" font-size="11" fill="#4D5A74" font-family="IBM Plex Mono" font-weight="500">{{ max_v | kilo }}</text>
-  <text x="46" y="71"  text-anchor="end" font-size="11" fill="#6E7A96" font-family="IBM Plex Mono">{{ (max_v * 0.75) | kilo }}</text>
-  <text x="46" y="113" text-anchor="end" font-size="11" fill="#6E7A96" font-family="IBM Plex Mono">{{ (max_v * 0.5)  | kilo }}</text>
-  <text x="46" y="156" text-anchor="end" font-size="11" fill="#6E7A96" font-family="IBM Plex Mono">{{ (max_v * 0.25) | kilo }}</text>
-  <text x="46" y="199" text-anchor="end" font-size="11" fill="#6E7A96" font-family="IBM Plex Mono">€0</text>
+  <text x="46" y="29"  text-anchor="end" font-size="11" fill="#4D5A74" font-family="Manrope, sans-serif" font-weight="500">{{ max_v | kilo }}</text>
+  <text x="46" y="71"  text-anchor="end" font-size="11" fill="#6E7A96" font-family="Manrope, sans-serif">{{ (max_v * 0.75) | kilo }}</text>
+  <text x="46" y="113" text-anchor="end" font-size="11" fill="#6E7A96" font-family="Manrope, sans-serif">{{ (max_v * 0.5)  | kilo }}</text>
+  <text x="46" y="156" text-anchor="end" font-size="11" fill="#6E7A96" font-family="Manrope, sans-serif">{{ (max_v * 0.25) | kilo }}</text>
+  <text x="46" y="199" text-anchor="end" font-size="11" fill="#6E7A96" font-family="Manrope, sans-serif">€0</text>
   {# X axis month labels #}
   {% for lbl in all_labels %}
     {% set xi = (50 + loop.index0 * xstep) | round(1) %}
-    <text x="{{ xi }}" y="211" text-anchor="middle" font-size="11" fill="{% if lbl in sa_map and lbl not in ty_map and lbl not in stly_map %}#A0AAC0{% else %}#4D5A74{% endif %}" font-family="Outfit" font-weight="500">{{ lbl }}</text>
+    <text x="{{ xi }}" y="211" text-anchor="middle" font-size="11" fill="{% if lbl in sa_map and lbl not in ty_map and lbl not in stly_map %}#A0AAC0{% else %}#4D5A74{% endif %}" font-family="Manrope, sans-serif" font-weight="500">{{ lbl }}</text>
   {% endfor %}
   {# Final LY dashed horizontal line #}
   {% if curve.final_ly > 0 %}
   <line x1="50" y1="{{ fly_y }}" x2="520" y2="{{ fly_y }}" stroke="#1A7A50" stroke-width="1.5" stroke-dasharray="6,4" opacity="0.65"/>
-  <text x="518" y="{{ fly_y - 5 }}" text-anchor="end" font-size="10" fill="#1A7A50" font-family="IBM Plex Mono" font-weight="600">Final LY {{ curve.final_ly | kilo }}</text>
+  <text x="518" y="{{ fly_y - 5 }}" text-anchor="end" font-size="10" fill="#1A7A50" font-family="Manrope, sans-serif" font-weight="700">Final LY {{ curve.final_ly | kilo }}</text>
   {% endif %}
   {# TODAY vertical dashed marker #}
   <line x1="{{ today_xi }}" y1="25" x2="{{ today_xi }}" y2="195" stroke="#0F2860" stroke-width="1" stroke-dasharray="3,3" opacity="0.25"/>
@@ -941,7 +984,7 @@
   {% if ns.pts_stly %}
   <polyline points="{{ ns.pts_stly }}" fill="none" stroke="#CDD4E0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
   <circle cx="{{ ns.last_stly_xi }}" cy="{{ ns.last_stly_y }}" r="3.5" fill="#CDD4E0" stroke="#fff" stroke-width="1.5"/>
-  <text x="{{ ns.last_stly_xi - 7 }}" y="{{ ns.last_stly_y + 4 }}" text-anchor="end" font-size="8.5" fill="#A0AAC0" font-family="IBM Plex Mono">{{ stly_at_today | kilo }}</text>
+  <text x="{{ ns.last_stly_xi - 7 }}" y="{{ ns.last_stly_y + 4 }}" text-anchor="end" font-size="8.5" fill="#A0AAC0" font-family="Manrope, sans-serif">{{ stly_at_today | kilo }}</text>
   {% endif %}
   {# TY line with subtle fill #}
   {% if ns.pts_ty %}
@@ -951,22 +994,22 @@
   {% if stly_at_today > 0 %}
     {% set vs = ((ty_total - stly_at_today) / stly_at_today * 100) | round(0) | int %}
     {% set ann_col = '#1A7A50' if vs >= 0 else '#B83A1B' %}
-    <text x="{{ today_xi }}" y="{{ ns.last_ty_y - 38 }}" text-anchor="middle" font-size="10.5" fill="{{ ann_col }}" font-family="IBM Plex Mono" font-weight="700">{{ '+' if vs >= 0 else '' }}{{ vs }}%</text>
-    <text x="{{ today_xi }}" y="{{ ns.last_ty_y - 26 }}" text-anchor="middle" font-size="8.5" fill="{{ ann_col }}" font-family="IBM Plex Mono">vs STLY</text>
+    <text x="{{ today_xi }}" y="{{ ns.last_ty_y - 38 }}" text-anchor="middle" font-size="10.5" fill="{{ ann_col }}" font-family="Manrope, sans-serif" font-weight="700">{{ '+' if vs >= 0 else '' }}{{ vs }}%</text>
+    <text x="{{ today_xi }}" y="{{ ns.last_ty_y - 26 }}" text-anchor="middle" font-size="8.5" fill="{{ ann_col }}" font-family="Manrope, sans-serif">vs STLY</text>
   {% endif %}
   {# TY endpoint badge centered on dot #}
   <rect x="{{ today_xi - 31 }}" y="{{ ns.last_ty_y - 22 }}" width="62" height="21" rx="5" fill="#0F2860"/>
-  <text x="{{ today_xi }}" y="{{ ns.last_ty_y - 7 }}" text-anchor="middle" font-size="11" fill="#fff" font-family="IBM Plex Mono" font-weight="700">{{ ty_total | kilo }}</text>
+  <text x="{{ today_xi }}" y="{{ ns.last_ty_y - 7 }}" text-anchor="middle" font-size="11" fill="#fff" font-family="Manrope, sans-serif" font-weight="700">{{ ty_total | kilo }}</text>
   <circle cx="{{ today_xi }}" cy="{{ ns.last_ty_y }}" r="4" fill="#0F2860" stroke="#fff" stroke-width="2"/>
   {% endif %}
   {# TODAY pill below x-axis #}
   <rect x="{{ today_xi - 26 }}" y="218" width="52" height="16" rx="4" fill="#0F2860"/>
-  <text x="{{ today_xi }}" y="229" text-anchor="middle" font-size="8.5" fill="#fff" font-family="IBM Plex Mono" font-weight="600">TODAY</text>
+  <text x="{{ today_xi }}" y="229" text-anchor="middle" font-size="8.5" fill="#fff" font-family="Manrope, sans-serif" font-weight="700">TODAY</text>
   {# Floating info text in right half: gap to LY + % captured #}
   {% if curve.final_ly > 0 %}
     {% set info_x = ((today_xi + 520) / 2) | round(0) | int %}
-    <text x="{{ info_x }}" y="118" text-anchor="middle" font-size="12" fill="#C8D1E0" font-family="IBM Plex Mono" font-weight="600">{{ gap_to_ly | abs | kilo }} still to come</text>
-    <text x="{{ info_x }}" y="136" text-anchor="middle" font-size="11" fill="#C8D1E0" font-family="IBM Plex Mono">{{ pct_of_ly }}% of Final LY captured</text>
+    <text x="{{ info_x }}" y="118" text-anchor="middle" font-size="12" fill="#C8D1E0" font-family="Manrope, sans-serif" font-weight="700">{{ gap_to_ly | abs | kilo }} still to come</text>
+    <text x="{{ info_x }}" y="136" text-anchor="middle" font-size="11" fill="#C8D1E0" font-family="Manrope, sans-serif">{{ pct_of_ly }}% of Final LY captured</text>
   {% endif %}
 </svg>
 </div>
@@ -988,7 +1031,7 @@
       <div style="position:absolute;top:-3px;left:{{ stly_pct }}%;width:2px;height:12px;background:var(--blue);border-radius:1px;opacity:0.5"></div>
     </div>
     <div class="ch-nights" style="min-width:52px">{{ ch.rev | kilo }}</div>
-    <div style="font-family:var(--mono);font-size:9px;color:var(--grey-400);min-width:48px;text-align:right">{{ ch.rev_stly | kilo }}</div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--grey-400);min-width:48px;text-align:right">{{ ch.rev_stly | kilo }}</div>
     <div style="text-align:right;min-width:52px;">
       {% if ch.trend == 'up' %}
         <span class="badge-pos">&#9650; {{ '%+.1f'|format(var_pct) }}%</span>

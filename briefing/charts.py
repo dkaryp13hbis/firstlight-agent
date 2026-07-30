@@ -21,7 +21,9 @@ getcontext().prec = 28
 
 NAVY = "#0F2860"; BLUE = "#2E7CF7"; GREEN = "#1A7A50"; RED = "#B83A1B"
 AMBER = "#B47D09"; SOFT = "#A0AAC0"
-RAMP = ["#EDF1F8", "#DCE7FB", "#BBD4FA", "#9AC1F7", "#5E9BF3", "#2E7CF7", "#1E5FD0"]
+# Heat ramp: single-hue BLUE (user decision 2026-07-30 — keep the app's blue,
+# 8b layout/ring design retained; the purple re-tokenisation was declined)
+RAMP = ["#F2F2F7", "#E1EBFB", "#C4DAF9", "#9FC4F6", "#6FA7F2", "#3D87EE", "#0A6CDF"]
 
 
 def _fmt(n: float) -> str:
@@ -175,7 +177,8 @@ def _heat(data: dict) -> dict | None:
         return None
 
     def bucket(occ):
-        for i, top in enumerate((0.25, 0.40, 0.55, 0.70, 0.82, 0.92)):
+        # 8b thresholds: <20 / 20-34 / 35-49 / 50-64 / 65-77 / 78-87 / ≥88
+        for i, top in enumerate((0.20, 0.35, 0.50, 0.65, 0.78, 0.88)):
             if occ < top:
                 return i
         return 6
@@ -211,8 +214,8 @@ def _heat(data: dict) -> dict | None:
             "bg": RAMP[b],
             "ring": c["anomaly"],
             "new_month": new_month,
-            "fg": "#fff" if b >= 4 else "#1C2333",
-            "sub": "rgba(255,255,255,.75)" if b >= 4 else SOFT,
+            "fg": "#FFFFFF" if b >= 4 else "#1D1B20",
+            "sub": "rgba(255,255,255,.72)" if b >= 4 else "#79747E",
             "occ_txt": f"{c['occ'] * 100:.0f}%",
             "date_txt": c["d"].strftime("%d/%m"),
         })
