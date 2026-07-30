@@ -449,15 +449,19 @@ SELECT ref_date, stay_month, stay_year,
        SUM(net_rn)  AS net_rn,
        SUM(net_rev) AS net_rev
 FROM (
-    -- New bookings (positive contribution)
+    -- New bookings AS MADE (positive contribution) — same convention as the
+    -- Pickup card (Q3): no reschar filter, so a booking made and later
+    -- cancelled counts +1 here and -1 below (net 0, not a false -1).
     SELECT CAST(h.SystemDate AS DATE)  AS ref_date,
            MONTH(h.date)               AS stay_month,
            YEAR(h.date)                AS stay_year,
-           h.Occupancy                 AS net_rn,
+           CASE WHEN h.reschar = 2
+                THEN CASE WHEN h.datumbis = h.date THEN 0 ELSE 1 END
+                ELSE h.Occupancy
+           END                         AS net_rn,
            h.logis                     AS net_rev
     FROM bidata.proteluser.Hitia h
     WHERE h.mpehotel = ?
-      AND h.reschar < 2
       AND {fake_rt}
       AND CAST(h.SystemDate AS DATE) BETWEEN @window_start AND @today
 
