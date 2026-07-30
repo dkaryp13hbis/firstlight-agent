@@ -141,7 +141,12 @@ def _butterfly(data: dict) -> dict | None:
             a["n14"] += r["net_rn"]
             if r["ref_date"] >= lo7:
                 a["n7"] += r["net_rn"]
+    # Current + future months get the rows; PAST months (now present since Q9
+    # counts all stay dates) collapse into one "Earlier" row so the visible
+    # rows still sum EXACTLY to the Pickup Activity card.
+    today = _date.today()
     raw = []
+    past = {"m": "Earlier", "c7": 0, "c14": 0, "n7": 0, "n14": 0}
     for (y, m), a in sorted(agg.items()):
         c14 = sum(r["cancel_rn"] for r in cd_rows
                   if r["stay_month"] == m and r["stay_year"] == y
@@ -149,10 +154,18 @@ def _butterfly(data: dict) -> dict | None:
         c7 = sum(r["cancel_rn"] for r in cd_rows
                  if r["stay_month"] == m and r["stay_year"] == y
                  and lo7 <= r["ref_date"] <= end)
+        if (y, m) < (today.year, today.month):
+            past["c7"] += c7; past["c14"] += c14
+            past["n7"] += a["n7"]; past["n14"] += a["n14"]
+            continue
         raw.append({"m": calendar.month_abbr[m], "c7": c7, "c14": c14,
                     "b7": max(a["n7"] + c7, 0), "b14": max(a["n14"] + c14, 0),
                     "n7": a["n7"], "n14": a["n14"]})
     raw = raw[:5]
+    if any((past["c14"], past["n14"], past["c7"], past["n7"])):
+        past["b7"] = max(past["n7"] + past["c7"], 0)
+        past["b14"] = max(past["n14"] + past["c14"], 0)
+        raw.append(past)
     if not raw:
         return None
     mx = max(max(r["c14"], r["b14"], r["c7"], r["b7"]) for r in raw) * 1.08 or 1
@@ -167,7 +180,8 @@ def _butterfly(data: dict) -> dict | None:
             "n7_col": GREEN if r["n7"] >= 0 else RED,
             "n14_col": RED if (r["n14"] < 0 or warn) else GREEN,
         })
-    worst = max(raw, key=lambda r: (r["c14"] / r["b14"]) if r["b14"] else 0)
+    named = [r for r in raw if r["m"] != "Earlier"] or raw
+    worst = max(named, key=lambda r: (r["c14"] / r["b14"]) if r["b14"] else 0)
     alert = None
     if worst["b14"]:
         share = worst["c14"] / worst["b14"] * 100
