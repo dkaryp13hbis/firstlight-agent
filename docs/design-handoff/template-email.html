@@ -564,6 +564,8 @@
 .fl-fr{flex:1}
 .fl-frb{height:8px;border-radius:0 4px 4px 0}
 .fl-alert{background:#FBEEDC;border:none;color:#6D4C00;border-radius:12px;font-size:12.5px;line-height:1.5;padding:11px 13px;margin-top:10px}
+.pw-box{border:2px solid transparent;transition:border-color .15s}
+.pw-box.pw-sel{border-color:#2E7CF7;box-shadow:0 0 0 3px rgba(46,124,247,.18), var(--card-shadow)}
 .fl-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
 .fl-cell{aspect-ratio:1;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
 .fl-occ{font-size:13.5px;font-weight:800;font-family:var(--mono)}
@@ -580,7 +582,7 @@
 {% endif %}
 {% if charts.butterfly %}
 <div class="fl-card">
-  <div class="fl-title" style="display:flex;align-items:center"><span style="flex:1">Booked vs cancelled — by stay month</span><button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-f-fly');n.style.display=n.style.display==='block'?'none':'block';">i</button></div>
+  <div class="fl-title" style="display:flex;align-items:center"><span style="flex:1">Booked vs cancelled <span id="fly-range" style="font-weight:600;color:#4D5A74">· {{ charts.butterfly.default_range }}</span></span><button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-f-fly');n.style.display=n.style.display==='block'?'none':'block';">i</button></div>
   <div class="info-panel" id="info-f-fly">Rooms booked (right, blue) against rooms cancelled (left, red) for each stay month — following the pickup window you select above (Today, Yesterday, 3-Day or 7-Day). Same counting as those boxes, split by month. A long red wing means demand is leaking; the net shows what you kept.</div>
   <div class="fl-key">
     <span><span class="fl-kb" style="background:#0F2860"></span>booked · <span class="fly-winlbl">{{ charts.butterfly.default_label }}</span></span>
@@ -1143,6 +1145,8 @@ function selectPickupWindow(w, el) {
     nn.style.color = (v.n < 0 || warn) ? '#B83A1B' : '#1A7A50';
   });
   document.querySelectorAll('.fly-winlbl').forEach(function (sp) { sp.textContent = D.labels[w]; });
+  var rg = document.getElementById('fly-range');
+  if (rg && D.ranges && D.ranges[w]) rg.textContent = '· ' + D.ranges[w];
   var al = document.getElementById('fly-alert');
   if (al) {
     if (D.alerts[w]) { al.style.display = 'block'; al.textContent = '⚠ ' + D.alerts[w]; }

@@ -142,6 +142,14 @@ def _butterfly(data: dict) -> dict | None:
     ALERT_PERIOD = {"today": "today", "1d": "yesterday",
                     "3d": "the last 3 days", "7d": "the last 7 days"}
 
+    def _fmt_range(lo, hi):
+        lo_d = _dt.strptime(lo[:10], "%Y-%m-%d").date()
+        hi_d = _dt.strptime(hi[:10], "%Y-%m-%d").date()
+        if lo_d == hi_d:
+            return lo_d.strftime("%d %b")
+        return f"{lo_d.strftime('%d %b')} – {hi_d.strftime('%d %b')}"
+    RANGES = {k: _fmt_range(lo, hi) for k, (lo, hi) in WINDOWS.items()}
+
     months_keys = sorted({(r["stay_year"], r["stay_month"]) for r in pd_rows})
     today = _date.today()
 
@@ -205,12 +213,14 @@ def _butterfly(data: dict) -> dict | None:
     payload = {
         "months": [{"m": mo["m"], "w": mo["w"]} for mo in named],
         "labels": LABELS,
+        "ranges": RANGES,
         "alerts": alerts,
         "default": DEFAULT,
     }
     import json as _json
     return {"rows": rows, "alert": alerts.get(DEFAULT),
             "default_label": LABELS[DEFAULT],
+            "default_range": RANGES[DEFAULT],
             "payload_json": _json.dumps(payload, ensure_ascii=False)}
 
 
