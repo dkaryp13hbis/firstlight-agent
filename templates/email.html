@@ -460,7 +460,7 @@
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
 
   {# TODAY #}
-  <div class="card" style="padding:12px">
+  <div class="card pw-box" id="pw-today" onclick="selectPickupWindow('today',this)" style="padding:12px;cursor:pointer">
     <div style="font-size:10px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Today</div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
       <span style="font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
@@ -477,7 +477,7 @@
   </div>
 
   {# YESTERDAY #}
-  <div class="card" style="padding:12px">
+  <div class="card pw-box" id="pw-1d" onclick="selectPickupWindow('1d',this)" style="padding:12px;cursor:pointer">
     <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Yesterday <span style="font-weight:700;font-size:10px;color:var(--grey-400)">{{ pu.date1d }}</span></div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
       <span style="font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
@@ -494,7 +494,7 @@
   </div>
 
   {# 3-DAY #}
-  <div class="card" style="padding:12px">
+  <div class="card pw-box" id="pw-3d" onclick="selectPickupWindow('3d',this)" style="padding:12px;cursor:pointer">
     <div style="font-size:10px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">3-Day <span style="font-weight:700;font-size:10px;color:var(--grey-400)">{{ pu.date3d }}</span></div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
       <span style="font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
@@ -511,7 +511,7 @@
   </div>
 
   {# 7-DAY #}
-  <div class="card" style="padding:12px">
+  <div class="card pw-box" id="pw-7d" onclick="selectPickupWindow('7d',this)" style="padding:12px;cursor:pointer">
     <div style="font-size:10px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">7-Day <span style="font-weight:700;font-size:10px;color:var(--grey-400)">{{ pu.date7d }}</span></div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
       <span style="font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:.05em">Booked</span>
@@ -580,12 +580,11 @@
 {% endif %}
 {% if charts.butterfly %}
 <div class="fl-card">
-  <div class="fl-title" style="display:flex;align-items:center"><span style="flex:1">Booked vs cancelled — by stay month</span><button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-f-fly');n.style.display=n.style.display==='block'?'none':'block';">i</button></div><div class="info-panel" id="info-f-fly">Rooms booked (right, blue) against rooms cancelled (left, red) for each stay month, over the last 7 and 14 days — the same counting as Pickup Activity above, split by month. A long red wing means demand is leaking; the net numbers show what you kept.</div>
+  <div class="fl-title" style="display:flex;align-items:center"><span style="flex:1">Booked vs cancelled — by stay month</span><button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-f-fly');n.style.display=n.style.display==='block'?'none':'block';">i</button></div>
+  <div class="info-panel" id="info-f-fly">Rooms booked (right, blue) against rooms cancelled (left, red) for each stay month — following the pickup window you select above (Today, Yesterday, 3-Day or 7-Day). Same counting as those boxes, split by month. A long red wing means demand is leaking; the net shows what you kept.</div>
   <div class="fl-key">
-    <span><span class="fl-kb" style="background:#0F2860"></span>booked · 7d</span>
-    <span><span class="fl-kb" style="background:#2E7CF7"></span>booked · 14d</span>
-    <span><span class="fl-kb" style="background:#B83A1B"></span>cancelled · 7d</span>
-    <span><span class="fl-kb" style="background:#DC8B77"></span>cancelled · 14d</span>
+    <span><span class="fl-kb" style="background:#0F2860"></span>booked · <span class="fly-winlbl">{{ charts.butterfly.default_label }}</span></span>
+    <span><span class="fl-kb" style="background:#B83A1B"></span>cancelled · <span class="fly-winlbl">{{ charts.butterfly.default_label }}</span></span>
   </div>
   <div style="display:flex;font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.1em;margin-bottom:2px">
     <div style="flex:1;color:#B83A1B">◀ CANCELLED</div><div style="flex:1;text-align:right;color:#2E7CF7">BOOKED ▶</div>
@@ -594,17 +593,13 @@
   <div class="fl-row" style="align-items:center">
     <div class="fl-mon">{{ r.m }}</div>
     <div class="fl-mid">
-      <div class="fl-fw"><div class="fl-fl"><div class="fl-flb" style="width:{{ r.lw7 }}%;background:#B83A1B"></div></div><div class="fl-fax"></div><div class="fl-fr"><div class="fl-frb" style="width:{{ r.rw7 }}%;background:#0F2860"></div></div></div>
-      <div style="height:3px"></div>
-      <div class="fl-fw"><div class="fl-fl"><div class="fl-flb" style="width:{{ r.lw14 }}%;background:#DC8B77"></div></div><div class="fl-fax"></div><div class="fl-fr"><div class="fl-frb" style="width:{{ r.rw14 }}%;background:#2E7CF7"></div></div></div>
+      <div class="fl-fw" style="height:13px"><div class="fl-fl"><div class="fl-flb" id="fly-c-{{ loop.index0 }}" style="width:{{ r.cw }}%;background:#B83A1B;height:13px;border-radius:7px 0 0 7px;transition:width .25s"></div></div><div class="fl-fax" style="height:19px"></div><div class="fl-fr"><div class="fl-frb" id="fly-b-{{ loop.index0 }}" style="width:{{ r.bw }}%;background:#0F2860;height:13px;border-radius:0 7px 7px 0;transition:width .25s"></div></div></div>
     </div>
-    <div class="fl-val" style="width:88px">
-      <div class="fl-v" style="color:{{ r.n7_col }}">{{ r.n7_txt }}<span class="fl-unit">net·7d</span></div>
-      <div class="fl-v" style="color:{{ r.n14_col }}">{{ r.n14_txt }}<span class="fl-unit">net·14d</span></div>
-    </div>
+    <div class="fl-val" style="width:76px"><div class="fl-v num"><span id="fly-n-{{ loop.index0 }}" style="color:{{ r.n_col }}">{{ r.n_txt }}</span><span class="fl-unit">net</span></div></div>
   </div>
   {% endfor %}
-  {% if charts.butterfly.alert %}<div class="fl-alert">⚠ {{ charts.butterfly.alert }}</div>{% endif %}
+  <div class="fl-alert" id="fly-alert"{% if not charts.butterfly.alert %} style="display:none"{% endif %}>⚠ {{ charts.butterfly.alert or '' }}</div>
+  <script type="application/json" id="fly-data">{{ charts.butterfly.payload_json | safe }}</script>
 </div>
 {% else %}
 <div class="pu-sub">
@@ -1127,6 +1122,43 @@ function navTo(id) {
 }
 
 // Highlight active tab based on scroll position
+
+function selectPickupWindow(w, el) {
+  var de = document.getElementById('fly-data');
+  if (!de) return;
+  var D = JSON.parse(de.textContent);
+  if (!D.months || !D.labels[w]) return;
+  var mx = 1;
+  D.months.forEach(function (mo) { var v = mo.w[w]; mx = Math.max(mx, v.b, v.c); });
+  mx *= 1.08;
+  D.months.forEach(function (mo, i) {
+    var v = mo.w[w];
+    var cb = document.getElementById('fly-c-' + i), bb = document.getElementById('fly-b-' + i),
+        nn = document.getElementById('fly-n-' + i);
+    if (!cb || !bb || !nn) return;
+    cb.style.width = (v.c / mx * 100).toFixed(1) + '%';
+    bb.style.width = (v.b / mx * 100).toFixed(1) + '%';
+    nn.textContent = (v.n >= 0 ? '+' : '') + v.n;
+    var warn = v.b > 0 && v.c > 0.6 * v.b;
+    nn.style.color = (v.n < 0 || warn) ? '#B83A1B' : '#1A7A50';
+  });
+  document.querySelectorAll('.fly-winlbl').forEach(function (sp) { sp.textContent = D.labels[w]; });
+  var al = document.getElementById('fly-alert');
+  if (al) {
+    if (D.alerts[w]) { al.style.display = 'block'; al.textContent = '⚠ ' + D.alerts[w]; }
+    else { al.style.display = 'none'; }
+  }
+  document.querySelectorAll('.pw-box').forEach(function (b) { b.classList.remove('pw-sel'); });
+  if (el) el.classList.add('pw-sel');
+}
+(function () {
+  var de = document.getElementById('fly-data');
+  if (de) {
+    var D = JSON.parse(de.textContent);
+    selectPickupWindow(D.default, document.getElementById('pw-' + D.default));
+  }
+})();
+
 const _sections = ['sec-overview','sec-pickup','sec-pace','sec-ai'];
 const _tabs = document.querySelectorAll('.tab-btn');
 const _obs = new IntersectionObserver(entries => {

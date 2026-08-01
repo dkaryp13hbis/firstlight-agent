@@ -122,73 +122,96 @@ def _velocity(data: dict) -> dict | None:
 
 
 def _butterfly(data: dict) -> dict | None:
+    """Booked vs cancelled per stay month, DRIVEN BY THE PICKUP WINDOW the
+    user selects in the app (Today / Yesterday / 3-Day / 7-Day). All four
+    windows precomputed here; the page swaps them client-side. Each window
+    reconciles exactly with its Pickup Activity box (same conventions)."""
     pd_rows = data.get("pickup_daily") or []
     cd_rows = data.get("cancel_daily") or []
     if not pd_rows:
         return None
-    # CALENDAR windows anchored on the newest booking ref_date — bookings and
-    # cancellations MUST share the same 7/14-day spans (distinct-date windows
-    # drifted: cancels once spanned 8 calendar days vs bookings' 7).
     end = max(r["ref_date"] for r in pd_rows)
     end_d = _dt.strptime(end[:10], "%Y-%m-%d").date()
-    lo7, lo14 = (end_d - _td(days=6)).isoformat(), (end_d - _td(days=13)).isoformat()
+    WINDOWS = {
+        "today": (end, end),
+        "1d":    ((end_d - _td(days=1)).isoformat(), (end_d - _td(days=1)).isoformat()),
+        "3d":    ((end_d - _td(days=2)).isoformat(), end),
+        "7d":    ((end_d - _td(days=6)).isoformat(), end),
+    }
+    LABELS = {"today": "today", "1d": "yesterday", "3d": "3 days", "7d": "7 days"}
+    ALERT_PERIOD = {"today": "today", "1d": "yesterday",
+                    "3d": "the last 3 days", "7d": "the last 7 days"}
 
-    agg: dict = {}
-    for r in pd_rows:
-        k = (r["stay_year"], r["stay_month"])
-        a = agg.setdefault(k, {"n7": 0, "n14": 0})
-        if r["ref_date"] >= lo14:
-            a["n14"] += r["net_rn"]
-            if r["ref_date"] >= lo7:
-                a["n7"] += r["net_rn"]
-    # Current + future months get the rows; PAST months (now present since Q9
-    # counts all stay dates) collapse into one "Earlier" row so the visible
-    # rows still sum EXACTLY to the Pickup Activity card.
+    months_keys = sorted({(r["stay_year"], r["stay_month"]) for r in pd_rows})
     today = _date.today()
-    raw = []
-    past = {"m": "Earlier", "c7": 0, "c14": 0, "n7": 0, "n14": 0}
-    for (y, m), a in sorted(agg.items()):
-        c14 = sum(r["cancel_rn"] for r in cd_rows
-                  if r["stay_month"] == m and r["stay_year"] == y
-                  and lo14 <= r["ref_date"] <= end)
-        c7 = sum(r["cancel_rn"] for r in cd_rows
-                 if r["stay_month"] == m and r["stay_year"] == y
-                 and lo7 <= r["ref_date"] <= end)
+
+    def sums(y, m, lo, hi):
+        n = sum(r["net_rn"] for r in pd_rows
+                if r["stay_year"] == y and r["stay_month"] == m
+                and lo <= r["ref_date"] <= hi)
+        c = sum(r["cancel_rn"] for r in cd_rows
+                if r["stay_year"] == y and r["stay_month"] == m
+                and lo <= r["ref_date"] <= hi)
+        return {"n": n, "c": c, "b": max(n + c, 0)}
+
+    named, past = [], {"m": "Earlier",
+                       "w": {k: {"n": 0, "c": 0, "b": 0} for k in WINDOWS}}
+    past_any = False
+    for (y, m) in months_keys:
+        w = {k: sums(y, m, lo, hi) for k, (lo, hi) in WINDOWS.items()}
         if (y, m) < (today.year, today.month):
-            past["c7"] += c7; past["c14"] += c14
-            past["n7"] += a["n7"]; past["n14"] += a["n14"]
+            for k, v in w.items():
+                past["w"][k]["n"] += v["n"]; past["w"][k]["c"] += v["c"]
+            past_any = past_any or any(v["n"] or v["c"] for v in w.values())
             continue
-        raw.append({"m": calendar.month_abbr[m], "c7": c7, "c14": c14,
-                    "b7": max(a["n7"] + c7, 0), "b14": max(a["n14"] + c14, 0),
-                    "n7": a["n7"], "n14": a["n14"]})
-    raw = raw[:5]
-    if any((past["c14"], past["n14"], past["c7"], past["n7"])):
-        past["b7"] = max(past["n7"] + past["c7"], 0)
-        past["b14"] = max(past["n14"] + past["c14"], 0)
-        raw.append(past)
-    if not raw:
+        named.append({"m": calendar.month_abbr[m], "w": w})
+    named = named[:5]
+    if past_any:
+        for k in WINDOWS:
+            past["w"][k]["b"] = max(past["w"][k]["n"] + past["w"][k]["c"], 0)
+        named.append(past)
+    if not named:
         return None
-    mx = max(max(r["c14"], r["b14"], r["c7"], r["b7"]) for r in raw) * 1.08 or 1
+
+    # Server-side default render = the 7-Day window
+    DEFAULT = "7d"
+    mx = max(max(mo["w"][DEFAULT]["b"], mo["w"][DEFAULT]["c"]) for mo in named) * 1.08 or 1
     rows = []
-    for r in raw:
-        warn = r["c14"] > 0.6 * r["b14"] if r["b14"] else False
+    for mo in named:
+        v = mo["w"][DEFAULT]
+        warn = v["b"] > 0 and v["c"] > 0.6 * v["b"]
         rows.append({
-            "m": r["m"],
-            "lw7": round(r["c7"] / mx * 100, 1), "rw7": round(r["b7"] / mx * 100, 1),
-            "lw14": round(r["c14"] / mx * 100, 1), "rw14": round(r["b14"] / mx * 100, 1),
-            "n7_txt": f"{r['n7']:+d}", "n14_txt": f"{r['n14']:+d}",
-            "n7_col": GREEN if r["n7"] >= 0 else RED,
-            "n14_col": RED if (r["n14"] < 0 or warn) else GREEN,
+            "m": mo["m"],
+            "cw": round(v["c"] / mx * 100, 1),
+            "bw": round(v["b"] / mx * 100, 1),
+            "n_txt": f"{v['n']:+d}",
+            "n_col": RED if (v["n"] < 0 or warn) else GREEN,
         })
-    named = [r for r in raw if r["m"] != "Earlier"] or raw
-    worst = max(named, key=lambda r: (r["c14"] / r["b14"]) if r["b14"] else 0)
-    alert = None
-    if worst["b14"]:
-        share = worst["c14"] / worst["b14"] * 100
-        if share >= 15:
-            alert = (f"{worst['m']}: cancellations are {share:.0f}% of the rooms "
-                     f"booked in the last 14 days — the highest churn of any month.")
-    return {"rows": rows, "alert": alert}
+
+    # Alert text per window (worst churn among named months, ≥15% share)
+    alerts = {}
+    for k in WINDOWS:
+        cands = [mo for mo in named if mo["m"] != "Earlier"] or named
+        worst = max(cands, key=lambda mo: (mo["w"][k]["c"] / mo["w"][k]["b"])
+                    if mo["w"][k]["b"] else 0)
+        v = worst["w"][k]
+        if v["b"]:
+            share = v["c"] / v["b"] * 100
+            if share >= 15:
+                alerts[k] = (f"{worst['m']}: cancellations are {share:.0f}% of the "
+                             f"rooms booked {ALERT_PERIOD[k]} — the highest churn "
+                             f"of any month.")
+
+    payload = {
+        "months": [{"m": mo["m"], "w": mo["w"]} for mo in named],
+        "labels": LABELS,
+        "alerts": alerts,
+        "default": DEFAULT,
+    }
+    import json as _json
+    return {"rows": rows, "alert": alerts.get(DEFAULT),
+            "default_label": LABELS[DEFAULT],
+            "payload_json": _json.dumps(payload, ensure_ascii=False)}
 
 
 def _heat(data: dict) -> dict | None:
