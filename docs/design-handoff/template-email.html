@@ -52,6 +52,10 @@
   .ss-speak { background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2);
               border-radius:999px; width:32px; height:32px; font-size:14px; cursor:pointer;
               display:inline-flex; align-items:center; justify-content:center; padding:0; }
+  .ss-headline { font-size:21px; font-weight:800; line-height:1.3; letter-spacing:-0.02em; color:#fff; margin-bottom:12px; }
+  .ss-bi { position:relative; padding-left:17px; font-size:14px; line-height:1.6; color:rgba(255,255,255,.85); margin-bottom:9px; }
+  .ss-bi::before { content:""; position:absolute; left:3px; top:10px; width:5px; height:5px; border-radius:50%; background:rgba(255,255,255,.4); }
+  .ss-more { display:inline-block; margin-top:3px; font-size:13.5px; font-weight:700; color:#38E1F0; cursor:pointer; }
 
   /* Section label */
   .sl { display:flex; align-items:center; gap:7px; font-size:13px; font-weight:700; color:var(--n800); margin:18px 0 8px; letter-spacing:-0.01em; }
@@ -348,12 +352,24 @@
       <span class="ss-date">Last refresh {{ render_date }} · {{ data.generated_at }}</span>
       {% if charts %}
       <button class="ss-speak" title="Listen to the briefing"
-        onclick="var b=this;var t=b.closest('.smart-summary').querySelector('.ss-body').innerText;var s=window.speechSynthesis;if(!s){return;}if(s.speaking){s.cancel();b.textContent='🔊';return;}var go=function(){var vs=s.getVoices();var pick=null;var fem=/samantha|karen|moira|tessa|martha|serena|victoria|zira|aria|jenny|susan|catherine|nicky|female|woman/i;for(var j=0;j<vs.length&&!pick;j++){if(vs[j].lang&&vs[j].lang.indexOf('en')===0&&fem.test(vs[j].name)){pick=vs[j];}}if(!pick){for(var g=0;g<vs.length&&!pick;g++){if(/google us english|google uk english female/i.test(vs[g].name)){pick=vs[g];}}}if(!pick){for(var k=0;k<vs.length&&!pick;k++){if(vs[k].lang&&vs[k].lang.indexOf('en')===0){pick=vs[k];}}}var u=new SpeechSynthesisUtterance(t);u.lang='en-US';u.rate=1.0;u.pitch=1.05;if(pick){u.voice=pick;}u.onend=function(){b.textContent='🔊';};u.onerror=function(){b.textContent='🔊';};b.textContent='⏹';s.speak(u);};var vs0=s.getVoices();if(vs0.length){go();}else{s.onvoiceschanged=function(){s.onvoiceschanged=null;go();};setTimeout(function(){if(b.textContent!=='⏹'){go();}},300);}">🔊</button>
+        onclick="var b=this;var t=b.closest('.smart-summary').querySelector('.ss-body').textContent;var s=window.speechSynthesis;if(!s){return;}if(s.speaking){s.cancel();b.textContent='🔊';return;}var go=function(){var vs=s.getVoices();var pick=null;var fem=/samantha|karen|moira|tessa|martha|serena|victoria|zira|aria|jenny|susan|catherine|nicky|female|woman/i;for(var j=0;j<vs.length&&!pick;j++){if(vs[j].lang&&vs[j].lang.indexOf('en')===0&&fem.test(vs[j].name)){pick=vs[j];}}if(!pick){for(var g=0;g<vs.length&&!pick;g++){if(/google us english|google uk english female/i.test(vs[g].name)){pick=vs[g];}}}if(!pick){for(var k=0;k<vs.length&&!pick;k++){if(vs[k].lang&&vs[k].lang.indexOf('en')===0){pick=vs[k];}}}var u=new SpeechSynthesisUtterance(t);u.lang='en-US';u.rate=1.0;u.pitch=1.05;if(pick){u.voice=pick;}u.onend=function(){b.textContent='🔊';};u.onerror=function(){b.textContent='🔊';};b.textContent='⏹';s.speak(u);};var vs0=s.getVoices();if(vs0.length){go();}else{s.onvoiceschanged=function(){s.onvoiceschanged=null;go();};setTimeout(function(){if(b.textContent!=='⏹'){go();}},300);}">🔊</button>
       {% endif %}
     </span>
   </div>
   <div class="info-panel" id="info-hero" style="background:rgba(255,255,255,.08);color:rgba(255,255,255,.75)">The analyst writes this summary once early each morning with the AI. The KPI cards below refresh during the day as the hotel system posts late charges — so their numbers can drift a few euros from the morning text. Both are correct for their moment.</div>
+  {% if charts and hero_headline %}
+  <div id="ss-mini">
+    <div class="ss-headline">{{ hero_headline | highlight_dark | safe }}</div>
+    {% for b in hero_bullets %}<div class="ss-bi">{{ b | highlight_dark | safe }}</div>{% endfor %}
+    <span class="ss-more" onclick="document.getElementById('ss-mini').style.display='none';document.getElementById('ss-full').style.display='block'">Read the full briefing →</span>
+  </div>
+  <div id="ss-full" style="display:none">
+    <div class="ss-body">{{ ai.executive_summary | highlight_dark | safe }}</div>
+    <span class="ss-more" onclick="document.getElementById('ss-full').style.display='none';document.getElementById('ss-mini').style.display='block'">Show less ↑</span>
+  </div>
+  {% else %}
   <div class="ss-body">{{ ai.executive_summary | highlight_dark | safe }}</div>
+  {% endif %}
   {% set h_rn_var  = ((yd.roomNights - yd.roomNightsLY) / yd.roomNightsLY * 100) if yd.roomNightsLY else 0 %}
   {% set h_adr_var = ((yd.adr - yd.adrLY) / yd.adrLY * 100) if yd.adrLY else 0 %}
   {% set h_net     = yd.revenue - yd.revenueLY %}
