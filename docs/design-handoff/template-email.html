@@ -360,7 +360,6 @@
   {% if charts and hero_headline %}
   <div id="ss-mini">
     <div class="ss-headline">{{ hero_headline | highlight_dark | safe }}</div>
-    {% for b in hero_bullets %}<div class="ss-bi">{{ b | highlight_dark | safe }}</div>{% endfor %}
     <span class="ss-more" onclick="document.getElementById('ss-mini').style.display='none';document.getElementById('ss-full').style.display='block'">Read the full briefing →</span>
   </div>
   <div id="ss-full" style="display:none">

@@ -84,23 +84,20 @@ def _render(data: dict[str, Any], ai: dict[str, Any],
         _tznow = _dtn.now()
     env.globals["render_date"] = _tznow.strftime("%d %b").upper()
 
-    # Expandable Smart Summary (app only): the hero paragraph is split into a
-    # verdict headline + fact bullets for the collapsed view; the greeting
-    # sentence is dropped from the headline. Falls back to the plain paragraph
-    # when the split doesn't yield at least headline + one bullet.
-    hero_headline, hero_bullets = None, []
+    # Expandable Smart Summary (app only): collapsed = the verdict headline
+    # only (first sentence after the greeting); tapping expands to the full
+    # hero paragraph. Falls back to the plain paragraph when too short.
+    hero_headline = None
     _hero_txt = (ai.get("executive_summary") or "").strip()
     _parts = [p.strip() for p in re.split(r"(?<=[.!?;»])\s+", _hero_txt) if p.strip()]
     if _parts and len(_parts[0]) <= 40 and re.match(r"^[«\"']?(good morning|καλημ)", _parts[0], re.I):
         _parts = _parts[1:]
     if len(_parts) >= 2:
         hero_headline = _parts[0]
-        hero_bullets = _parts[1:3]
 
     return env.get_template("email.html").render(data=data, ai=ai,
                                                  charts=charts or {},
-                                                 hero_headline=hero_headline,
-                                                 hero_bullets=hero_bullets)
+                                                 hero_headline=hero_headline)
 
 
 def _subject(data: dict[str, Any]) -> str:
