@@ -56,6 +56,11 @@
   .ss-bi { position:relative; padding-left:17px; font-size:14px; line-height:1.6; color:rgba(255,255,255,.85); margin-bottom:9px; }
   .ss-bi::before { content:""; position:absolute; left:3px; top:10px; width:5px; height:5px; border-radius:50%; background:rgba(255,255,255,.4); }
   .ss-more { display:inline-block; margin-top:3px; font-size:13.5px; font-weight:700; color:#38E1F0; cursor:pointer; }
+  .ss-sec { padding:10px 0; border-top:1px solid rgba(255,255,255,.12); }
+  .ss-sec:last-of-type { margin-bottom:6px; }
+  .ss-sec-lbl { font-family:var(--mono); font-size:9.5px; letter-spacing:.14em; text-transform:uppercase; color:#38E1F0; font-weight:600; margin-bottom:4px; }
+  .ss-sec-val { font-size:13px; line-height:1.5; color:rgba(255,255,255,.78); font-weight:600; }
+  .ss-sec-val b { color:#fff; font-weight:800; }
 
   /* Section label */
   .sl { display:flex; align-items:center; gap:7px; font-size:13px; font-weight:700; color:var(--n800); margin:18px 0 8px; letter-spacing:-0.01em; }
@@ -360,6 +365,23 @@
   {% if charts and hero_headline %}
   <div id="ss-mini">
     <div class="ss-headline">{{ hero_headline | highlight_dark | safe }}</div>
+    <div class="ss-sec">
+      <div class="ss-sec-lbl">Performance</div>
+      <div class="ss-sec-val">Yesterday <b>{{ yd.revenue | euro }}</b> · <b>{{ '%+.0f'|format(yd_rev_var) }}%</b> vs LY&ensp;·&ensp;MTD <b>{{ mtd.revenue | kilo }}</b> · <b>{{ '%+.0f'|format(mtd_rev_var) }}%</b></div>
+    </div>
+    <div class="ss-sec">
+      <div class="ss-sec-lbl">Pickup</div>
+      <div class="ss-sec-val"><b>+{{ data.pickup.last7d.roomNights }}</b> rn booked · 7 days&ensp;·&ensp;<b>−{{ data.pickup.cancellations7d or 0 }}</b> cancelled</div>
+    </div>
+    {% if data.pace %}
+    {% set fy_rev  = data.pace | sum(attribute='rev') %}
+    {% set fy_stly = data.pace | sum(attribute='rev_stly') %}
+    {% set fy_var  = ((fy_rev - fy_stly) / fy_stly * 100) if fy_stly else 0 %}
+    <div class="ss-sec">
+      <div class="ss-sec-lbl">On the Books</div>
+      <div class="ss-sec-val">Full year <b>€{{ '%.2f'|format(fy_rev / 1000000) }}M</b> vs <b>€{{ '%.2f'|format(fy_stly / 1000000) }}M</b> STLY · <b>{{ '%+.0f'|format(fy_var) }}%</b></div>
+    </div>
+    {% endif %}
     <span class="ss-more" onclick="document.getElementById('ss-mini').style.display='none';document.getElementById('ss-full').style.display='block'">Read the full briefing →</span>
   </div>
   <div id="ss-full" style="display:none">
@@ -372,7 +394,7 @@
   {% set h_rn_var  = ((yd.roomNights - yd.roomNightsLY) / yd.roomNightsLY * 100) if yd.roomNightsLY else 0 %}
   {% set h_adr_var = ((yd.adr - yd.adrLY) / yd.adrLY * 100) if yd.adrLY else 0 %}
   {% set h_net     = yd.revenue - yd.revenueLY %}
-  {% if yd.revenue %}
+  {% if yd.revenue and not (charts and hero_headline) %}
   <div class="hero-chips">
     <span class="hchip {{ 'up' if h_rn_var >= 0 else 'down' }}">Room nights {{ '▲' if h_rn_var >= 0 else '▼' }}{{ h_rn_var | abs | round(0) | int }}%</span>
     <span class="hchip {{ 'up' if h_adr_var >= 0 else 'down' }}">ADR {{ '▲' if h_adr_var >= 0 else '▼' }}{{ h_adr_var | abs | round(1) }}%</span>
