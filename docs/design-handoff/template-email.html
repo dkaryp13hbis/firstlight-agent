@@ -286,11 +286,6 @@
 
   /* ── Section scroll anchors ── */
   .sec-anchor { scroll-margin-top:46px; }
-  .acc-head { display:flex; align-items:center; gap:10px; background:var(--card-bg); border:none; border-radius:18px; padding:14px 18px; margin-bottom:8px; box-shadow:var(--card-shadow); cursor:pointer; }
-  .acc-title { font-size:13.5px; font-weight:800; color:var(--n800); letter-spacing:-0.01em; }
-  .acc-sum { font-size:12px; font-weight:600; color:#4D5A74; margin-top:2px; }
-  .acc-chev { margin-left:auto; color:#79747E; font-size:12px; transition:transform .2s; flex-shrink:0; }
-  .acc-head.open .acc-chev { transform:rotate(180deg); }
 
   /* ── AI card collapse ── */
   .icard-toggle {
@@ -325,7 +320,7 @@
 <nav class="tab-nav" id="tab-nav">
   <button class="tab-btn active" onclick="navTo('sec-overview')">Overview</button>
   <button class="tab-btn" onclick="navTo('sec-pickup')">Pickup</button>
-  <button class="tab-btn" onclick="navTo('sec-pace')">OTB</button>
+  <button class="tab-btn" onclick="navTo('sec-pace')">Pace</button>
   <button class="tab-btn" onclick="navTo('sec-ai')">AI Insights{% if ai.insights %}<span class="tab-badge">{{ ai.insights | length }}</span>{% endif %}</button>
 </nav>
 <div class="wrap">
@@ -387,17 +382,6 @@
 </div>
 {% endif %}
 
-<!-- PERFORMANCE (yesterday + MTD) -->
-{% if charts %}
-<div class="acc-head" id="acch-perf" onclick="accToggle('perf')">
-  <div>
-    <div class="acc-title">Performance</div>
-    <div class="acc-sum num">Yesterday {{ yd.revenue | euro }} · {{ '%+.0f'|format(yd_rev_var) }}% <span style="color:#B9C0CF">|</span> MTD {{ mtd.revenue | kilo }} · {{ '%+.0f'|format(mtd_rev_var) }}%</div>
-  </div>
-  <span class="acc-chev">▾</span>
-</div>
-{% endif %}
-<div id="accb-perf"{% if charts %} style="display:none"{% endif %}>
 <!-- YESTERDAY KPIs -->
 <div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>Yesterday<button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-yday');n.style.display=n.style.display==='block'?'none':'block';">i</button></div><div class="info-panel" id="info-yday">Yesterday's final numbers against the same day last year — revenue, how full you were, at what average rate, and how many rooms. The four dials of the morning.</div>
 <div class="kpi-row">
@@ -467,20 +451,28 @@
   </div>
 </div>
 
+<!-- OTB BY MONTH (next 3 months from pace) -->
+{% if data.pace_current %}
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>On The Books &mdash; Next 3 Months<button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-otb3');n.style.display=n.style.display==='block'?'none':'block';">i</button></div><div class="info-panel" id="info-otb3">Revenue and rooms already booked for the next three months, compared with the same date last year (STLY). Green means ahead of last year's pace.</div>
+<div class="otb-row">
+  {% for p in data.pace_current %}
+    {% set vs_stly = ((p.rev - p.rev_stly) / p.rev_stly * 100) if p.rev_stly else 0 %}
+    {% set bar_color = 'var(--grad-cyan)' if p.status == 'ahead' else ('var(--red)' if p.status == 'behind' else 'var(--n500)') %}
+    <div class="otb-card">
+      <div class="top-bar" style="background:{{ bar_color }}"></div>
+      <div class="otb-mo">{{ p.month }}</div>
+      <div class="otb-rev">{{ p.rev | euro }}</div>
+      <div class="otb-detail"><b>{{ p.rn }}</b> rn &middot; <span class="otb-occ" style="color:{{ 'var(--green)' if p.status == 'ahead' else ('var(--red)' if p.status == 'behind' else 'var(--grey-600)') }}">{{ p.occ | pct }}</span> occ</div>
+      <div class="otb-vs" style="color:{{ 'var(--green)' if vs_stly >= 0 else 'var(--red)' }}">
+        {{ '▲' if vs_stly >= 0 else '▼' }} {{ '%+.0f'|format(vs_stly) }}% vs STLY
+      </div>
+    </div>
+  {% endfor %}
 </div>
+{% endif %}
 
 <!-- PICKUP -->
 <div id="sec-pickup" class="sec-anchor"></div>
-{% if charts %}
-<div class="acc-head" id="acch-pickup" onclick="accToggle('pickup')">
-  <div>
-    <div class="acc-title">Pickup</div>
-    <div class="acc-sum num">+{{ data.pickup.last7d.roomNights }} rn · 7 days <span style="color:#B9C0CF">|</span> −{{ data.pickup.cancellations7d or 0 }} cancelled</div>
-  </div>
-  <span class="acc-chev">▾</span>
-</div>
-{% endif %}
-<div id="accb-pickup"{% if charts %} style="display:none"{% endif %}>
 <div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>Pickup Activity<button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-pickup');n.style.display=n.style.display==='block'?'none':'block';">i</button></div><div class="info-panel" id="info-pickup">The fresh demand flowing in: what was booked and cancelled today, yesterday, and over the last 3 and 7 days. Net = booked minus cancelled — what you actually kept.</div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
 
@@ -675,45 +667,9 @@
 </div>
 {% endif %}
 
-</div>
-
-<!-- ON THE BOOKS -->
-<div id="sec-pace" class="sec-anchor"></div>
-{% if charts and data.pace %}
-{% set fy_rev  = data.pace | sum(attribute='rev') %}
-{% set fy_stly = data.pace | sum(attribute='rev_stly') %}
-{% set fy_var  = ((fy_rev - fy_stly) / fy_stly * 100) if fy_stly else 0 %}
-<div class="acc-head" id="acch-otb" onclick="accToggle('otb')">
-  <div>
-    <div class="acc-title">On the Books</div>
-    <div class="acc-sum num">Year €{{ '%.2f'|format(fy_rev / 1000000) }}M vs €{{ '%.2f'|format(fy_stly / 1000000) }}M STLY · {{ '%+.0f'|format(fy_var) }}%</div>
-  </div>
-  <span class="acc-chev">▾</span>
-</div>
-{% endif %}
-<div id="accb-otb"{% if charts %} style="display:none"{% endif %}>
-<!-- OTB BY MONTH (next 3 months from pace) -->
-{% if data.pace_current %}
-<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>On The Books &mdash; Next 3 Months<button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-otb3');n.style.display=n.style.display==='block'?'none':'block';">i</button></div><div class="info-panel" id="info-otb3">Revenue and rooms already booked for the next three months, compared with the same date last year (STLY). Green means ahead of last year's pace.</div>
-<div class="otb-row">
-  {% for p in data.pace_current %}
-    {% set vs_stly = ((p.rev - p.rev_stly) / p.rev_stly * 100) if p.rev_stly else 0 %}
-    {% set bar_color = 'var(--grad-cyan)' if p.status == 'ahead' else ('var(--red)' if p.status == 'behind' else 'var(--n500)') %}
-    <div class="otb-card">
-      <div class="top-bar" style="background:{{ bar_color }}"></div>
-      <div class="otb-mo">{{ p.month }}</div>
-      <div class="otb-rev">{{ p.rev | euro }}</div>
-      <div class="otb-detail"><b>{{ p.rn }}</b> rn &middot; <span class="otb-occ" style="color:{{ 'var(--green)' if p.status == 'ahead' else ('var(--red)' if p.status == 'behind' else 'var(--grey-600)') }}">{{ p.occ | pct }}</span> occ</div>
-      <div class="otb-vs" style="color:{{ 'var(--green)' if vs_stly >= 0 else 'var(--red)' }}">
-        {{ '▲' if vs_stly >= 0 else '▼' }} {{ '%+.0f'|format(vs_stly) }}% vs STLY
-      </div>
-    </div>
-  {% endfor %}
-</div>
-{% endif %}
-
 <!-- PACE CHARTS -->
 {% if data.pace %}
+<div id="sec-pace" class="sec-anchor"></div>
 <div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Pace &mdash; OTB vs STLY vs Final LY<button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-pace');n.style.display=n.style.display==='block'?'none':'block';">i</button></div><div class="info-panel" id="info-pace">Each future month three ways: what's on the books now (blue), where last year stood on this same date (grey), and where the month finally ended last year (dashed). Useful to spot months running ahead or behind before they arrive.</div>
 
 {# ── Compute chart layout variables ── #}
@@ -1106,8 +1062,6 @@
   {% endfor %}
 </div>
 
-</div>
-
 <!-- AI INSIGHTS -->
 {% if ai.insights %}
 <div id="sec-ai" class="sec-anchor"></div>
@@ -1192,23 +1146,7 @@
 
 <script>
 // ── Tab navigation ───────────────────────────────────────────────
-const _accOf = { 'sec-pickup': 'pickup', 'sec-pace': 'otb', 'sec-sources': 'otb' };
-function accToggle(k) {
-  var b = document.getElementById('accb-' + k), h = document.getElementById('acch-' + k);
-  if (!b) return;
-  var open = b.style.display !== 'none';
-  b.style.display = open ? 'none' : 'block';
-  if (h) h.classList.toggle('open', !open);
-}
-function accOpen(k) {
-  var b = document.getElementById('accb-' + k), h = document.getElementById('acch-' + k);
-  if (b) b.style.display = 'block';
-  if (h) h.classList.add('open');
-}
-function flExpandAll() { ['perf', 'pickup', 'otb'].forEach(accOpen); }
-window.flExpandAll = flExpandAll;
 function navTo(id) {
-  if (_accOf[id]) accOpen(_accOf[id]);
   const el = document.getElementById(id);
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
