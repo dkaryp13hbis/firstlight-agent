@@ -581,8 +581,19 @@
 .fl-fr{flex:1}
 .fl-frb{height:8px;border-radius:0 4px 4px 0}
 .fl-alert{background:#FBEEDC;border:none;color:#6D4C00;border-radius:12px;font-size:12.5px;line-height:1.5;padding:11px 13px;margin-top:10px}
-.pw-box{border:2px solid transparent;transition:border-color .15s}
-.pw-box.pw-sel{border-color:#2E7CF7;box-shadow:0 0 0 3px rgba(46,124,247,.18), var(--card-shadow)}
+.pw-box{border:1.5px solid transparent}
+.pw-box.pw-sel{
+  background:linear-gradient(var(--card-bg),var(--card-bg)) padding-box,
+             linear-gradient(120deg,#0F2860,#2E7CF7,#38E1F0,#2E7CF7,#0F2860) border-box;
+  background-size:auto,300% 300%;
+  animation:pwring 3.5s ease-in-out infinite;
+  box-shadow:var(--card-shadow);
+}
+@keyframes pwring{
+  0%{background-position:0 0,0% 50%}
+  50%{background-position:0 0,100% 50%}
+  100%{background-position:0 0,0% 50%}
+}
 .fl-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
 .fl-cell{aspect-ratio:1;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
 .fl-occ{font-size:13.5px;font-weight:800;font-family:var(--mono)}
