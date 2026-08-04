@@ -95,7 +95,7 @@ def _render(data: dict[str, Any], ai: dict[str, Any],
         _parts = _parts[1:]
     if len(_parts) >= 2:
         hero_headline = _parts[0]
-        hero_bullets = _parts[1:4]
+        hero_bullets = _parts[1:3]
 
     return env.get_template("email.html").render(data=data, ai=ai,
                                                  charts=charts or {},

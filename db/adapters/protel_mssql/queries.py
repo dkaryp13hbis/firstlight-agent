@@ -266,6 +266,59 @@ GROUP BY stay_month
 ORDER BY stay_month;
 """.format(fake_rt=_FAKE_RT_EXCLUDE)
 
+# ------------------------------------------------------------------
+# Q16: NEXT-YEAR OTB pace by month (closed-season hero, resorts).
+# TY = all active bookings for next calendar year (pure OTB)
+# STLY = bookings for THIS year that were on the books at the same
+#        date last year — the same booking stage one season earlier.
+# Same cancellation conventions as Q_PACE. 2 params (mpehotel x2).
+# ------------------------------------------------------------------
+
+Q_PACE_NEXT = """
+DECLARE @today     DATE = CAST(GETDATE() AS DATE);
+DECLARE @stly_cap  DATE = DATEADD(YEAR, -1, @today);   -- book date cap for STLY
+
+SELECT
+    stay_month,
+    SUM(rn_ty)    AS rn_otb,
+    SUM(rn_stly)  AS rn_stly,
+    SUM(rev_ty)   AS rev_otb,
+    SUM(rev_stly) AS rev_stly
+FROM (
+    -- OTB next year: all active bookings for next calendar year
+    SELECT
+        MONTH(h.date) AS stay_month,
+        h.Occupancy   AS rn_ty,
+        0             AS rn_stly,
+        h.logis       AS rev_ty,
+        0.0           AS rev_stly
+    FROM bidata.proteluser.Hitia h
+    WHERE h.mpehotel = ?
+      AND h.reschar < 2
+      AND {fake_rt}
+      AND YEAR(h.date) = YEAR(@today) + 1
+
+    UNION ALL
+
+    -- STLY: this year's stays as booked by the same date last year
+    -- (Occupancy is 0 on cancelled records in Protel — restore to 1 per row)
+    SELECT
+        MONTH(h.date),
+        0,
+        CASE WHEN h.reschar < 2 THEN h.Occupancy WHEN CAST(h.datumbis AS DATE) = CAST(h.date AS DATE) THEN 0 ELSE 1 END,
+        0.0,
+        h.logis
+    FROM bidata.proteluser.Hitia h
+    WHERE h.mpehotel = ?
+      AND (h.reschar < 2 OR (h.reschar = 2 AND CAST(h.Canceled AS DATE) > @stly_cap))
+      AND {fake_rt}
+      AND YEAR(h.date) = YEAR(@today)
+      AND CAST(h.SystemDate AS DATE) <= @stly_cap
+) t
+GROUP BY stay_month
+ORDER BY stay_month;
+""".format(fake_rt=_FAKE_RT_EXCLUDE)
+
 
 # ------------------------------------------------------------------
 # Q5: Top sources OTB — full-year revenue vs STLY  (book-date axis, active only)

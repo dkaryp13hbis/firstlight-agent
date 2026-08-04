@@ -1,0 +1,18 @@
+services:
+  firstlight-agent:
+    build: .
+    image: firstlight-agent
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Daily briefing schedule (cron syntax, server local time)
+      # Default: 06:00 every morning
+      BRIEFING_CRON: "0 6 * * *"
+    volumes:
+      # Persist AI cache between restarts
+      - ./ai_cache.json:/app/ai_cache.json
+      # VAPID private key — path inside container is /app/vapid_private.pem
+      # Set VAPID_PRIVATE_KEY=/app/vapid_private.pem in .env
+      - ./vapid_private.pem:/app/vapid_private.pem:ro
+      # Logs (optional)
+      - ./logs:/app/logs

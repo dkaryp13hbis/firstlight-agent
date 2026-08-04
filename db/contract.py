@@ -84,7 +84,7 @@ _SIGNAL_FIELDS = ("pickup_daily", "otb_by_date", "current_month_remaining")
 # signal-mode payloads: absence never blocks, never triggers legacy_mode.
 _SIGNAL_PREFIXES = _SIGNAL_FIELDS + ("pace[].rn_stly", "pace[].rn_final_ly",
                                      "lead_time", "cancel_daily",
-                                     "consumed_by_source")
+                                     "consumed_by_source", "pace_next_year")
 
 _REQUIRED_YESTERDAY = ("revenue", "revenueLY", "roomNights", "roomNightsLY",
                        "adr", "adrLY", "occupancy", "occupancyLY")
@@ -168,7 +168,16 @@ def build_data_quality(data: dict[str, Any], total_rooms: int | None = None) -> 
     # Hard: a failure here means the snapshot must not be published.
     rev_yd = _num(yd.get("revenue"))
     rn_yd  = _num(yd.get("roomNights"))
-    sanity["yesterday_nonzero"] = (rev_yd > 0 or rn_yd > 0)
+    # Closed season (seasonal resort): yesterday AND MTD at zero is legitimate
+    # when next-year bookings prove the data pipe is alive — the briefing then
+    # pivots to next-year OTB. All-zero WITHOUT that evidence still blocks.
+    closed_season = (
+        rev_yd == 0 and rn_yd == 0
+        and _num(mtd.get("roomNights")) == 0
+        and any(_num(p.get("rn")) > 0 for p in (data.get("pace_next_year") or [])
+                if isinstance(p, dict))
+    )
+    sanity["yesterday_nonzero"] = (rev_yd > 0 or rn_yd > 0) or closed_season
 
     occ_values = [
         _num(yd.get("occupancy")), _num(yd.get("occupancyLY")),

@@ -488,6 +488,22 @@ def fetch_snapshot(conn: pyodbc.Connection, hotel_ctx: dict[str, Any]) -> dict[s
     except Exception as exc:  # noqa: BLE001
         print(f"[{hotel_name}] consumed_by_source query failed (non-blocking): {exc}")
 
+    # ── Q16: Next-year OTB by month (closed-season hero — fail-open) ──
+    pace_next_year = []
+    try:
+        cur.execute(Q.Q_PACE_NEXT, hotel_id, hotel_id)
+        for r in _rows(cur):
+            pace_next_year.append({
+                "month":     _month_abbr(int(r["stay_month"])),
+                "month_num": int(r["stay_month"]),
+                "rn":        int(float(r["rn_otb"] or 0)),
+                "rn_stly":   int(float(r["rn_stly"] or 0)),
+                "rev":       round(float(r["rev_otb"] or 0), 0),
+                "rev_stly":  round(float(r["rev_stly"] or 0), 0),
+            })
+    except Exception as exc:  # noqa: BLE001
+        print(f"[{hotel_name}] pace_next_year query failed (non-blocking): {exc}")
+
     # ── Assemble payload ──────────────────────────────────────────
     payload = {
         "hotel_name": hotel_name,
@@ -559,6 +575,7 @@ def fetch_snapshot(conn: pyodbc.Connection, hotel_ctx: dict[str, Any]) -> dict[s
         "lead_time":   lead_time,
         "cancel_daily": cancel_daily,
         "consumed_by_source": consumed_by_source,
+        "pace_next_year": pace_next_year,
         "hotel_type":  hotel_ctx.get("hotel_type", "resort"),
         "otb_by_date": otb_by_date,
         "current_month_remaining": current_month_remaining,

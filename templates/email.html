@@ -373,11 +373,13 @@
   {% set h_rn_var  = ((yd.roomNights - yd.roomNightsLY) / yd.roomNightsLY * 100) if yd.roomNightsLY else 0 %}
   {% set h_adr_var = ((yd.adr - yd.adrLY) / yd.adrLY * 100) if yd.adrLY else 0 %}
   {% set h_net     = yd.revenue - yd.revenueLY %}
+  {% if yd.revenue %}
   <div class="hero-chips">
     <span class="hchip {{ 'up' if h_rn_var >= 0 else 'down' }}">Room nights {{ '▲' if h_rn_var >= 0 else '▼' }}{{ h_rn_var | abs | round(0) | int }}%</span>
     <span class="hchip {{ 'up' if h_adr_var >= 0 else 'down' }}">ADR {{ '▲' if h_adr_var >= 0 else '▼' }}{{ h_adr_var | abs | round(1) }}%</span>
     <span class="hchip net">Revenue {{ '▲' if h_net >= 0 else '▼' }}{{ h_net | abs | kilo }}</span>
   </div>
+  {% endif %}
 </div>
 {% endif %}
 

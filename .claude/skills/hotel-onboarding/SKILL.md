@@ -36,6 +36,19 @@ Also: name, total_rooms, recipient_email/name. Prefer a read-only SQL login
 (`CREATE LOGIN firstlight_ro` + `GRANT SELECT ON SCHEMA::proteluser` in
 `bidata` AND `protel`) — never ship `sa` beyond a pilot.
 
+**MANDATORY intake questions (user-mandated 2026-08-04):**
+- **Available inventory** — the real sellable room count for `total_rooms`.
+  Ask the hotel; do NOT trust the PMS room list (out-of-order rooms, dummy
+  rooms and fake room types inflate it). Occupancy math divides by this.
+- **Season settings** — for seasonal hotels: opening and closing dates for
+  LAST year and THIS year → `hotels.season_settings` jsonb
+  (`docs/sql/2026-08-04_season_settings.sql`, e.g.
+  `{"2025": {"open": "...", "close": "..."}, "2026": {...}}`).
+  Without them, occupancy over a month that straddles opening/closing uses
+  calendar days and understates; the closed-season hero (Q16
+  `pace_next_year`, next-year OTB vs STLY) also keys off the season window.
+  City hotels: `null` (open all year).
+
 ## 3. Verify (before decommissioning anything)
 
 1. Insert a refresh command (see `ops-monitoring`) → expect a `refresh_runs`

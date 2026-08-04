@@ -34,7 +34,7 @@ import config
 
 _client = None
 _MODEL = "claude-sonnet-4-6"
-_PROMPT_VERSION = "cards-v1.4-singleshot"
+_PROMPT_VERSION = "cards-v1.5-closedseason"
 
 # Cost policy (user decision 2026-07-27): every Claude call costs money, so
 # narration gets ONE attempt — a validation miss goes straight to the free
@@ -1710,9 +1710,46 @@ def _driver_hint(vol_pct: float | None, adr_pct: float | None) -> str:
     return "rate up, occupancy down" if a > 0 else "occupancy up, rate down"
 
 
+def _closed_season_slots(data: dict) -> dict | None:
+    """Seasonal-closure detection for the hero. When the hotel had zero stays
+    yesterday AND zero MTD but next year has bookings on the books (Q16), the
+    hero pivots to next-year OTB vs the same booking stage a year ago.
+    Returns the formatted slot block, or None when the hotel is operating."""
+    yd, mtd = data.get("yesterday", {}) or {}, data.get("mtd", {}) or {}
+    if float(yd.get("revenue") or 0) or float(yd.get("roomNights") or 0):
+        return None
+    if float(mtd.get("roomNights") or 0):
+        return None
+    pnx = [p for p in (data.get("pace_next_year") or []) if isinstance(p, dict)]
+    rn = sum(float(p.get("rn") or 0) for p in pnx)
+    if rn <= 0:
+        return None
+    rn_stly  = sum(float(p.get("rn_stly") or 0) for p in pnx)
+    rev      = sum(float(p.get("rev") or 0) for p in pnx)
+    rev_stly = sum(float(p.get("rev_stly") or 0) for p in pnx)
+    ny, ty = _date.today().year + 1, _date.today().year
+    top = sorted(pnx, key=lambda p: float(p.get("rn") or 0), reverse=True)[:2]
+    slot = {
+        "status": (f"closed for the season — comparing {ny} on the books "
+                   f"against {ty} at the same booking stage last year"),
+        "rn_otb":      f"{int(rn):,} room nights",
+        "revenue_otb": _eur(rev),
+        "top_months":  [f"{p.get('month')}: {int(float(p.get('rn') or 0)):,} rn"
+                        for p in top if float(p.get("rn") or 0) > 0],
+    }
+    if rn_stly:
+        slot["rn_vs_stly"] = _pct_signed((rn - rn_stly) / rn_stly * 100)
+    if rev_stly:
+        slot["rev_vs_stly"] = _pct_signed((rev - rev_stly) / rev_stly * 100)
+    return slot
+
+
 def _build_hero_slots(data: dict) -> dict:
     """Deterministic facts for the hero paragraph. Every number the narration
     may use must appear here verbatim (numeric validator input)."""
+    closed = _closed_season_slots(data)
+    if closed:
+        return {"closed_season": closed}
     yd, mtd = data.get("yesterday", {}) or {}, data.get("mtd", {}) or {}
 
     def _vs(ty: float, ly: float) -> str | None:
@@ -1764,6 +1801,18 @@ def _hero_violations(text: str, greeting: str = "Good morning") -> list[str]:
 
 def _hero_fallback(slots: dict, cards: list[dict]) -> str:
     """Deterministic hero — always available, numbers straight from slots."""
+    cs = slots.get("closed_season")
+    if cs:
+        parts = ["Good morning.", "The hotel is closed for the season."]
+        s = f"Next year already has {cs['rn_otb']} on the books at {cs['revenue_otb']}"
+        if cs.get("rn_vs_stly"):
+            s += f", {cs['rn_vs_stly']} vs the same time last year"
+        parts.append(s + ".")
+        if cs.get("top_months"):
+            parts.append("Strongest months so far — " + "; ".join(cs["top_months"]) + ".")
+        for c in cards[:2]:
+            parts.append(c["headline"].rstrip(".") + ".")
+        return " ".join(parts)
     y, m = slots.get("yesterday", {}), slots.get("mtd", {})
     parts = ["Good morning."]
     if y.get("revenue"):
@@ -1799,6 +1848,22 @@ def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
                "at_stake": (c.get("at_stake") or {}).get("value")} for c in cards[:3]]
     haystack = (json.dumps(slots, ensure_ascii=False)
                 + json.dumps(digest, ensure_ascii=False))
+    if "closed_season" in slots:
+        order_text = (
+            "(1) note calmly that the hotel is closed for the season — zero activity is "
+            "normal, not a problem; (2) next year's on-the-books position — room nights "
+            "and revenue vs the same booking stage last year; (3) the strongest months "
+            "so far; then any forward-looking points from TOP INSIGHTS if present. "
+            "Do NOT mention yesterday or month-to-date"
+        )
+    else:
+        order_text = (
+            "(1) yesterday's result and what drove it "
+            "— occupancy vs rate, per the driver hints; (2) the month-to-date position; "
+            "(3) then the most important forward-looking points from TOP INSIGHTS, each "
+            "compressed to one clause or short sentence, mentioning the at-stake value only "
+            "for the single most important one"
+        )
     prompt_base = (
         f"Hotel: {hotel_name}. You write the short morning hero paragraph that opens "
         f"the general manager's daily briefing.\n\n"
@@ -1807,11 +1872,8 @@ def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
         f"TOP INSIGHTS (shown as full cards below the hero — preview them, don't repeat them fully):\n"
         f"{json.dumps(digest, ensure_ascii=False, indent=2)}\n\n"
         f"Write ONE flowing paragraph of 4-6 short sentences, max {_HERO_WORD_CAP} words, starting "
-        "exactly with \"" + greeting + ".\" Order: (1) yesterday's result and what drove it "
-        "— occupancy vs rate, per the driver hints; (2) the month-to-date position; "
-        "(3) then the most important forward-looking points from TOP INSIGHTS, each "
-        "compressed to one clause or short sentence, mentioning the at-stake value only "
-        "for the single most important one. Soft advisory tone, no imperatives, no "
+        "exactly with \"" + greeting + ".\" Order: " + order_text + ". "
+        "Soft advisory tone, no imperatives, no "
         "exclamation marks. Never invent causes (nationalities, room types, events, "
         "weather) — only what the data shows. Every number must appear verbatim in the "
         "data above."
