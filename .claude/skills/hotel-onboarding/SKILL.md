@@ -5,6 +5,10 @@ description: Adding a new hotel or migrating an existing one to the tunnel-direc
 
 # Hotel onboarding / tunnel migration
 
+**Canonical runbook: `docs/ONBOARDING.md`** (intake form → cloudflared →
+Supabase → verify → decommission, with the Potidea worksheet). This skill
+holds the condensed task knowledge; the runbook is what you follow.
+
 Target state: hotel server runs ONLY cloudflared (Windows service). No code,
 no keys, no scheduled tasks. Everything else is config in Supabase.
 
