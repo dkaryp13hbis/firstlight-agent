@@ -153,11 +153,12 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 - ✅ 2026-07-27: Hero LIVE debut — 1 attempt, 6.1s, 0 validation problems;
   occupancy-vs-rate driver narrated correctly ("rate-for-volume trade")
 
-**USER (3 small items, unchanged):**
-- ⬜ Paste `docs/sql/2026-08-04_season_settings.sql` in Supabase (hotels.season_settings
-  jsonb) — then fill Pome + future hotels' opening/closing dates for LY + TY
-- ⬜ Paste Step 5 SQL in Supabase (attempt column still missing):
-  `alter table refresh_runs add column if not exists attempt integer not null default 1;`
+**USER (updated 2026-08-10):**
+- ✅ 2026-08-10: ALL pending SQL pasted + verified (insight_feedback, hotel_prefs,
+  hotels.season_settings, refresh_runs.attempt) — thumbs + EN/ΕΛ selector live
+  in the app from this moment; season_settings null for both hotels awaiting
+  the user's own Protel rooms/season queries
+- ⬜ Fill season_settings dates + real-rooms query (user took this)
 - ⬜ Create `firstlight_ro` read-only login on Pome SQL Server, send password →
   swap pms_config off `sa` (security must-fix)
 - ✅ Word-caps decision RESOLVED 2026-07-27 (cards-v1.4-singleshot) — user
