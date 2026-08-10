@@ -15,6 +15,32 @@ import requests
 import config
 
 
+def _kpi_summary(data: dict[str, Any]) -> dict[str, Any]:
+    """Compact per-day KPI snapshot stored on the briefing row — the payload
+    of GET /briefing/history. Pure selection/summation, no derived math."""
+    yd   = data.get("yesterday") or {}
+    mtd  = data.get("mtd") or {}
+    pace = [p for p in (data.get("pace") or []) if isinstance(p, dict)]
+    pu   = data.get("pickup") or {}
+    return {
+        "yesterday": {k: yd.get(k) for k in
+                      ("revenue", "revenueLY", "roomNights", "roomNightsLY",
+                       "adr", "adrLY", "occupancy", "occupancyLY")},
+        "mtd": {k: mtd.get(k) for k in
+                ("revenue", "revenueLY", "roomNights", "occupancy", "adr",
+                 "month_name")},
+        "otb_year": {
+            "rev":      sum(float(p.get("rev") or 0) for p in pace),
+            "rev_stly": sum(float(p.get("rev_stly") or 0) for p in pace),
+            "rn":       sum(int(p.get("rn") or 0) for p in pace),
+        },
+        "pickup_7d": {
+            "rn":        (pu.get("last7d") or {}).get("roomNights"),
+            "cancel_rn": pu.get("cancellations7d"),
+        },
+    }
+
+
 def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str | None = None,
                   hotel_id: str | None = None, source_run_id: str | None = None,
                   notify: bool = True) -> bool:
@@ -38,6 +64,9 @@ def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str |
         "data":         data,
         "ai_insights":  ai,
         "generated_at": datetime.utcnow().isoformat() + "Z",
+        # Compact per-day KPI snapshot for GET /briefing/history (Phase A).
+        # Schema-tolerant: stripped and retried if the column doesn't exist.
+        "kpi_summary":  _kpi_summary(data),
     }
     # JSON is canonical; HTML is only stored if a caller explicitly provides it
     if rendered_html is not None:
@@ -46,17 +75,17 @@ def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str |
         payload["source_run_id"] = source_run_id
 
     try:
-        resp = requests.post(
-            f"{supabase_url}/rest/v1/briefings?on_conflict=hotel_id,report_date",
-            json=payload,
-            headers={
-                "apikey":        supabase_key,
-                "Authorization": f"Bearer {supabase_key}",
-                "Content-Type":  "application/json",
-                "Prefer":        "resolution=merge-duplicates,return=minimal",
-            },
-            timeout=30,
-        )
+        headers = {
+            "apikey":        supabase_key,
+            "Authorization": f"Bearer {supabase_key}",
+            "Content-Type":  "application/json",
+            "Prefer":        "resolution=merge-duplicates,return=minimal",
+        }
+        url = f"{supabase_url}/rest/v1/briefings?on_conflict=hotel_id,report_date"
+        resp = requests.post(url, json=payload, headers=headers, timeout=30)
+        if resp.status_code == 400 and "kpi_summary" in resp.text:
+            payload.pop("kpi_summary", None)
+            resp = requests.post(url, json=payload, headers=headers, timeout=30)
         resp.raise_for_status()
         print(f"[cloud] Pushed briefing for {yesterday} (hotel {hotel_id[:8]}…) -> HTTP {resp.status_code}")
         if notify:

@@ -6,3 +6,5 @@ pywebpush==2.0.0
 apscheduler==3.10.4
 pyodbc==5.2.0
 tzdata==2025.2
+fastapi==0.115.6
+uvicorn==0.32.1

@@ -27,4 +27,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python", "railway_main.py"]
+# Phase A: FastAPI owns the HTTP surface; scheduler + poller start in its
+# lifespan. EXACTLY 1 worker — N workers = N schedulers = duplicate briefings.
+# Rollback path: switch back to `python railway_main.py` (file unchanged).
+CMD uvicorn api:app --host 0.0.0.0 --port ${PORT:-8080} --workers 1
