@@ -14,6 +14,10 @@ RUN apt-get update \
        > /etc/apt/sources.list.d/mssql-release.list \
     && apt-get update \
     && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 unixodbc \
+    # Driver 17 handles the legacy TLS prelogin of old on-prem SQL Servers;
+    # not published for every Debian release, so best-effort install.
+    && (ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql17 \
+        || echo "msodbcsql17 unavailable — Driver 18 only") \
     && curl -fsSL -o /usr/local/bin/cloudflared \
        https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
     && chmod +x /usr/local/bin/cloudflared \
