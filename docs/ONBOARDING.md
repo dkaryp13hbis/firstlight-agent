@@ -108,17 +108,21 @@ kills manually started processes — caused a real incident).
 
 ## Potidea Palace — worksheet (first run of this runbook)
 
-Known today:
-- `hotels` row exists (id in Supabase), 236 rooms (**confirm real sellable
-  count — 0.1**), recipient set, currently legacy (`pms_type: "protel"`, no
-  pms_config) — old bridge still running on the hotel server.
-- Same hotel group as Pome. **Open question 0.7: is Potidea in the SAME
-  Protel `bidata` database as Pome (different mpehotel) or its own SQL
-  server?** If same server → reuse the `sql-pome.hbis.io` tunnel + token,
-  and Step 1 shrinks to just the mpehotel lookup (~5 min).
+Facts (verified 2026-08-04):
+- OWN SQL Server: `192.20.10.8`, database `BiData`, **mpehotel = 1**
+  (user-confirmed; each server numbers its own properties — the old .env's
+  `HOTEL_ID=2` was the zero-data incident). Old login `sa` → replace with
+  `firstlight_ro`.
+- Cloudflared tunnel ALREADY runs on the hotel server (serves
+  `potidea-data.hbis.io`) → Step 1 = add TCP public hostname
+  `sql-potidea.hbis.io` → `tcp://192.20.10.8:1433` + Access Service Auth
+  token `railway-potidea-sql`. No new install.
+- Supabase row exists (236 rooms), users already mapped in `hotel_users`,
+  `recipient_email` EMPTY — Potidea has never received the morning email.
+- NOT in Pome's DB (Pome's bidata holds only its own mpehotel=1).
 
-To collect (intake): real inventory ✚ season dates 2025+2026 ✚ hotel_type
-(resort) ✚ language ✚ mpehotel ✚ SQL server location ✚ app users.
+Still to collect: real sellable inventory (236?) ✚ season dates 2025+2026
+✚ language ✚ GM email ✚ Cloudflare token id/secret ✚ firstlight_ro password.
 
 Also fix while in there (both hotels): swap Pome's `sql.user` from `sa` to
 `firstlight_ro` (Step 1.2) — long-standing security must-fix.
