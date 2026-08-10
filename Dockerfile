@@ -20,6 +20,13 @@ RUN apt-get update \
     && apt-get purge -y gnupg2 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Old on-prem Protel SQL Servers speak TLS 1.0 in the TDS prelogin. A base
+# image refresh raised Debian/OpenSSL's floor to TLS 1.2 and broke the tunnel
+# fetch (incident 2026-08-10: "handshake before login" ODBC 08001). Relax the
+# floor — transport security comes from the Cloudflare tunnel, not TDS TLS.
+RUN sed -i 's/^MinProtocol *=.*/MinProtocol = TLSv1.0/' /etc/ssl/openssl.cnf \
+    && sed -i 's/^CipherString *=.*/CipherString = DEFAULT@SECLEVEL=0/' /etc/ssl/openssl.cnf
+
 WORKDIR /app
 
 COPY requirements.txt .
