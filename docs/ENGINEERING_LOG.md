@@ -153,6 +153,19 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 - ✅ 2026-07-27: Hero LIVE debut — 1 attempt, 6.1s, 0 validation problems;
   occupancy-vs-rate driver narrated correctly ("rate-for-volume trade")
 
+**REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
+- ⬜ Share = IMAGE, per section: React share currently sends a link; port the
+  old app's capture-to-image share, scoped to specific chart/section blocks
+  (share pill on each section captures THAT block)
+- ⬜ Dynamic translation: i18n dictionary layer (en/el, ~150 keys) wired to
+  the EN/ΕΛ switch — instant UI translation; narration stays per-hotel
+  next-morning (cost policy)
+- ⬜ Notification rules audit: verify what arrives on the phone and when
+  (03:30 only, content format per the 3-type design: briefing/alert/momentum)
+- ⬜ MULTIPROPERTY PORTFOLIO PAGE (new feature): dedicated view for owners
+  with 2+ hotels — whole-portfolio performance (per-hotel KPI rows,
+  aggregate revenue/occupancy, alerts across properties); design first
+
 **USER (updated 2026-08-10):**
 - ✅ 2026-08-10: ALL pending SQL pasted + verified (insight_feedback, hotel_prefs,
   hotels.season_settings, refresh_runs.attempt) — thumbs + EN/ΕΛ selector live
