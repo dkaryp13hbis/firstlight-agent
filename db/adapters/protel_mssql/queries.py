@@ -558,7 +558,7 @@ WITH ty_otb AS (
     WHERE h.mpehotel = ?
       AND h.reschar < 2
       AND {fake_rt}
-      AND h.date >  @today
+      AND h.date >= @today
       AND h.date <= @horizon
     GROUP BY h.date
 ),
@@ -571,7 +571,7 @@ stly_otb AS (
     WHERE h.mpehotel = ?
       AND (h.reschar < 2 OR (h.reschar = 2 AND CAST(h.Canceled AS DATE) > @stly_cap))
       AND {fake_rt}
-      AND h.date >  @stly_cap
+      AND h.date >= @stly_cap
       AND h.date <= @ly_end
       AND CAST(h.SystemDate AS DATE) <= @stly_cap
     GROUP BY DATEADD(YEAR, 1, h.date)
