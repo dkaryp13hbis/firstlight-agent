@@ -177,3 +177,9 @@ def feedback(hotel_id: str = Depends(auth_hotel),
         "order": "created_at.desc",
     })
     return {"hotel_id": hotel_id, "count": len(rows), "feedback": rows}
+
+
+if __name__ == "__main__":
+    # Railway-safe entry: `python api.py` — no shell expansion needed.
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8080")))
