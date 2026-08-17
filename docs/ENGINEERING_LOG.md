@@ -232,6 +232,28 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 - ⬜ Phase 4 scale prep before hotel #10: de-globalize config →
   REFRESH_CONCURRENCY=10, load test 20-30 hotels, per-hotel briefing time/tz
 
+**PMS INTEGRATIONS ROADMAP (added 2026-08-18):**
+- On-premises — same process as Protel (tunnel + read-only SQL login + new
+  adapter folder filling the HotelDataSnapshot contract):
+  - ⬜ **Pylon** (SQL Server, similar reservation-line model — easiest, do first)
+  - ⬜ **Opera 5** (Oracle; RESERVATION_NAME + RESERVATION_DAILY_ELEMENT_NAME,
+    status codes, revenue buckets → filter to room revenue; real port not rename)
+- Cloud — no SQL/tunnel; WE pull, store, compute. Confirmed by user: APIs give
+  **book date + cancellation date + last-modified** → STLY reconstructs right
+  after a 2-year backfill; incremental sync via modified_since:
+  - ⬜ **Opera Cloud** (OHIP: OAuth, per-property app registration, partner
+    onboarding lead time — start early)
+  - ⬜ **Hotelizer** (lighter API, same model)
+  - shared piece: **reservation store + incremental sync engine** in our
+    Postgres → Phase C is a PREREQUISITE for cloud PMS; per-PMS = mapping to
+    canonical reservation row, then Q1–Q16 run over our schema
+  - discovery per cloud PMS (2 days, sandbox creds): exact cancellation
+    semantics (do cancelled rows keep stay dates/rate?), how modifications /
+    rebooks appear (new record vs update)
+- ⬜ **SEMANTICS.md FIRST** — PMS-neutral definitions (room night, room revenue,
+  STLY, cancellation in/out, comps, fake rooms, season) every adapter must
+  satisfy; write before adapter #2
+
 **Product roadmap (parallel to stack work, user picks order):**
 - New card types (compute-only): ADR-vs-occupancy trade-off · cancellation spike
 - Insight feedback loop (agreed 2026-07-27): 👍/👎 per card + reason chips →
