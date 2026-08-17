@@ -161,6 +161,16 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
   don't. NEXT: get the user's explicit spec (placement, control shape, which
   modules follow, comparison semantics) BEFORE re-implementing — mock as an
   artifact first, build second. Backend Q16 stly2 series stays (harmless).
+- ⬜ **App landing page** — change what greets the user on open (login/entry
+  screen redesign; brand moment before the briefing)
+- ⬜ **Marketing website for "Xenia"** (working name, user idea 2026-08-18) —
+  public landing site with LIVE, anonymized briefing data scrolling as a
+  self-running demo (feed from the demo hotels — Azure Bay / Thalassa)
+- ⬜ **Notification rules — check on real phones**: exactly when/what a user
+  gets notified (today: 03:30 scheduled run only, manual/data-only silent;
+  needs the React bell subscribed; verify iOS + Android)
+- ⬜ **AI insights — re-review**: quality pass on card ranking, wording, caps
+  and fallbacks against the accumulating 👍/👎 + notes (real + demo testers)
 - ⬜ Share = IMAGE, per section: React share currently sends a link; port the
   old app's capture-to-image share, scoped to specific chart/section blocks
   (share pill on each section captures THAT block)
