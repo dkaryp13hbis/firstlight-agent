@@ -35,6 +35,10 @@ async def lifespan(app: FastAPI):
     sched.add_job(core.run_all_hotels, "cron", hour=6, minute=0)    # catch-up
     sched.add_job(lambda: core.run_all_hotels(data_only=True), "cron", hour=11, minute=0)
     sched.add_job(lambda: core.run_all_hotels(data_only=True), "cron", hour=17, minute=0)
+    # Demo mirror: refresh anonymized copies after the morning run + evening
+    from briefing.demo_sync import sync_demo_briefings
+    sched.add_job(sync_demo_briefings, "cron", hour=4, minute=15)
+    sched.add_job(sync_demo_briefings, "cron", hour=17, minute=20)
     sched.start()
     threading.Thread(target=core._poll_refresh_commands, daemon=True).start()
     core.log.info("[api] Scheduler 03:30 full | 06:00 catch-up | 11:00+17:00 data-only UTC; poller up")
