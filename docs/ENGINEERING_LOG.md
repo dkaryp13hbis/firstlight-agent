@@ -154,6 +154,13 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
   occupancy-vs-rate driver narrated correctly ("rate-for-volume trade")
 
 **REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
+- ⬜ **REPORTING-YEAR SELECTION — REDO** (user rejected the 2026-08-17 attempt:
+  "didn't like at all"). Current state: `Reporting year [2026|2027]` bar after
+  MTD, comparison pills on 2027 (vs 2026 hybrid / vs 2025 stage+final), pickup
+  boxes + butterfly + speed + pace charts + OTB matrix follow, calendar + AI
+  don't. NEXT: get the user's explicit spec (placement, control shape, which
+  modules follow, comparison semantics) BEFORE re-implementing — mock as an
+  artifact first, build second. Backend Q16 stly2 series stays (harmless).
 - ⬜ Share = IMAGE, per section: React share currently sends a link; port the
   old app's capture-to-image share, scoped to specific chart/section blocks
   (share pill on each section captures THAT block)
