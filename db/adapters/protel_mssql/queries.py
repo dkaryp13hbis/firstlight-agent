@@ -278,12 +278,16 @@ Q_PACE_NEXT = """
 DECLARE @today     DATE = CAST(GETDATE() AS DATE);
 DECLARE @stly_cap  DATE = DATEADD(YEAR, -1, @today);   -- book date cap for STLY
 
+DECLARE @stly2_cap DATE = DATEADD(YEAR, -2, @today);   -- two-year stage cap
+
 SELECT
     stay_month,
-    SUM(rn_ty)    AS rn_otb,
-    SUM(rn_stly)  AS rn_stly,
-    SUM(rev_ty)   AS rev_otb,
-    SUM(rev_stly) AS rev_stly
+    SUM(rn_ty)     AS rn_otb,
+    SUM(rn_stly)   AS rn_stly,
+    SUM(rev_ty)    AS rev_otb,
+    SUM(rev_stly)  AS rev_stly,
+    SUM(rn_stly2)  AS rn_stly2,
+    SUM(rev_stly2) AS rev_stly2
 FROM (
     -- OTB next year: all active bookings for next calendar year
     SELECT
@@ -291,7 +295,9 @@ FROM (
         h.Occupancy   AS rn_ty,
         0             AS rn_stly,
         h.logis       AS rev_ty,
-        0.0           AS rev_stly
+        0.0           AS rev_stly,
+        0             AS rn_stly2,
+        0.0           AS rev_stly2
     FROM bidata.proteluser.Hitia h
     WHERE h.mpehotel = ?
       AND h.reschar < 2
@@ -307,13 +313,34 @@ FROM (
         0,
         CASE WHEN h.reschar < 2 THEN h.Occupancy WHEN CAST(h.datumbis AS DATE) = CAST(h.date AS DATE) THEN 0 ELSE 1 END,
         0.0,
-        h.logis
+        h.logis,
+        0,
+        0.0
     FROM bidata.proteluser.Hitia h
     WHERE h.mpehotel = ?
       AND (h.reschar < 2 OR (h.reschar = 2 AND CAST(h.Canceled AS DATE) > @stly_cap))
       AND {fake_rt}
       AND YEAR(h.date) = YEAR(@today)
       AND CAST(h.SystemDate AS DATE) <= @stly_cap
+
+    UNION ALL
+
+    -- STLY2: LAST year's stays as booked at the same TWO-year stage
+    -- (for reporting next year against the completed year before this one)
+    SELECT
+        MONTH(h.date),
+        0,
+        0,
+        0.0,
+        0.0,
+        CASE WHEN h.reschar < 2 THEN h.Occupancy WHEN CAST(h.datumbis AS DATE) = CAST(h.date AS DATE) THEN 0 ELSE 1 END,
+        h.logis
+    FROM bidata.proteluser.Hitia h
+    WHERE h.mpehotel = ?
+      AND (h.reschar < 2 OR (h.reschar = 2 AND CAST(h.Canceled AS DATE) > @stly2_cap))
+      AND {fake_rt}
+      AND YEAR(h.date) = YEAR(@today) - 1
+      AND CAST(h.SystemDate AS DATE) <= @stly2_cap
 ) t
 GROUP BY stay_month
 ORDER BY stay_month;

@@ -491,7 +491,7 @@ def fetch_snapshot(conn: pyodbc.Connection, hotel_ctx: dict[str, Any]) -> dict[s
     # ── Q16: Next-year OTB by month (closed-season hero — fail-open) ──
     pace_next_year = []
     try:
-        cur.execute(Q.Q_PACE_NEXT, hotel_id, hotel_id)
+        cur.execute(Q.Q_PACE_NEXT, hotel_id, hotel_id, hotel_id)
         for r in _rows(cur):
             pace_next_year.append({
                 "month":     _month_abbr(int(r["stay_month"])),
@@ -500,6 +500,8 @@ def fetch_snapshot(conn: pyodbc.Connection, hotel_ctx: dict[str, Any]) -> dict[s
                 "rn_stly":   int(float(r["rn_stly"] or 0)),
                 "rev":       round(float(r["rev_otb"] or 0), 0),
                 "rev_stly":  round(float(r["rev_stly"] or 0), 0),
+                "rn_stly2":  int(float(r["rn_stly2"] or 0)),
+                "rev_stly2": round(float(r["rev_stly2"] or 0), 0),
             })
     except Exception as exc:  # noqa: BLE001
         print(f"[{hotel_name}] pace_next_year query failed (non-blocking): {exc}")
