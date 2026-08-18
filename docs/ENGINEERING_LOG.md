@@ -153,6 +153,20 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 - ✅ 2026-07-27: Hero LIVE debut — 1 attempt, 6.1s, 0 validation problems;
   occupancy-vs-rate driver narrated correctly ("rate-for-volume trade")
 
+**NEXT SESSION PLAN (prepared 2026-08-18 evening, for 2026-08-19):**
+1. Morning check (5 min): 03:30 run + 04:15 demo sync → both hotels + both demo
+   hotels carry `revenueNet`; toggle Net on demo account and eyeball totals.
+2. **Reporting-year selection REDO** — mock first: 2–3 artifact variants of the
+   control (placement/shape/comparison semantics), user picks, THEN build.
+3. Net follow-up (backend, ~1h, live tunnel validation): logisnet into pickup
+   windows/daily, top channels, Q16, bridge sources → scaling estimate removed.
+4. Go-live prep for React: real push subscription on the bell (then run the
+   notification-rules test on a real iPhone + Android with the 3-type content),
+   final data-parity pass Vercel vs Pages, then flip DNS/link → Vercel kept 2 wk.
+5. If time: share-as-image per section (highest-asked UX gap), then i18n layer.
+User-side unblockers still open: firstlight_ro logins (both SQL servers),
+Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
+
 **REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
 - ⬜ **REPORTING-YEAR SELECTION — REDO** (user rejected the 2026-08-17 attempt:
   "didn't like at all"). Current state: `Reporting year [2026|2027]` bar after
@@ -218,8 +232,8 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
   degraded on word caps, not infrastructure)
 
 **End of pilot week — Phase 3 (closes the migration):**
-- ⬜ Potidea: Cloudflare route + service token (~30 min), pms_config, flip to
-  tunnel, decommission daemon + tasks (kills the stray 04:00 trigger; Potidea
+- ✅ 2026-08-10 Potidea on the tunnel (route + service token, pms_config, first run OK)
+  ⬜ decommission old daemon + tasks on the Potidea server (user, RDP) (kills the stray 04:00 trigger; Potidea
   gets Signal 3 + hero automatically)
 - ⬜ Delete FirstLight code folders from BOTH hotel servers → migration complete
 
@@ -232,10 +246,10 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
   Legacy payloads without month_num keep the full line (guarded).
 
 **Then — the stack migration (sequenced, each phase shippable + rollback-able):**
-- ⬜ **Phase A — FastAPI** (~3-4 days, invisible to users): uvicorn 1 worker,
+- ✅ 2026-08-13 **Phase A — FastAPI** LIVE (web-cloudflare.up.railway.app): uvicorn 1 worker,
   scheduler → lifespan, port /trigger + /briefing/latest, per-hotel API tokens,
   kpi_summary column + GET /briefing/history
-- ⬜ **Phase B — React on Cloudflare Pages** (~1-2 weeks): audit PWA repo first;
+- 🔄 **Phase B — React on Cloudflare Pages** (LIVE at firstlight-pwa.pages.dev, parallel-run with Vercel; go-live sequence pending): audit PWA repo first;
   render-from-data; new card anatomy + hero block + Greek/English + text-size
   1-5 + bigger OTB charts + closed-month LY fix + scroll fix + 7-day history UI;
   reads via FastAPI tokens; parallel-run then retire Vercel; drop rendered_html
