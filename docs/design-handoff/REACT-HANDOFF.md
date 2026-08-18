@@ -102,8 +102,8 @@ AMBER (charts): #B47D09 · heat anomaly ring: #BA1A1A
 - **ADR bridge — why the rate moved**: mix/rate explainer; headline ADR vs
   LY + delta; table `CHANNEL | SHARE (44% → 54%) | ADR (€564 → €517) |
   MIX | RATE` (MIX header `#2E7CF7`, RATE `#B47D09`); identity-guarded.
-- **Top Sources**: 92px wrapping name column, 6px grad-cyan bar +
-  STLY tick, rev + STLY rev, tinted ▲/▼ badge.
+- **Top Sources**: 92px wrapping name column, **14px** grad-cyan bar (r7) +
+  3×20 navy STLY tick, rev + STLY rev, tinted ▲/▼ badge.
 - **AI Insights**: card = white, 1px `rgba(10,31,77,.08)` border, r16,
   padding `20/20/16/24`, left 3px gradient stripe (ALERT `#C7411B→#E0A82E`,
   OPPORTUNITY `#2E7CF7→#38E1F0`, MONITOR `#7C5BFF→#38E1F0`); title

@@ -189,6 +189,13 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   Toggle refuses (toast) until the payload carries net fields.
   FOLLOW-UP ⬜: add logisnet to the pickup / channels / Q16 / bridge queries
   so the estimate goes away everywhere.
+- ✅ 2026-08-19 **Instant open** (React 8991bb0): last briefing + hotel list
+  cached in localStorage per hotel → painted immediately on open, fresh copy
+  fetched behind it (stale-while-revalidate; cache cleared on Sign out);
+  session guessed synchronously from the stored Supabase token (no Login
+  flash); first-ever open shows the navy header + "Loading briefing…" instead
+  of a white page. Top Sources bars 6px → 14px (user: "much thicker, same
+  design"), STLY tick 3×20 navy.
 - ⬜ **App landing page** — change what greets the user on open (login/entry
   screen redesign; brand moment before the briefing)
 - ⬜ **Marketing website for "Xenia"** (working name, user idea 2026-08-18) —
