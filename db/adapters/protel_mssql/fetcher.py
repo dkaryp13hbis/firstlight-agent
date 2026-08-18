@@ -228,6 +228,10 @@ def fetch_snapshot(conn: pyodbc.Connection, hotel_ctx: dict[str, Any]) -> dict[s
     rn_yd_ty   = float(kpi["rn_yday_ty"]  or 0)
     rn_yd_ly   = float(kpi["rn_yday_ly"]  or 0)
     rev_mtd_ty = float(kpi["rev_mtd_ty"]  or 0)
+    rev_yd_ty_net  = float(kpi.get("rev_yday_ty_net") or 0)
+    rev_yd_ly_net  = float(kpi.get("rev_yday_ly_net") or 0)
+    rev_mtd_ty_net = float(kpi.get("rev_mtd_ty_net") or 0)
+    rev_mtd_ly_net = float(kpi.get("rev_mtd_ly_net") or 0)
     rev_mtd_ly = float(kpi["rev_mtd_ly"]  or 0)
     rn_mtd_ty  = float(kpi["rn_mtd_ty"]   or 0)
     rn_mtd_ly  = float(kpi["rn_mtd_ly"]   or 0)
@@ -304,6 +308,9 @@ def fetch_snapshot(conn: pyodbc.Connection, hotel_ctx: dict[str, Any]) -> dict[s
             "rev":       round(rev_ty, 0),
             "rev_stly":  round(rev_stly, 0),
             "rev_final": round(rev_fly, 0),
+            "rev_net":       round(float(r.get("rev_otb_ty_net") or 0), 0),
+            "rev_stly_net":  round(float(r.get("rev_stly_net") or 0), 0),
+            "rev_final_net": round(float(r.get("rev_final_ly_net") or 0), 0),
             "rn":        int(rn_ty),
             "rn_stly":   int(rn_stly),
             "rn_final_ly": int(rn_fly),
@@ -521,6 +528,8 @@ def fetch_snapshot(conn: pyodbc.Connection, hotel_ctx: dict[str, Any]) -> dict[s
             "adrLY":        _adr(rev_yd_ly, rn_yd_ly),
             "occupancy":    _occ(rn_yd_ty, inv_yday),
             "occupancyLY":  _occ(rn_yd_ly, inv_yday_ly),
+            "revenueNet":   round(rev_yd_ty_net, 0),
+            "revenueNetLY": round(rev_yd_ly_net, 0),
             "arrivals":     arrivals,
             "departures":   departures,
             "stayovers":    stayovers,
@@ -536,6 +545,8 @@ def fetch_snapshot(conn: pyodbc.Connection, hotel_ctx: dict[str, Any]) -> dict[s
             "adrLY":        _adr(rev_mtd_ly, rn_mtd_ly),
             "occupancy":    _occ(rn_mtd_ty, inv_mtd_ty),
             "occupancyLY":  _occ(rn_mtd_ly, inv_mtd_ly),
+            "revenueNet":   round(rev_mtd_ty_net, 0),
+            "revenueNetLY": round(rev_mtd_ly_net, 0),
             "month_name":   yesterday.strftime("%B"),
         },
 

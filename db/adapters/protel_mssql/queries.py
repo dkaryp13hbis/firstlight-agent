@@ -34,7 +34,7 @@ DECLARE @mtd_start_ly DATE = DATEADD(YEAR, -1, @mtd_start);
 
 WITH kpi_rows AS (
     -- TY: active bookings only
-    SELECT h.date, h.logis, h.Occupancy, 'TY' AS period
+    SELECT h.date, h.logis, h.logisnet, h.Occupancy, 'TY' AS period
     FROM bidata.proteluser.Hitia h
     WHERE h.mpehotel = ?
       AND h.reschar < 2
@@ -45,7 +45,7 @@ WITH kpi_rows AS (
 
     -- LY yesterday + MTD: active + cancelled after today's date last year
     -- Occupancy is 0 on cancelled records in Protel, so restore to 1 per row
-    SELECT h.date, h.logis,
+    SELECT h.date, h.logis, h.logisnet,
            CASE WHEN h.reschar < 2 THEN h.Occupancy WHEN CAST(h.datumbis AS DATE) = CAST(h.date AS DATE) THEN 0 ELSE 1 END AS Occupancy,
            'LY' AS period
     FROM bidata.proteluser.Hitia h
@@ -57,7 +57,7 @@ WITH kpi_rows AS (
     UNION ALL
 
     -- STLY full year by month: all of last year booked by same date last year
-    SELECT h.date, h.logis,
+    SELECT h.date, h.logis, h.logisnet,
            CASE WHEN h.reschar < 2 THEN h.Occupancy WHEN CAST(h.datumbis AS DATE) = CAST(h.date AS DATE) THEN 0 ELSE 1 END AS Occupancy,
            'STLY' AS period
     FROM bidata.proteluser.Hitia h
@@ -69,12 +69,16 @@ WITH kpi_rows AS (
 )
 SELECT
     SUM(CASE WHEN period = 'TY'   AND date = @yesterday                         THEN logis     ELSE 0 END) AS rev_yday_ty,
+    SUM(CASE WHEN period = 'TY'   AND date = @yesterday                         THEN logisnet  ELSE 0 END) AS rev_yday_ty_net,
     SUM(CASE WHEN period = 'TY'   AND date = @yesterday                         THEN Occupancy ELSE 0 END) AS rn_yday_ty,
     SUM(CASE WHEN period = 'LY'   AND date = @yday_ly                           THEN logis     ELSE 0 END) AS rev_yday_ly,
+    SUM(CASE WHEN period = 'LY'   AND date = @yday_ly                           THEN logisnet  ELSE 0 END) AS rev_yday_ly_net,
     SUM(CASE WHEN period = 'LY'   AND date = @yday_ly                           THEN Occupancy ELSE 0 END) AS rn_yday_ly,
     SUM(CASE WHEN period = 'TY'   AND date BETWEEN @mtd_start    AND @yesterday THEN logis     ELSE 0 END) AS rev_mtd_ty,
+    SUM(CASE WHEN period = 'TY'   AND date BETWEEN @mtd_start    AND @yesterday THEN logisnet  ELSE 0 END) AS rev_mtd_ty_net,
     SUM(CASE WHEN period = 'TY'   AND date BETWEEN @mtd_start    AND @yesterday THEN Occupancy ELSE 0 END) AS rn_mtd_ty,
     SUM(CASE WHEN period = 'LY'   AND date BETWEEN @mtd_start_ly AND @yday_ly   THEN logis     ELSE 0 END) AS rev_mtd_ly,
+    SUM(CASE WHEN period = 'LY'   AND date BETWEEN @mtd_start_ly AND @yday_ly   THEN logisnet  ELSE 0 END) AS rev_mtd_ly_net,
     SUM(CASE WHEN period = 'LY'   AND date BETWEEN @mtd_start_ly AND @yday_ly   THEN Occupancy ELSE 0 END) AS rn_mtd_ly,
     -- Monthly STLY room nights (occupancy = rn / inventory_for_month)
     SUM(CASE WHEN period = 'STLY' AND MONTH(date) = 1  THEN Occupancy ELSE 0 END) AS rn_stly_1,
@@ -209,7 +213,10 @@ SELECT
     SUM(rn_fly)   AS rn_final_ly,
     SUM(rev_ty)   AS rev_otb_ty,
     SUM(rev_stly) AS rev_stly,
-    SUM(rev_fly)  AS rev_final_ly
+    SUM(rev_fly)  AS rev_final_ly,
+    SUM(rev_ty_net)   AS rev_otb_ty_net,
+    SUM(rev_stly_net) AS rev_stly_net,
+    SUM(rev_fly_net)  AS rev_final_ly_net
 FROM (
     -- OTB TY: all active bookings for this full year (past months = final, future = OTB)
     SELECT
@@ -219,7 +226,10 @@ FROM (
         0             AS rn_fly,
         h.logis       AS rev_ty,
         0.0           AS rev_stly,
-        0.0           AS rev_fly
+        0.0           AS rev_fly,
+        h.logisnet    AS rev_ty_net,
+        0.0           AS rev_stly_net,
+        0.0           AS rev_fly_net
     FROM bidata.proteluser.Hitia h
     WHERE h.mpehotel = ?
       AND h.reschar < 2
@@ -237,6 +247,9 @@ FROM (
         0,
         0.0,
         h.logis,
+        0.0,
+        0.0,
+        h.logisnet,
         0.0
     FROM bidata.proteluser.Hitia h
     WHERE h.mpehotel = ?
@@ -255,7 +268,10 @@ FROM (
         h.Occupancy,
         0.0,
         0.0,
-        h.logis
+        h.logis,
+        0.0,
+        0.0,
+        h.logisnet
     FROM bidata.proteluser.Hitia h
     WHERE h.mpehotel = ?
       AND h.reschar < 2
