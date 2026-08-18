@@ -183,6 +183,27 @@ def feedback(hotel_id: str = Depends(auth_hotel),
     return {"hotel_id": hotel_id, "count": len(rows), "feedback": rows}
 
 
+@app.post("/push/test")
+def push_test(hotel_id: str = Depends(auth_hotel)):
+    """Send a test Web Push to every subscription of this hotel — the way to
+    verify a phone right after tapping the bell (no need to wait for 03:30).
+    Returns how many subscriptions the hotel has and how many sends succeeded."""
+    import io, contextlib
+    from briefing.cloud_push import _send_push_notifications
+    hotels = _sb_get("hotels", {"id": f"eq.{hotel_id}", "select": "name"})
+    name = (hotels[0].get("name") if hotels else None) or "FirstLight"
+    subs = _sb_get("push_subscriptions", {"hotel_id": f"eq.{hotel_id}", "select": "id"})
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        _send_push_notifications(
+            {"insights": [], "executive_summary":
+             "Test notification — push is working on this device. "
+             "Your real briefing arrives every morning after the 03:30 UTC run."},
+            hotel_id, hotel_name=name)
+    log = buf.getvalue().strip().splitlines()
+    return {"hotel_id": hotel_id, "subscriptions": len(subs), "log": log[-6:]}
+
+
 if __name__ == "__main__":
     # Railway-safe entry: `python api.py` — no shell expansion needed.
     import uvicorn
