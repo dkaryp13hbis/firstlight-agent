@@ -51,8 +51,9 @@ AMBER (charts): #B47D09 · heat anomaly ring: #BA1A1A
   `FIRSTLIGHT · AI MORNING BRIEFING V2.0` meta, source/generated line,
   closing navy band.
 - **Settings sheet** rows: Language `EN | ΕΛ` · Revenue `Gross | Net`
-  (default Gross; segmented navy pill, same control as language) · Text size
-  `A− n/5 A+` · red `Sign out`. Net mode swaps every revenue + ADR figure
+  (default Gross) · Reporting year `2026 | 2027` · Comparison year (2025 fixed
+  when 2026; `2026 | 2025` when 2027) + one-line semantics caption · Text size
+  `A− n/5 A+` · red `Sign out`. All segmented controls = same navy pill. Net mode swaps every revenue + ADR figure
   (payload `revenueNet` / `rev_net`, ADR = net ÷ nights) and shows a slim
   `NET` pill strip under the hero; hero/AI narrative text stays gross.
 

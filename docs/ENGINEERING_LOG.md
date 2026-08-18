@@ -156,8 +156,7 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 **NEXT SESSION PLAN (prepared 2026-08-18 evening, for 2026-08-19):**
 1. Morning check (5 min): 03:30 run + 04:15 demo sync → both hotels + both demo
    hotels carry `revenueNet`; toggle Net on demo account and eyeball totals.
-2. **Reporting-year selection REDO** — mock first: 2–3 artifact variants of the
-   control (placement/shape/comparison semantics), user picks, THEN build.
+2. ✅ Reporting-year selection → moved into Settings (done morning of 08-19).
 3. Net follow-up (backend, ~1h, live tunnel validation): logisnet into pickup
    windows/daily, top channels, Q16, bridge sources → scaling estimate removed.
 4. Go-live prep for React: real push subscription on the bell (then run the
@@ -168,13 +167,15 @@ User-side unblockers still open: firstlight_ro logins (both SQL servers),
 Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 **REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
-- ⬜ **REPORTING-YEAR SELECTION — REDO** (user rejected the 2026-08-17 attempt:
-  "didn't like at all"). Current state: `Reporting year [2026|2027]` bar after
-  MTD, comparison pills on 2027 (vs 2026 hybrid / vs 2025 stage+final), pickup
-  boxes + butterfly + speed + pace charts + OTB matrix follow, calendar + AI
-  don't. NEXT: get the user's explicit spec (placement, control shape, which
-  modules follow, comparison semantics) BEFORE re-implementing — mock as an
-  artifact first, build second. Backend Q16 stly2 series stays (harmless).
+- ✅ **REPORTING-YEAR SELECTION → SETTINGS** (user spec 2026-08-19: "put it
+  also in the settings… reporting year and comparison year"; React 91ea5b2).
+  In-body bar removed. Settings rows: `Reporting year [2026 | 2027]`,
+  `Comparison year` (2026 → fixed 2025 = STLY + final; 2027 → [2026 | 2025]),
+  one-line semantics caption under them. When 2027 is selected a slim
+  `2027` pill strip under the hero says what's compared and points to
+  Settings. Session-only (opens on the current year). Modules that follow:
+  OTB matrix, pickup boxes/butterfly/speed, pace charts; calendar + AI don't.
+  Backend Q16 stly2 series serves the 2027-vs-2025 branch.
 - ✅ **Settings: Gross | Net revenue toggle** — SHIPPED 2026-08-18 (React
   3364071, served bundle verified). Settings row "Revenue  Gross | Net",
   DEFAULT = GROSS, persisted in localStorage `fl_revmode`. Net view derives
