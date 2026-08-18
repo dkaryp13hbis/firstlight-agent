@@ -161,10 +161,19 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
   don't. NEXT: get the user's explicit spec (placement, control shape, which
   modules follow, comparison semantics) BEFORE re-implementing — mock as an
   artifact first, build second. Backend Q16 stly2 series stays (harmless).
-- ⬜ **Settings: Gross | Net revenue toggle** — data READY as of 2026-08-18
-  (Q1+Q4 logisnet fields live-validated; payload: yesterday/mtd revenueNet,
-  pace rev_net/rev_stly_net/rev_final_net). Toggle switches every revenue +
-  ADR display; net ADR = revenueNet/rn derived client-side
+- ✅ **Settings: Gross | Net revenue toggle** — SHIPPED 2026-08-18 (React
+  3364071, served bundle verified). Settings row "Revenue  Gross | Net",
+  DEFAULT = GROSS, persisted in localStorage `fl_revmode`. Net view derives
+  from the payload: yesterday/MTD `revenueNet(LY)` and OTB pace
+  `rev_net/rev_stly_net/rev_final_net` are EXACT (Hitia.logisnet, Q1+Q4);
+  net ADR = net revenue ÷ nights client-side. Sections that don't carry a
+  net query yet (pickup windows/daily, top channels, next-year pace, ADR
+  bridge sources) are scaled by the hotel's MTD net/gross factor so the app
+  reads in one basis; a small "NET · Revenue and ADR shown net of VAT &
+  taxes" strip appears under the hero. Hero/AI text stays gross (narrated).
+  Toggle refuses (toast) until the payload carries net fields.
+  FOLLOW-UP ⬜: add logisnet to the pickup / channels / Q16 / bridge queries
+  so the estimate goes away everywhere.
 - ⬜ **App landing page** — change what greets the user on open (login/entry
   screen redesign; brand moment before the briefing)
 - ⬜ **Marketing website for "Xenia"** (working name, user idea 2026-08-18) —

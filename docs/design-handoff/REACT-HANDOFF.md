@@ -50,6 +50,11 @@ AMBER (charts): #B47D09 · heat anomaly ring: #BA1A1A
 - Footer: gradient CTA `Open Hotel BI for full report →`, feature sub-line,
   `FIRSTLIGHT · AI MORNING BRIEFING V2.0` meta, source/generated line,
   closing navy band.
+- **Settings sheet** rows: Language `EN | ΕΛ` · Revenue `Gross | Net`
+  (default Gross; segmented navy pill, same control as language) · Text size
+  `A− n/5 A+` · red `Sign out`. Net mode swaps every revenue + ADR figure
+  (payload `revenueNet` / `rev_net`, ADR = net ÷ nights) and shows a slim
+  `NET` pill strip under the hero; hero/AI narrative text stays gross.
 
 ## 4. Modules (implemented spec)
 
