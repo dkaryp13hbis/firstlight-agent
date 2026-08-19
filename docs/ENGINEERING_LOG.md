@@ -201,6 +201,33 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 - ⬜ **Marketing website for "Xenia"** (working name, user idea 2026-08-18) —
   public landing site with LIVE, anonymized briefing data scrolling as a
   self-running demo (feed from the demo hotels — Azure Bay / Thalassa)
+- 🔄 **NOTIFICATIONS — root cause found + fixed 2026-08-19** (user: "I still
+  don't get any notification even though I clicked the bell"). Three
+  independent causes, all confirmed by probe, all fixed:
+  1. React bell had NO push code (local on/off + toast only) → now real Web
+     Push: `web/public/sw.js`, `src/lib/push.ts` (VAPID subscribe, row per
+     hotel via delete+insert, unsubscribe), bell state = browser subscription
+     AND server row **for the hotel in view** (per-hotel tick ✓ green / × red
+     badge), iOS "add to Home Screen first" hint, notification tap → AI
+     section. React 9be43c1 / fad982d / 5612f3f.
+  2. `push_subscriptions` was EMPTY (0 rows): the legacy upsert on
+     (user_id,hotel_id) 42P10'd because that index never existed — AND the
+     table carried `push_subscriptions_user_id_key` = UNIQUE(user_id), i.e.
+     one subscription per USER not per hotel → a 2-hotel user could only ever
+     be notified for one hotel. `docs/sql/2026-08-14_push_subscriptions_unique.sql`
+     rewritten (drop per-user unique, add unique (user_id,hotel_id)); user
+     pasted 2026-08-19 ~00:55 Athens; verified: 2 rows now (Pome + Potidea,
+     endpoint web.push.apple.com = iPhone Home-Screen app).
+  3. No way to test without waiting for 03:30 → `POST /push/test?hotel_id=`
+     (Bearer hotel token) sends a test push to that hotel's subscriptions
+     (api.py 9408f12). Deploy blocked by RAILWAY INCIDENT "Deployments are
+     slow to progress / prone to timeout" (3 Snapshot-code timeouts, then a
+     build stuck >40 min; status.railway.com Identified 01:16 UTC). Old
+     process keeps serving fine. NEXT: when deployed, fire /push/test for both
+     hotels (scratchpad push_test.ps1), then the 03:30 run is the real test.
+  Lessons: probe the table (row count + constraints) before trusting any
+  client "saved" message; a UNIQUE on the wrong key is invisible until the
+  second hotel. Legacy Vercel bell also benefits from the SQL fix.
 - ⬜ **Notification rules — check on real phones**: exactly when/what a user
   gets notified (today: 03:30 scheduled run only, manual/data-only silent;
   needs the React bell subscribed; verify iOS + Android)
