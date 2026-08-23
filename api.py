@@ -119,7 +119,9 @@ def auth_hotel(request: Request, hotel_id: str = Query(...)) -> str:
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "firstlight-api", "phase": "A"}
+    from briefing.analyst import _PROMPT_VERSION
+    return {"status": "ok", "service": "firstlight-api", "phase": "A",
+            "prompt_version": _PROMPT_VERSION}
 
 
 @app.post("/trigger", status_code=202)
