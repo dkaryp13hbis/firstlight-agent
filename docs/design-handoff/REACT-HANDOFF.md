@@ -49,11 +49,12 @@ AMBER (charts): #B47D09 · heat anomaly ring: #BA1A1A
   blue SVG icon + 13.5px/700 `#0F2860` title (grey 11px `·` suffix for
   subtitles/ranges) + ⓘ + right-aligned `↑ Share` pill — ALWAYS OUTSIDE the
   white card. Icon map: Yesterday=sun · Month to Date=month-cal ·
-  On The Books=cal · Pickup Activity=trend · Booked vs Cancelled=fly ·
-  Booking Speed=speed · Pace=pace · Revenue OTB=euro · Occupancy=occ ·
-  ADR=adr · Next 60 Days Demand=heat · ADR Bridge=bridge ·
-  Top Sources=sources · AI Insights=star. Chart legends live inside the
-  card, right-aligned top row. No titles inside white borders anywhere.
+  On The Books=cal · Pickup Activity=trend ·
+  Booking Speed=speed · Pace=pace · Next 60 Days Demand=heat · ADR Bridge=bridge ·
+  Top Sources=sources · AI Insights=star. EXCEPTIONS (sub-visuals of a
+  section keep icon+title INSIDE the card, legends right): the three Pace
+  charts (Revenue OTB=euro, Occupancy=occ, ADR=adr) and Booked vs
+  Cancelled=fly inside Pickup Activity.
 - Footer: gradient CTA `Open Hotel BI for full report →`, feature sub-line,
   `FIRSTLIGHT · AI MORNING BRIEFING V2.0` meta, source/generated line,
   closing navy band.
@@ -91,7 +92,7 @@ AMBER (charts): #B47D09 · heat anomaly ring: #BA1A1A
   square-swatch legend `OTB TY / STLY / Final LY`; y-axis ticks (13px) +
   gridlines `#EBEEF4`; bars navy (green when ≥ final LY), STLY `#CDD4E0`,
   rx 1.5; green dashed final-LY ticks on open months only; month labels
-  15px; **variance pills** 54×22 tinted, 14.5px/800. Occupancy: navy line
+  15px; **variance pills** 54×22 tinted, 14.5px/800. Occupancy: smooth Catmull-Rom curved navy line
   3px + `rgba(15,40,96,.07)` area fill + white-chip labels 13.5px/800
   (green when ≥ final LY); dashed final line from current month.
 - **Booking speed**: legend `last 7 days / last 14 days / needed for LY
