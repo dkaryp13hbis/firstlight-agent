@@ -167,6 +167,20 @@ User-side unblockers still open: firstlight_ro logins (both SQL servers),
 Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 **REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
+- ✅ 2026-08-23 **NO DERIVED EURO FIGURES in briefings — standing rule**
+  (user, after the hero mis-framed the lead-time signal's €1,079,123
+  "revenue in motion" as a "€1.08M opportunity"): only real PMS revenue is
+  ever displayed or narrated. cards-v1.7-noderived (89a1fb5):
+  `_DERIVED_EUR_FACTS = (value_at_stake, proj_rev_band)` stripped from the
+  narration prompt + haystack; Signal-5/projection cards now show the
+  %-vs-reference band instead of the € projection band (chips + texts).
+  Derived values still drive scoring/floor/novelty internally (_stake_eur).
+  INCIDENT note: cards-v1.6-nostake (2544f80, pushed 08-19) was silently
+  never deployed — lost in the Railway 08-19 incident — so the 08-23 03:30
+  narration still produced at-stake prose. Detected via the €1.08M hero
+  sentence; fix: /health now exposes `prompt_version` (469f20c) — ALWAYS
+  verify the served analyst version after a backend push. v1.7 deploy
+  verified via /health.
 - ✅ 2026-08-19 **Euro at-stake estimates removed from ALL display + narration**
   (user: "remove all calculations at stake etc"; backend 2544f80
   cards-v1.6-nostake, React c71ee57). The estimates remain INTERNAL — they
