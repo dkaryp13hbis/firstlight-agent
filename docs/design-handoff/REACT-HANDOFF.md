@@ -130,7 +130,7 @@ AMBER (charts): #B47D09 · heat anomaly ring: #BA1A1A
 | `components/SmartSummary.tsx` | hero card + sections + voice |
 | `components/Overview.tsx` | SectionLabel(+icons/share), Yesterday 2×2, MTD, OTB stacked |
 | `components/Pickup.tsx` | pickup boxes + butterfly + callout |
-| `components/Charts.tsx` | pace charts, month stands, speed, heat, bridge, sources |
+| `components/Charts.tsx` | pace charts, speed, heat, bridge, sources |
 | `components/AiCards.tsx` | insight cards + thumbs |
 | `components/Sheets.tsx` / `Info.tsx` / `Login.tsx` | sheets, ⓘ texts, login |
 | `api.ts` / `lib/sb.ts` / `types.ts` | data layer (API → Supabase → fixture) |
