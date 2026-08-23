@@ -74,7 +74,7 @@ AMBER (charts): #B47D09 · heat anomaly ring: #BA1A1A
   (grad-cyan ahead / red behind), uppercase month, 26px value,
   `N rn · x% occ`, `▲ +x% vs STLY`.
 - **Pickup**: 2×2 tappable boxes (canon anatomy: colored uppercase title,
-  Booked/Cancel/Net rows); selection = 1.5px animated gradient ring
+  Booked/Cancelled/Net rows); selection = 1.5px animated gradient ring
   (`120deg #0F2860→#2E7CF7→#38E1F0→…`, 3.5s). Butterfly: dynamic window
   title with date range, `◀ CANCELLED / BOOKED ▶` axis row, single pair per
   month (booked #0F2860 right, cancelled #B83A1B left), amber churn callout
