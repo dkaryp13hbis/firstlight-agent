@@ -71,7 +71,7 @@ check("fallback starts with Good morning", fb.startswith("Good morning."))
 check("fallback has yesterday line", "€61,400" in fb and "+6.4%" in fb, fb)
 check("fallback has MTD line", "July MTD" in fb, fb)
 check("fallback previews top card", "+49.8%" in fb, fb)
-check("fallback carries at-stake for top card only", fb.count("€451,284") == 1, fb)
+check("fallback carries no at-stake figure", fb.count("€451,284") == 0, fb)
 check("fallback under 110 words", len(fb.split()) <= 110, str(len(fb.split())))
 check("fallback passes its own validator", _hero_violations(fb) == [],
       str(_hero_violations(fb)))

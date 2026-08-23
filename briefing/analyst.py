@@ -34,7 +34,7 @@ import config
 
 _client = None
 _MODEL = "claude-sonnet-4-6"
-_PROMPT_VERSION = "cards-v1.5-closedseason"
+_PROMPT_VERSION = "cards-v1.6-nostake"
 
 # Cost policy (user decision 2026-07-27): every Claude call costs money, so
 # narration gets ONE attempt — a validation miss goes straight to the free
@@ -816,10 +816,10 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                     "headline": f"{len(top_soft)} nights pacing {f_avg_gap} behind same time last year",
                     "evidence": [
                         {"label": "SOFTEST DATES", "value": softest_str, "sub": "vs same time last year"},
-                        {"label": f"AVG GAP ({date_range})", "value": f_avg_gap, "sub": f"{f_stake} at stake"},
+                        {"label": f"AVG GAP ({date_range})", "value": f_avg_gap, "sub": "vs last year's booking position"},
                     ],
                     "what_happened": f"{len(top_soft)} stay dates between {first_lbl} and {last_lbl} average {f_avg_gap} vs same time last year.",
-                    "why_it_matters": "These dates trail last year's booking position; if the gap persists the revenue at stake grows (confidence: Medium).",
+                    "why_it_matters": "These dates trail last year's booking position; if the gap persists the shortfall grows (confidence: Medium).",
                     "recommended_action": f"A softer rate or package could help {date_range} if the trend continues.",
                     "by_when": "Within 7 days — window closing.",
                     "at_stake": {"value": f_stake, "calc": f_calc},
@@ -1358,7 +1358,8 @@ def _novelty_gate(candidates: list[dict], hotel_id: str) -> tuple[list[dict], li
             for ins in (row.get("ai_insights") or {}).get("insights", []):
                 cid = ins.get("id")
                 if cid:
-                    stake = _parse_eur((ins.get("at_stake") or {}).get("value", ""))
+                    stake = (float(ins.get("_stake_eur") or 0)
+                             or _parse_eur((ins.get("at_stake") or {}).get("value", "")))
                     prev_stakes[cid] = max(prev_stakes.get(cid, 0), stake)
     except Exception as exc:
         print(f"[analyst] Novelty gate skipped (lookup failed): {exc}")
@@ -1402,7 +1403,7 @@ STRICT RULES
    never command. Never state a specific price unless it appears in facts.
 7. by_when: always present. For tag MONITOR include the recheck cadence
    and trigger briefly.
-8. at_stake: copy value and calc verbatim from facts. If absent, omit
+8. at_stake: always omit — value-at-stake estimates are not narrated
    the field entirely - never invent a value.
 9. Audience: a general manager without a revenue background must
    understand every sentence. No jargon without a plain-language anchor.
@@ -1590,9 +1591,12 @@ def _narrate_card(wrapper: dict, fallback_card: dict, meta: dict | None = None,
     """One Claude call per card; validated; max 2 retries; then fallback.
     When `meta` is given, appends a per-card audit entry (facts given, attempts,
     validation problems, tokens, latency, fallback flag)."""
-    haystack = json.dumps(wrapper, ensure_ascii=False)
     facts    = wrapper["insight"]["facts"]
-    base_prompt = json.dumps(wrapper, ensure_ascii=False, indent=2)
+    # € at-stake estimates are internal (scoring/novelty) — never narrated.
+    prompt_wrapper = {**wrapper, "insight": {**wrapper["insight"], "facts": {
+        k: v for k, v in facts.items() if not k.startswith("value_at_stake")}}}
+    haystack = json.dumps(prompt_wrapper, ensure_ascii=False)
+    base_prompt = json.dumps(prompt_wrapper, ensure_ascii=False, indent=2)
     if lang == "el":
         base_prompt += ("\n\nOUTPUT LANGUAGE: GREEK. Write every text field in natural, "
                         "professional Greek for a hotel general manager. Copy every number, "
@@ -1829,9 +1833,6 @@ def _hero_fallback(slots: dict, cards: list[dict]) -> str:
         parts.append(s + ".")
     for c in cards[:2]:
         s = c["headline"].rstrip(".")
-        stake = (c.get("at_stake") or {}).get("value")
-        if stake and c is cards[0]:
-            s += f" — {stake} at stake"
         parts.append(s + ".")
     return " ".join(parts)
 
@@ -1844,8 +1845,7 @@ def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
     fallback = _hero_fallback(slots, cards)
     if lang == "el":
         fallback = greeting + "." + fallback[len("Good morning."):]
-    digest = [{"tag": c["tag"], "headline": c["headline"],
-               "at_stake": (c.get("at_stake") or {}).get("value")} for c in cards[:3]]
+    digest = [{"tag": c["tag"], "headline": c["headline"]} for c in cards[:3]]
     haystack = (json.dumps(slots, ensure_ascii=False)
                 + json.dumps(digest, ensure_ascii=False))
     if "closed_season" in slots:
@@ -1946,8 +1946,6 @@ def _card_to_insight(card: dict, priority: int) -> dict:
     action = card["recommended_action"]
     if card.get("by_when"):
         action += f" By when: {card['by_when']}"
-    if card.get("at_stake"):
-        action += f" At stake: {card['at_stake']['value']}."
     return {
         # New card anatomy (spec v1.2)
         "id":                 card["id"],
@@ -1958,7 +1956,9 @@ def _card_to_insight(card: dict, priority: int) -> dict:
         "why_it_matters":     card["why_it_matters"],
         "recommended_action": card["recommended_action"],
         "by_when":            card["by_when"],
-        **({"at_stake": card["at_stake"]} if card.get("at_stake") else {}),
+        # at-stake stays INTERNAL: a bare number for the novelty gate, no display
+        **({"_stake_eur": _parse_eur(card["at_stake"]["value"])}
+           if card.get("at_stake") else {}),
         # Legacy fields (current PWA)
         "priority": priority,
         "type":     _TAG_TO_TYPE.get(card["tag"], "observation"),
