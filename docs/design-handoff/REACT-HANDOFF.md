@@ -86,10 +86,6 @@ AMBER (charts): #B47D09 · heat anomaly ring: #BA1A1A
   15px; **variance pills** 54×22 tinted, 14.5px/800. Occupancy: navy line
   3px + `rgba(15,40,96,.07)` area fill + white-chip labels 13.5px/800
   (green when ≥ final LY); dashed final line from current month.
-- **Where each month stands**: explainer paragraph; per month: grey track =
-  LY final, navy bar (red when behind LY pace), green spill past track end;
-  STLY tick; labeled trio `booked / ▲ LY same date / LY final`; right stat
-  block `+N rn vs LY pace` + above/below-final line.
 - **Booking speed**: legend `last 7 days / last 14 days / needed for LY
   final (amber dash)`; month rows with trend word (red `slowing down` /
   grey `steady` / green `speeding up`); bars 7d navy, 14d `#7FB0FA`; amber

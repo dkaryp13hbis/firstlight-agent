@@ -167,6 +167,10 @@ User-side unblockers still open: firstlight_ro logins (both SQL servers),
 Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 **REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
+- ✅ 2026-08-19 "Where each month stands" section REMOVED (user request; the
+  MonthStands meter is gone from the Pace tab — pace charts + booking speed
+  + heat + bridge + sources remain). React 0abd77f + d5adbb3 (the first
+  commit shipped with dead code that broke the Pages build; fixed forward).
 - ✅ **REPORTING-YEAR SELECTION → SETTINGS** (user spec 2026-08-19: "put it
   also in the settings… reporting year and comparison year"; React 91ea5b2).
   In-body bar removed. Settings rows: `Reporting year [2026 | 2027]`,
