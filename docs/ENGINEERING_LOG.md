@@ -167,6 +167,19 @@ User-side unblockers still open: firstlight_ro logins (both SQL servers),
 Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 **REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
+- ✅ 2026-08-19 **Euro at-stake estimates removed from ALL display + narration**
+  (user: "remove all calculations at stake etc"; backend 2544f80
+  cards-v1.6-nostake, React c71ee57). The estimates remain INTERNAL — they
+  still drive the significance floor, R-scoring and the novelty gate (shipped
+  insights now carry a bare `_stake_eur` number for tomorrow's novelty
+  lookup; legacy rows still parse at_stake). Removed: card at_stake field &
+  "At stake:" action suffix, hero digest stake + fallback "— €X at stake",
+  soft-dates fallback chip sub, value_at_stake facts from the narration
+  prompt (Claude can no longer cite them; validator haystack matches).
+  React drops the At-stake row and sanitizes legacy stored briefings
+  (evidence subs + recommended_action). Old heroes narrated before this
+  change still contain the phrase until the next 03:30 run. Tests 17+34
+  pass (hero test updated to expect NO stake).
 - ✅ 2026-08-19 **Smart Summary v2 — deterministic** (React da3662a; mock
   approved first, artifact a1e6e762). Headline is a client-side rule ladder
   over pre-computed facts (first match wins): cancellation spike (churn >=15%
