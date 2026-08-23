@@ -59,13 +59,14 @@ AMBER (charts): #B47D09 · heat anomaly ring: #BA1A1A
 
 ## 4. Modules (implemented spec)
 
-- **Smart Summary**: navy card, `radial-gradient(90% 100% at 92% 0%,
-  rgba(56,225,240,.4), rgba(46,124,247,.16) 40%, transparent 70%) +
-  linear-gradient(160deg,#0F2860,#0A1F4D)`. Label row: SMART SUMMARY tag +
-  ⓘ + `Last refresh 15 AUG · 22:09` (short, upper) + 🔊. Collapsed:
-  21px/800 verdict headline + Performance / Pickup / On the Books rows
-  (9.5px cyan uppercase labels, values `<b>` white 800) + `Read the full
-  briefing →`; expanded = full hero text + `Show less ↑`.
+- **Smart Summary v2**: navy card, same gradient. Label row: SMART SUMMARY
+  tag + `Last refresh` + speaker. **Deterministic headline** 21px/800
+  (rule ladder; numbers tinted `#56FFC4`/`#FFB4A3`). Three sections with
+  right-aligned STATE PILLS (9.5px/800 pills — green `rgba(86,255,196,.16)`,
+  coral `rgba(255,180,163,.16)`, grey `rgba(255,255,255,.14)`):
+  Performance (yd + MTD vs LY), Pickup (booked/cancelled/net + WoW arrow),
+  On the Books (FY vs STLY + best/watch months). `Read the full briefing →`
+  expands the narrated hero; `Show less ↑` collapses.
 - **Yesterday**: section header + **2×2 grid**; card = 3px `--grad-cyan`
   top border, uppercase letterspaced 10px label `#15296B`, 26px value,
   ▲/▼ delta, `vs LY …` caption.

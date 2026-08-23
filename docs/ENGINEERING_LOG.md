@@ -167,6 +167,19 @@ User-side unblockers still open: firstlight_ro logins (both SQL servers),
 Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 **REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
+- ✅ 2026-08-19 **Smart Summary v2 — deterministic** (React da3662a; mock
+  approved first, artifact a1e6e762). Headline is a client-side rule ladder
+  over pre-computed facts (first match wins): cancellation spike (churn >=15%
+  & >=10 rn) -> big yesterday (|vsLY| >=15%, "Strong/Soft {weekday}") ->
+  forward month <= -5% vs STLY ("{Month} needs attention") -> pickup
+  accel/slow (net7 vs prior-week net from pickup_daily, +-15%) -> "Steady
+  day — MTD {x}%". Sections upgraded: state pills (AHEAD/BEHIND/MIXED,
+  SPEEDING UP/SLOWING/STEADY), Pickup shows booked/cancelled/net + WoW
+  arrow, On the Books names best + watch months. NO Claude call — updates on
+  every refresh (11:00/17:00/manual), follows net mode instantly; the
+  once-daily narrated hero remains behind "Read the full briefing" (speaker
+  reads it; both hidden if hero missing). Templates do zero arithmetic
+  (safety-first) — slots only. EN only until the i18n dictionary lands.
 - ✅ 2026-08-19 "Where each month stands" section REMOVED (user request; the
   MonthStands meter is gone from the Pace tab — pace charts + booking speed
   + heat + bridge + sources remain). React 0abd77f + d5adbb3 (the first
