@@ -167,6 +167,11 @@ User-side unblockers still open: firstlight_ro logins (both SQL servers),
 Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 **REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
+- ✅ 2026-08-23 Section-header consistency (React 9e04270): every visual now
+  uses the same SectionLabel (icon + title + ⓘ + Share) OUTSIDE the white
+  card — Yesterday/MTD got icons, MTD/OTB/butterfly/speed/pace-charts/heat/
+  bridge/sources titles moved out; "Demand heat" renamed "Next 60 Days
+  Demand"; "Cancelled revenue · 7 days" strip removed (user spec).
 - ✅ 2026-08-23 **NO DERIVED EURO FIGURES in briefings — standing rule**
   (user, after the hero mis-framed the lead-time signal's €1,079,123
   "revenue in motion" as a "€1.08M opportunity"): only real PMS revenue is

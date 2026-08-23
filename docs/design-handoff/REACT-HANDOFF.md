@@ -45,8 +45,15 @@ AMBER (charts): #B47D09 · heat anomaly ring: #BA1A1A
 - Row 2: `Hotel` label + picker pill (dark dropdown `#0A1F4D`) + `↻ Refresh`.
 - Tabs: `Overview · Pickup · Pace · AI Insights (n)`, spread evenly on white;
   active = `#1E5FD0` label + 2px `#2E7CF7` underline.
-- **Section header** (every section): leading 15px blue SVG icon + title +
-  ⓘ (18px circle, border `#A0AAC0`) + right-aligned `↑ Share` outline pill.
+- **Section header — UNIVERSAL** (every visual, 2026-08-23): leading 15px
+  blue SVG icon + 13.5px/700 `#0F2860` title (grey 11px `·` suffix for
+  subtitles/ranges) + ⓘ + right-aligned `↑ Share` pill — ALWAYS OUTSIDE the
+  white card. Icon map: Yesterday=sun · Month to Date=month-cal ·
+  On The Books=cal · Pickup Activity=trend · Booked vs Cancelled=fly ·
+  Booking Speed=speed · Pace=pace · Revenue OTB=euro · Occupancy=occ ·
+  ADR=adr · Next 60 Days Demand=heat · ADR Bridge=bridge ·
+  Top Sources=sources · AI Insights=star. Chart legends live inside the
+  card, right-aligned top row. No titles inside white borders anywhere.
 - Footer: gradient CTA `Open Hotel BI for full report →`, feature sub-line,
   `FIRSTLIGHT · AI MORNING BRIEFING V2.0` meta, source/generated line,
   closing navy band.
@@ -79,7 +86,7 @@ AMBER (charts): #B47D09 · heat anomaly ring: #BA1A1A
   (`120deg #0F2860→#2E7CF7→#38E1F0→…`, 3.5s). Butterfly: dynamic window
   title with date range, `◀ CANCELLED / BOOKED ▶` axis row, single pair per
   month (booked #0F2860 right, cancelled #B83A1B left), amber churn callout
-  (`#FBEEDC`/`#6D4C00`, ≥15% rule), cancelled-revenue strip.
+  (`#FBEEDC`/`#6D4C00`, ≥15% rule), (cancelled-revenue strip removed 2026-08-23).
 - **Pace charts** (`Revenue OTB` / `Occupancy` / `ADR`): right-aligned
   square-swatch legend `OTB TY / STLY / Final LY`; y-axis ticks (13px) +
   gridlines `#EBEEF4`; bars navy (green when ≥ final LY), STLY `#CDD4E0`,
