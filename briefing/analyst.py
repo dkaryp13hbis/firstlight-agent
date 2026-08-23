@@ -34,7 +34,7 @@ import config
 
 _client = None
 _MODEL = "claude-sonnet-4-6"
-_PROMPT_VERSION = "cards-v1.6-nostake"
+_PROMPT_VERSION = "cards-v1.7-noderived"
 
 # Cost policy (user decision 2026-07-27): every Claude call costs money, so
 # narration gets ONE attempt — a validation miss goes straight to the free
@@ -986,10 +986,10 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 fb = {
                     "headline": f"{month_name} projected around {f_vs_band} vs {ref_label}",
                     "evidence": [
-                        {"label": "PROJECTED FINISH", "value": band_str, "sub": f"{f_vs_band} vs {ref_label}"},
+                        {"label": "PROJECTED FINISH", "value": f_vs_band, "sub": f"vs {ref_label}"},
                         {"label": "REMAINING OTB", "value": f_rem_otb, "sub": f"{days_left} days left"},
                     ],
-                    "what_happened": f"Month-end revenue is projected in the range of {band_str}.",
+                    "what_happened": f"Month-end revenue is projected {f_vs_band} vs {ref_label}.",
                     "why_it_matters": "Remaining-month bookings may be pacing below last year's close-in pickup (confidence: Medium).",
                     "recommended_action": f"Consider a close-in offer on remaining {month_name} nights.",
                     "by_when": f"Within 2–3 days; {days_left} days left.",
@@ -1007,10 +1007,10 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 fb = {
                     "headline": f"{month_name} on track to finish around {f_vs_band} vs {ref_label}",
                     "evidence": [
-                        {"label": "PROJECTED FINISH", "value": band_str, "sub": f"{f_vs_band} vs {ref_label}"},
+                        {"label": "PROJECTED FINISH", "value": f_vs_band, "sub": f"vs {ref_label}"},
                         {"label": "REMAINING OTB", "value": f_rem_otb, "sub": "not yet realised"},
                     ],
-                    "what_happened": f"Month-end revenue is projected in the range of {band_str}.",
+                    "what_happened": f"Month-end revenue is projected {f_vs_band} vs {ref_label}.",
                     "why_it_matters": f"{f_rem_otb} is still on the books, not realised; cancellations in the final {days_left} days are the main risk (confidence: High).",
                     "recommended_action": "No action suggested — worth watching cancellations daily.",
                     "by_when": "Daily until month close; trigger: cancellations above baseline.",
@@ -1112,10 +1112,10 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             fb = {
                 "headline": f"{m_name} projected around {f_vs_band} vs {ref_label}",
                 "evidence": [
-                    {"label": "PROJECTED FINISH", "value": band_str, "sub": f"{f_vs_band} vs {ref_label}"},
+                    {"label": "PROJECTED FINISH", "value": f_vs_band, "sub": f"vs {ref_label}"},
                     {"label": "OCC OTB vs SAME TIME LY", "value": f"{facts['occ_otb']['value']} vs {facts['occ_same_time_ly']['value']}", "sub": f"final last year {facts['final_ly_occ']['value']}"},
                 ],
-                "what_happened": f"{m_name} is projecting in the range of {band_str}.",
+                "what_happened": f"{m_name} is projecting {f_vs_band} vs {ref_label}.",
                 "why_it_matters": "Booking pace trails last year; group or contracted business may not have re-materialised (confidence: Low).",
                 "recommended_action": f"If the trend continues, an option is a demand-building offer for {m_name}.",
                 "by_when": f"Within 7 days; {days_to_start} days to month start.",
@@ -1133,10 +1133,10 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             fb = {
                 "headline": f"{m_name} projecting around {f_vs_band} vs {ref_label}",
                 "evidence": [
-                    {"label": "PROJECTED FINISH", "value": band_str, "sub": f"{f_vs_band} vs {ref_label}"},
+                    {"label": "PROJECTED FINISH", "value": f_vs_band, "sub": f"vs {ref_label}"},
                     {"label": "ADR OTB vs FINAL LY", "value": f"{facts['adr_otb']['value']} vs {facts['adr_final_ly']['value']}", "sub": f"OTB occ {facts['occ_otb']['value']}"},
                 ],
-                "what_happened": f"{m_name} is projecting in the range of {band_str}.",
+                "what_happened": f"{m_name} is projecting {f_vs_band} vs {ref_label}.",
                 "why_it_matters": "The volume position is ahead of last year; early rate floors will anchor the final ADR outcome (confidence: Medium).",
                 "recommended_action": f"It may be worth reviewing {m_name} rate floors while demand runs ahead.",
                 "by_when": "This week.",
@@ -1380,6 +1380,11 @@ def _novelty_gate(candidates: list[dict], hotel_id: str) -> tuple[list[dict], li
     return kept, demoted
 
 
+# Derived/estimated euro figures (at-stake, projections) never reach the
+# narration prompt or the display — only real PMS revenue does. The values
+# still drive scoring internally. (User rule 2026-08-23.)
+_DERIVED_EUR_FACTS = ("value_at_stake", "proj_rev_band")
+
 # ─── Layer B: narration ──────────────────────────────────────────────────────
 
 _NARRATION_SYSTEM = """You are the narration layer of a hotel revenue-management AI analyst.
@@ -1594,7 +1599,7 @@ def _narrate_card(wrapper: dict, fallback_card: dict, meta: dict | None = None,
     facts    = wrapper["insight"]["facts"]
     # € at-stake estimates are internal (scoring/novelty) — never narrated.
     prompt_wrapper = {**wrapper, "insight": {**wrapper["insight"], "facts": {
-        k: v for k, v in facts.items() if not k.startswith("value_at_stake")}}}
+        k: v for k, v in facts.items() if not k.startswith(_DERIVED_EUR_FACTS)}}}
     haystack = json.dumps(prompt_wrapper, ensure_ascii=False)
     base_prompt = json.dumps(prompt_wrapper, ensure_ascii=False, indent=2)
     if lang == "el":
