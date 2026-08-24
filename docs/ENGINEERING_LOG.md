@@ -209,8 +209,17 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   the dev preview is never empty). ALSO FIXED on the way (trust bug the
   product review flagged): Smart Summary "Last refresh NaN undefined" —
   `SmartSummary.tsx` parsed `data.report_date` (a display string) instead
-  of `briefing.report_date` (ISO); now "09 AUG · 14:45". NOT DONE: Note editing (column exists),
-  Greek strings (no dictionary yet), heatmap → "watch this week", source
+  of `briefing.report_date` (ISO); now "09 AUG · 14:45". HEATMAP ENTRY added same evening
+  (user: "build the heatmap"): cells in Next 60 Days Demand are tap
+  targets — one tap = a date, second tap = a range (blue ring + scale on
+  selected cells); panel under the grid shows booked % vs LY for the
+  selection and offers Watch <date> / Watch this week (Mon–Sun, clamped
+  to the first date in view) / Watch <soft run> · behind LY (amber, only
+  when the date sits in a flagged run of ≥2 dates) / the picked range;
+  already-watched → "Watching ✓" disabled; tracked as watch_add
+  {from: heatmap}. `softRuns/rangeKey/rangeTitle/isoAdd` reused from
+  lib/watch.ts; `OtbTab` threads `onWatchRange/watchedRanges`. NOT DONE:
+  Note editing (column exists), Greek strings (no dictionary yet), source
   watches, push line, novelty-gate awareness (all listed in spec §7).
   ⬜ NEXT: paste SQL → open demo account → add October + a range → next
   morning check the pill flips from "First day watching"; then widen the

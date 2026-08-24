@@ -30,7 +30,7 @@ in the section header; the tap on a card goes to the Pace tab.
 | Watch a **stay month** (`2026-10`) | Watch a **source/channel** (v1.1 — `topChannels` has no daily history yet) |
 | Watch a **date range** (`2026-09-22..2026-09-28`, inside the 90-day `otb_by_date` window) | Watch a **Signal/card** (v1.1 — becomes trivial once the story `status` block exists) |
 | "Your watchlist" section on Today, one line per item, updates every refresh | Watchlist lines in the **morning push** (v2 — push body is per hotel today, would need per-user bodies) |
-| Add from: section "+ Watch" sheet, OTB month card, AI card footer | Add from heatmap cell (v1.1 — needs a tap→range sheet) |
+| Add from: section "+ Watch" sheet, OTB month card, AI card footer, **heatmap cell** (tap = date, second tap = range; offers date / this week / flagged soft run — built 2026-08-24) | Add from pace-bar tooltip / Booking Speed rows (later) |
 | Per-**user** storage in Supabase, localStorage for the demo hotel | Backend awareness (watched month never demoted by the novelty gate — v2) |
 | EN + EL strings via the same dictionary the UI uses | 7-day sparkline per item (v1.1 — needs `kpi_summary` widened, see §7) |
 
