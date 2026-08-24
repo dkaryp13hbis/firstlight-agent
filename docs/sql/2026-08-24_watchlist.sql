@@ -4,8 +4,9 @@
 -- Until pasted: the app hides the watchlist section (reads fail → null) and
 -- "Watch" actions toast "Watchlist not available yet".
 --
--- Per USER (not per hotel): GM and revenue manager watch different things;
--- a multi-hotel owner watches per property. Spec: docs/WATCHLIST_SPEC.md
+-- Per USER and per HOTEL: rows carry user_id + hotel_id (unique per kind/key);
+-- the GM and the revenue manager keep separate lists, and a multi-hotel owner
+-- keeps one list per property (the app loads the hotel in view). Spec: docs/WATCHLIST_SPEC.md
 
 create table if not exists watchlist (
   id          uuid primary key default gen_random_uuid(),
@@ -28,9 +29,13 @@ drop policy if exists wl_select on watchlist;
 create policy wl_select on watchlist
   for select to authenticated using (user_id = auth.uid());
 
+-- Per email AND per hotel: a row is only allowed for a hotel the user belongs to.
 drop policy if exists wl_insert on watchlist;
 create policy wl_insert on watchlist
-  for insert to authenticated with check (user_id = auth.uid());
+  for insert to authenticated with check (
+    user_id = auth.uid()
+    and exists (select 1 from hotel_users hu where hu.hotel_id = watchlist.hotel_id and hu.user_id = auth.uid())
+  );
 
 drop policy if exists wl_update on watchlist;
 create policy wl_update on watchlist
