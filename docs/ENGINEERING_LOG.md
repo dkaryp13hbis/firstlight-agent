@@ -167,6 +167,27 @@ User-side unblockers still open: firstlight_ro logins (both SQL servers),
 Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 **REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
+- ⬜ **WEEKLY DIGEST** (user: "I like it a lot" — parked 2026-08-24, do NOT
+  build yet). Spec agreed: Monday after 03:30 run; six deterministic blocks —
+  one-line verdict, week scorecard vs same days LY, MTD + FY OTB, pickup
+  (booked/cancelled/net, best/worst day), "what the analyst flagged" (still
+  open/new/cleared from follow-up memory), next-weeks outlook + callout; no
+  Claude by default; Greek/English via dictionary; delivery = in-app entry
+  in the day strip + push (4th notification type "Weekly digest") +
+  share-as-image for WhatsApp. Mocks: content artifact c8fb2f2c…, design
+  canvas e59bb657… (3 chart styles: A Scorecard tiles+bullet bars, B
+  Storyline dumbbells, C Chart-first cumulative curve+rings) — STYLE NOT
+  CHOSEN YET; ask before building.
+- ⬜ **MONTHLY DIGEST** (parked with the weekly): fires when a month closes
+  (1st, after 03:30); same skeleton on the closed month vs LY final — weeks
+  within the month, shape of the month (best/softest day, days behind LY,
+  rate-vs-volume), month pickup/churn, flags resolved/still open, next
+  month OTB at close. Real July 2026 mock on the same canvas.
+- ⬜ **MULTIPROPERTY PORTFOLIO PAGE** — mock done (artifact b7bb4191…):
+  Yesterday / MTD / YTD tabs, navy hero (portfolio total, ahead/behind
+  counts, biggest mover), ranked hotel list with variance pills, "across the
+  group" flags lifted from each hotel's briefing. Design-first item stays
+  open; needs group→hotels membership model.
 - 🔄 2026-08-24 **AI value push: notifications v2 + follow-up memory**
   (brainstorm → user picked top 3; backend afb644f cards-v1.8-followup,
   React 7bc243b, SQL 2026-08-24_notification_types.sql — USER MUST PASTE).
