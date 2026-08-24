@@ -167,6 +167,17 @@ User-side unblockers still open: firstlight_ro logins (both SQL servers),
 Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 **REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
+- 🔄 2026-08-24 **Usage tracking layer** (React 3d4b670 + SQL
+  2026-08-24_usage_events.sql — USER MUST PASTE). First-party events into
+  Supabase `usage_events` (user_id/hotel_id/session_id/event/props); RLS =
+  authenticated INSERT-own-only, reads service-role only. Client
+  `lib/track.ts`: 10s batching + page-hide flush, fail-silent, GATED to
+  demo@hbis.io via TRACKED_EMAILS (set to null → track everyone). Events:
+  app_open (platform/standalone/viewport), session_end (seconds), tab_nav,
+  hotel_switch, refresh_tap, bell_toggle, setting_change, hero_expand,
+  voice_play, card_expand, share_tap, feedback_submit. ⬜ NEXT: paste SQL →
+  browse demo → verify rows; later a usage digest (daily counts per event)
+  + widen gate at go-live.
 - ✅ 2026-08-23 Section-header consistency (React 9e04270): every visual now
   uses the same SectionLabel (icon + title + ⓘ + Share) OUTSIDE the white
   card — Yesterday/MTD got icons, MTD/OTB/butterfly/speed/pace-charts/heat/
