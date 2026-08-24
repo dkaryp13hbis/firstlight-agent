@@ -176,9 +176,10 @@ User-side unblockers still open: firstlight_ro logins (both SQL servers),
 Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 **REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
-- 🔄 2026-08-24 **MY WATCHLIST v1 — BUILT, uncommitted in the PWA repo**
-  (user: "lets do this"; spec [docs/WATCHLIST_SPEC.md](WATCHLIST_SPEC.md);
-  SQL `docs/sql/2026-08-24_watchlist.sql` — USER MUST PASTE). GM pins a
+- 🔄 2026-08-24 **MY WATCHLIST v1 — BUILT** (React `28a249c`, backend
+  `8df3c65`; user: "lets do this"; spec [docs/WATCHLIST_SPEC.md](WATCHLIST_SPEC.md);
+  SQL `docs/sql/2026-08-24_watchlist.sql` — USER MUST PASTE; PWA not yet
+  pushed to Pages). GM pins a
   stay month or a date range; one deterministic card per item on Today
   (after the MTD strip), rebuilt on every refresh, zero Claude, plain
   words, no derived euros. Decisions taken: per-USER rows (own-rows RLS),
