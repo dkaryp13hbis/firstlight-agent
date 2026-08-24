@@ -183,8 +183,10 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   stay month or a date range; one deterministic card per item on Today
   (after the MTD strip), rebuilt on every refresh, zero Claude, plain
   words, no derived euros. Decisions taken: per-USER rows (own-rows RLS),
-  placement after MTD strip, gated to demo@hbis.io first
-  (`WATCHLIST_EMAILS` in `lib/watch.ts`, null = everyone), cap 5.
+  placement after MTD strip, cap 5. Gate `WATCHLIST_EMAILS` in
+  `lib/watch.ts` was demo-only for the first build, then OPENED to everyone
+  (null) the same evening at the user's request ("apply to Pome and
+  Potidea") — per-user rows, so each GM/RM keeps their own list.
   PWA files: `lib/watch.ts` (pure compute: month/range lines, status
   ladder NEW→IMPROVING/WORSENING/STEADY, PASSED, CLOSED, PENDING; sheet
   helpers), `lib/speed.ts` (booking-speed math extracted from
