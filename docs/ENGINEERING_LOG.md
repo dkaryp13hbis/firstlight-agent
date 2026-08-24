@@ -167,6 +167,15 @@ User-side unblockers still open: firstlight_ro logins (both SQL servers),
 Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 **REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
+- ✅ 2026-08-24 **7-day history** (React 77ce96f): pill strip above the Smart
+  Summary — `Today · Sat 23 · Fri 22 …` from the hotel's last 7 stored
+  briefing rows (data already existed; no backend change). Tap = that day's
+  FULL briefing (data + that day's AI cards) rendered by the same
+  components; amber "Viewing the briefing of …" banner + Back to Today;
+  refresh guarded in past view; hotel switch resets to today; feedback
+  thumbs still work on past cards (report_date-keyed); `history_view`
+  tracked. Past days load via Supabase (Phase A API has no by-date endpoint
+  yet — add one before the API becomes the only read path).
 - 🔄 2026-08-24 **Usage tracking layer** (React 3d4b670 + SQL
   2026-08-24_usage_events.sql — USER MUST PASTE). First-party events into
   Supabase `usage_events` (user_id/hotel_id/session_id/event/props); RLS =
