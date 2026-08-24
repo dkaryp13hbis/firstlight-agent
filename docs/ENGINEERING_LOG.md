@@ -68,7 +68,16 @@ merge; novelty gate (repeat card within 3 days without ≥10% worsening → watc
 **Layer B — narration (one Claude call per card):** the LLM only phrases pre-computed
 facts. Validator rejects: any number not verbatim in input; word-cap violations;
 imperative action openers (soft suggestions only); sentences blending full-month
-with remaining-period numbers. SINGLE attempt (cost policy 2026-07-27,
+with remaining-period numbers. **Plain-language contract (2026-08-24, `cards-v1.9-plain`):**
+the reader is a hotel owner, not a revenue manager — short sentences, everyday words,
+no jargon when a simpler phrase means the same (pickup → new bookings, pace → bookings
+vs last year, OTB → booked so far, ADR → average rate, close-in → last-minute,
+compression → dates filling up fast, soft dates → low-booking dates, firming/softening →
+getting stronger/weaker). Enforced on every path: prompt glossary (cards + hero) →
+`_plainify_text()` deterministic substitution pass on narrated output AND fallback
+templates (English only; logs + `jargon_replaced` in cards_audit when it fires — a hit
+means the prompt let something through) → all fallback templates rewritten in plain
+words → hero driver hints rewritten ("mostly from higher rates", "fewer rooms sold"). SINGLE attempt (cost policy 2026-07-27,
 `NARRATION_ATTEMPTS` env to re-enable retries) → deterministic templated fallback
 card ships instead. **Narration can never block a briefing** — only data-level
 failures can.
@@ -167,6 +176,49 @@ User-side unblockers still open: firstlight_ro logins (both SQL servers),
 Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 **REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
+- 🔄 2026-08-24 **MY WATCHLIST v1 — BUILT, uncommitted in the PWA repo**
+  (user: "lets do this"; spec [docs/WATCHLIST_SPEC.md](WATCHLIST_SPEC.md);
+  SQL `docs/sql/2026-08-24_watchlist.sql` — USER MUST PASTE). GM pins a
+  stay month or a date range; one deterministic card per item on Today
+  (after the MTD strip), rebuilt on every refresh, zero Claude, plain
+  words, no derived euros. Decisions taken: per-USER rows (own-rows RLS),
+  placement after MTD strip, gated to demo@hbis.io first
+  (`WATCHLIST_EMAILS` in `lib/watch.ts`, null = everyone), cap 5.
+  PWA files: `lib/watch.ts` (pure compute: month/range lines, status
+  ladder NEW→IMPROVING/WORSENING/STEADY, PASSED, CLOSED, PENDING; sheet
+  helpers), `lib/speed.ts` (booking-speed math extracted from
+  `BookingSpeed` so chart + watchlist can't disagree), `api.ts`
+  (fetchWatchlist → null when table missing = section hidden; addWatch
+  maps 23505/relation errors to toasts; removeWatch; fetchPrevBriefing =
+  previous report_date row for "since yesterday"; demo hotel →
+  localStorage), `components/Watchlist.tsx` (section + cards + WatchSheet:
+  Month chips with current gap / Date range with From–To + presets This
+  weekend · Next 7 · Next 14 · ⚠ soft runs from the heatmap rule ·
+  "Tomorrow you'll see" preview · "n of 5 used"), 👁 toggle on OTB month
+  headers (`Overview.tsx`), Watch/Watching pill on month-scoped AI cards
+  (`AiCards.tsx`, month parsed from card id), `types.ts` now types
+  pickup_daily/cancel_daily/otb_by_date, Info ⓘ key `watch`. Tracking:
+  watch_add {kind,key,from: sheet|otb_card|ai_card}, watch_remove,
+  watch_tap (→ Pace tab). Hidden in past-day view; reset on hotel switch.
+  Verified: `tsc -b` clean, `vite build` OK, fixture checks (scratch
+  script, 8 cases) all pass, headless Edge render of a `--mode demo` build
+  shows the section in place (fixture mode seeds two sample watches so
+  the dev preview is never empty). ALSO FIXED on the way (trust bug the
+  product review flagged): Smart Summary "Last refresh NaN undefined" —
+  `SmartSummary.tsx` parsed `data.report_date` (a display string) instead
+  of `briefing.report_date` (ISO); now "09 AUG · 14:45". NOT DONE: Note editing (column exists),
+  Greek strings (no dictionary yet), heatmap → "watch this week", source
+  watches, push line, novelty-gate awareness (all listed in spec §7).
+  ⬜ NEXT: paste SQL → open demo account → add October + a range → next
+  morning check the pill flips from "First day watching"; then widen the
+  gate. Context: came out of the product-evaluation review (commercial
+  memory > more BI); sibling item = story status enum on cards — not yet
+  planned.
+  Mock (2026-08-24): artifact 93a332c0-aa88-49a9-a924-4b4226709913 — Today
+  entry, add sheet (Month | Date range, "tomorrow you'll see" preview, 5-cap
+  counter), 7-day evolution of the October watch with status pills
+  (First day watching → Getting worse → Steady → Improving → Closed) + gap
+  sparkline; range watch shown alongside.
 - ⬜ **WEEKLY DIGEST** (user: "I like it a lot" — parked 2026-08-24, do NOT
   build yet). Spec agreed: Monday after 03:30 run; six deterministic blocks —
   one-line verdict, week scorecard vs same days LY, MTD + FY OTB, pickup
@@ -501,6 +553,7 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 | Commit | Date | What |
 |---|---|---|
+| (pending) | 2026-08-24 | PLAIN-LANGUAGE NARRATION (`cards-v1.9-plain`): user rule — write for a hotel owner, not a revenue expert; short sentences, everyday words, never jargon when a simpler phrase means the same. (1) Card system prompt rule 9 → required rewordings glossary (firming→getting stronger, decelerating→slowing down, compression→filling up fast, ADR dilution→average rate is falling, pickup→new bookings, pace→bookings, OTB→booked so far, lead time→how far ahead guests book, close-in→last-minute, inventory→rooms, rate codes/floors→rate plans/minimum rates, materialise→come through); hero prompt gets the same instruction. (2) New `_PLAIN_TERMS` + `_plainify_text/_plainify_card` — ordered regex substitutions applied AFTER validation to narrated cards, hero, and both fallback paths (en only; sentence-start capital preserved, mid-sentence acronyms lowercased; never touches digits; audit `jargon_replaced` + log line when it fires). (3) Every fallback template rewritten (all 5 signals + softening merge): evidence labels too (PACE→BOOKINGS, ADR OTB→AVG RATE BOOKED, REMAINING OTB→STILL TO COME, PROJECTED→EXPECTED FINISH, CLOSE-IN SHARE→LAST-MINUTE SHARE, SOFTEST→LOWEST DATES, z-score→"swing of X vs normal"). (4) Hero driver hints: rate-led→"mostly from higher rates", occupancy-led→"mostly from more rooms sold", softer→lower/fewer. test_hero.py 53 checks (+26 plain-language), test_leadtime 37, test_retry_feedback 10, test_contract 17 all pass. NOTE: test_preview.py legacy path fails with pre-existing `KeyError: month_num` in `_legacy_generate.pace_row` (not touched; legacy path unused by tunnel hotels). Verify next 03:30 run via cards_audit: `jargon_replaced` should be absent/rare; any hit = tune the prompt glossary |
 | `3a57175` | 2026-08-14 | PHASE A LIVE + VERIFIED at `web-cloudflare.up.railway.app`: /health = firstlight-api/phase A; smoke test PASSED — 401 no token, 403 cross-hotel token, /briefing/latest both hotels, /briefing/history 7 days w/ kpi_summary, /feedback (real rows incl. user notes). Root causes of the 4-day-late activation: (1) Railway service had a CUSTOM START COMMAND (`python railway_main.py`) silently overriding the Dockerfile CMD — the Phase A image built but never ran; (2) `$PORT` in the replacement start command didn't expand → 502 crash loop → fixed with `python api.py` entry (port read in-process). Old unauthenticated /trigger is now closed behind tokens. LESSON: after a CMD-level change, verify the SERVED process (/health signature), not just the build. 17:00 UTC run will confirm scheduler+poller in the lifespan |
 | (config) | 2026-08-10 | POTIDEA ONBOARDED TUNNEL-DIRECT (first run of docs/ONBOARDING.md, ~10 min from token to verified data): reused the hotel server's existing cloudflared tunnel — added TCP hostname `sql-potidea.hbis.io` → 192.20.10.8:1433 + Service Auth token `railway-potidea-sql`; local pre-flight through db/tunnel.py BEFORE touching prod config (mpehotel=1 confirmed — the only property on its server; zimmer raw 295/filtered 237 vs configured 236, same off-by-one as Pome; NO `mpe` table on this server — sanity by volume instead); pms_config written (BiData, sa for now); first tunnel run: success, 8.3s fetch, complete, no legacy, ALL signal queries populated for the first time (lead_time 96, pickup_daily 42, cancel_daily 27, consumed 8, pace_next_year); yesterday 209rn/€109,138 matches pre-flight to the euro. Intake deferrals (user): rooms stay 236 + season dates pending user's own Protel queries; language en (app-switchable); recipient_email intentionally empty. REMAINING: 03:30 watch → decommission old bridge (daemon + 2 scheduled tasks) → sa→firstlight_ro on BOTH hotels |
 | (pending) | 2026-08-04 | CLOSED-SEASON HERO + summary trim + onboarding intake: Q16 `Q_PACE_NEXT` (next-year OTB by month vs this year at same booking stage 364d ago, Q_PACE conventions, fail-open, optional contract field `pace_next_year`); contract carve-out — `yesterday_nonzero` hard gate passes when yd+MTD are all-zero AND next year has bookings (evidence the pipe is alive; all-zero without it still blocks); analyst `_closed_season_slots` → hero pivots to "closed for the season, {ny} has X rn / €Y on the books, {vs stly}, strongest months" (fallback + prompt order both switched, prompt `cards-v1.5-closedseason`); hero chips hidden when yd.revenue=0. Collapsed Smart Summary trimmed to 2 bullets (was 3 — read taller than the full paragraph). ONBOARDING (user-mandated): intake MUST capture real sellable inventory (total_rooms, never the PMS room list) + season open/close dates LY+TY → `hotels.season_settings` (SQL file 2026-08-04, awaiting paste); skill + memory checklists updated. TO-DO: season-aware occupancy denominators (open days, not calendar days) once season_settings is populated |
