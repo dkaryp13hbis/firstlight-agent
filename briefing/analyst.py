@@ -34,7 +34,7 @@ import config
 
 _client = None
 _MODEL = "claude-sonnet-4-6"
-_PROMPT_VERSION = "cards-v1.7-noderived"
+_PROMPT_VERSION = "cards-v1.8-followup"
 
 # Cost policy (user decision 2026-07-27): every Claude call costs money, so
 # narration gets ONE attempt — a validation miss goes straight to the free
@@ -1330,8 +1330,12 @@ def _merge_pickup_soft(candidates: list[dict]) -> list[dict]:
 
 
 def _novelty_gate(candidates: list[dict], hotel_id: str) -> tuple[list[dict], list[dict]]:
-    """Spec C2.3: same card id raised in the last 3 days without the value at
-    stake worsening >= 10% → demote to watchlist. Fails open on any error."""
+    """Spec C2.3 + follow-up memory (2026-08-24): a repeat card without a
+    worsening stake is demoted to the watchlist — EXCEPT every 3rd day, when
+    it resurfaces once as "Still open" so open items are never silently
+    forgotten. Repeats carry follow-up facts (first flagged date, whether the
+    underlying gap widened or narrowed) for the narration to weave in.
+    Fails open on any error."""
     import os
     import requests as _req
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
@@ -1343,7 +1347,7 @@ def _novelty_gate(candidates: list[dict], hotel_id: str) -> tuple[list[dict], li
         # dates, never the current one — otherwise a same-day manual refresh
         # suppresses its own cards as "repeats" (incident 2026-07-23).
         current_report = str(_date.today() - timedelta(days=1))
-        since = str(_date.today() - timedelta(days=4))
+        since = str(_date.today() - timedelta(days=8))   # 7-day memory window
         r = _req.get(
             f"{supabase_url}/rest/v1/briefings",
             params={"hotel_id": f"eq.{hotel_id}",
@@ -1353,24 +1357,58 @@ def _novelty_gate(candidates: list[dict], hotel_id: str) -> tuple[list[dict], li
             timeout=10,
         )
         r.raise_for_status()
+        # per card id: max stake (novelty compare), earliest sighting + its stake
         prev_stakes: dict[str, float] = {}
-        for row in r.json():
+        first_seen: dict[str, tuple[str, float]] = {}
+        for row in sorted(r.json(), key=lambda x: x.get("report_date", "")):
+            rdate = row.get("report_date", "")
             for ins in (row.get("ai_insights") or {}).get("insights", []):
                 cid = ins.get("id")
-                if cid:
-                    stake = (float(ins.get("_stake_eur") or 0)
-                             or _parse_eur((ins.get("at_stake") or {}).get("value", "")))
-                    prev_stakes[cid] = max(prev_stakes.get(cid, 0), stake)
+                if not cid:
+                    continue
+                stake = (float(ins.get("_stake_eur") or 0)
+                         or _parse_eur((ins.get("at_stake") or {}).get("value", "")))
+                prev_stakes[cid] = max(prev_stakes.get(cid, 0), stake)
+                if cid not in first_seen:
+                    first_seen[cid] = (rdate, stake)
     except Exception as exc:
         print(f"[analyst] Novelty gate skipped (lookup failed): {exc}")
         return candidates, []
 
+    def _fmt_day(iso: str) -> str:
+        try:
+            d = _date.fromisoformat(iso)
+            return d.strftime("%a %d %b").replace(" 0", " ")
+        except ValueError:
+            return iso
+
     kept, demoted = [], []
     for c in candidates:
         cid = c["insight"]["id"]
+        if cid in first_seen:
+            fdate, fstake = first_seen[cid]
+            days_open = max(0, (_date.today() - timedelta(days=1) - _date.fromisoformat(fdate)).days)
+            facts = c["insight"]["facts"]
+            facts["first_flagged"] = _fmt_day(fdate)
+            new_stake = c.get("stake_eur", 0)
+            if fstake > 0 and new_stake > 0:
+                move = (new_stake - fstake) / fstake * 100
+                if abs(move) >= 15:
+                    facts["since_first_flagged"] = (
+                        f"the underlying gap is ~{abs(move):.0f}% "
+                        f"{'wider' if move > 0 else 'narrower'} than when first flagged")
         if cid in prev_stakes:
             old, new = prev_stakes[cid], c.get("stake_eur", 0)
             if old > 0 and new < old * 1.10:
+                fdate = first_seen.get(cid, ("", 0))[0]
+                days_open = max(0, (_date.today() - timedelta(days=1)
+                                    - _date.fromisoformat(fdate)).days) if fdate else 0
+                if days_open >= 3 and days_open % 3 == 0:
+                    # scheduled resurface: the item is still open — say so
+                    c["title_hint"] = "Still open: " + str(c.get("title_hint", ""))
+                    c["insight"]["facts"]["status"] = f"unresolved for {days_open} days"
+                    kept.append(c)
+                    continue
                 demoted.append(c)
                 continue
         kept.append(c)

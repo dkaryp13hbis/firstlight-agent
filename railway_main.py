@@ -173,6 +173,28 @@ def _briefing_exists_today(hotel_id: str) -> bool:
         return False
 
 
+def _get_existing_data(hotel_id: str) -> dict | None:
+    """The currently-published snapshot (today's report_date), for intraday
+    before/after comparisons. Fail-open: None on any error."""
+    import requests as _req
+    from datetime import date, timedelta
+    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
+    yesterday = str(date.today() - timedelta(days=1))
+    try:
+        r = _req.get(
+            f"{supabase_url}/rest/v1/briefings",
+            params={"hotel_id": f"eq.{hotel_id}", "report_date": f"eq.{yesterday}", "select": "data"},
+            headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
+            timeout=10,
+        )
+        if r.ok and r.json():
+            return r.json()[0].get("data")
+    except Exception:
+        pass
+    return None
+
+
 def _get_existing_ai_insights(hotel_id: str) -> dict | None:
     """Fetch the AI insights saved by this morning's full briefing run."""
     import requests as _req
@@ -344,11 +366,21 @@ def _process_hotel_locked(hotel: dict, run, force: bool, data_only: bool, result
             save_preview(data, ai, preview_path)
             rendered_html = Path(preview_path).read_text(encoding="utf-8")
 
+        # Previously-published snapshot (for intraday comparisons) — read
+        # BEFORE this run overwrites it.
+        prev_data = _get_existing_data(hotel["id"]) if (data_only and not manual) else None
+
         from briefing.cloud_push import push_to_cloud
         with run.stage("publish"):
             push_to_cloud(data, ai, rendered_html=rendered_html,
                           hotel_id=hotel["id"], source_run_id=run.run_id,
-                          notify=not manual)
+                          notify=not manual and not data_only)
+
+        # Intraday alert/momentum pushes: scheduled data-only runs only,
+        # deterministic templates, capped 1/type/day (intraday_log claims).
+        if data_only and not manual:
+            from briefing.intraday import run_intraday_checks
+            run_intraday_checks(data, prev_data, hotel["id"], hotel["name"])
 
         # Email only on the SCHEDULED morning full briefing — manual refreshes
         # update the app silently (learned 2026-07-24: refresh storms mailed

@@ -89,16 +89,43 @@ def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str |
         resp.raise_for_status()
         print(f"[cloud] Pushed briefing for {yesterday} (hotel {hotel_id[:8]}…) -> HTTP {resp.status_code}")
         if notify:
-            _send_push_notifications(ai, hotel_id, hotel_name=data.get("hotel_name") or config.HOTEL_NAME)
+            _send_push_notifications(ai, hotel_id,
+                                     hotel_name=data.get("hotel_name") or config.HOTEL_NAME,
+                                     data=data)
         else:
-            print("[cloud] Push notifications suppressed (manual refresh).")
+            print("[cloud] Push notifications suppressed (manual/data-only run).")
         return True
     except requests.RequestException as exc:
         print(f"[cloud] Push failed: {exc}")
         return False
 
 
-def _send_push_notifications(ai: dict[str, Any], hotel_id: str, hotel_name: str | None = None) -> None:
+def _send_push_notifications(ai: dict[str, Any], hotel_id: str, hotel_name: str | None = None,
+                             data: dict[str, Any] | None = None) -> None:
+    """Morning-briefing push: deterministic headline body (no AI phrasing)."""
+    hotel_name = hotel_name or config.HOTEL_NAME or "Hotel"
+    title = f"{hotel_name} · Morning Briefing"[:80]
+    body = ""
+    if data:
+        try:
+            from briefing.intraday import headline
+            body = headline(data)
+        except Exception as exc:  # noqa: BLE001 — never block the morning push
+            print(f"[push] headline failed, falling back: {exc}")
+    if not body:
+        insights = ai.get("insights", [])
+        body = (insights[0].get("title") if insights
+                else (ai.get("executive_summary") or "Your morning briefing is ready."))[:140]
+    send_typed_push(hotel_id, hotel_name, title, body, "morning", section_id="sec-ai",
+                    title_is_full=True)
+
+
+def send_typed_push(hotel_id: str, hotel_name: str, title: str, body: str,
+                    ntype: str, section_id: str = "sec-ai",
+                    title_is_full: bool = False) -> None:
+    """Send one typed Web Push to every subscription of the hotel whose
+    notification_prefs allow `ntype` (morning | alerts | momentum). Missing
+    prefs column/value = all types on (schema-tolerant)."""
     vapid_private     = os.getenv("VAPID_PRIVATE_KEY", "")
     vapid_email       = os.getenv("VAPID_EMAIL", "mailto:dk@bi-automations.com")
     supabase_url      = os.getenv("SUPABASE_URL", "").rstrip("/")
@@ -125,29 +152,28 @@ def _send_push_notifications(ai: dict[str, Any], hotel_id: str, hotel_name: str 
         print("[push] pywebpush not installed — run: pip install pywebpush")
         return
 
-    # Build notification payload from top insight
-    insights = ai.get("insights", [])
-    hotel_name = hotel_name or config.HOTEL_NAME or "Hotel"
-    if insights:
-        top = insights[0]
-        title = f"{hotel_name} · {top.get('title', 'Morning Briefing')}"[:80]
-        bullets = top.get("bullets", [])
-        body  = bullets[0] if bullets else top.get("title", "")
-    else:
-        title = f"{hotel_name} · Morning Briefing"
-        body  = (ai.get("executive_summary") or "Your morning briefing is ready.")[:120]
-
+    if not title_is_full:
+        title = f"{hotel_name} · {title}"[:80]
     pwa_url = os.getenv("PWA_URL", "https://app.hbis.io")
-    push_payload = json.dumps({"title": title, "body": body, "sectionId": "sec-ai", "url": pwa_url})
+    push_payload = json.dumps({"title": title, "body": body[:180],
+                               "sectionId": section_id, "url": pwa_url})
 
-    # Fetch all push subscriptions for this hotel from Supabase
+    # Fetch subscriptions (+ per-type prefs; column may not exist yet)
     try:
+        params = {"hotel_id": f"eq.{supabase_hotel_id}",
+                  "select": "subscription,notification_prefs"}
         r = requests.get(
-            f"{supabase_url}/rest/v1/push_subscriptions",
-            params={"hotel_id": f"eq.{supabase_hotel_id}", "select": "subscription"},
+            f"{supabase_url}/rest/v1/push_subscriptions", params=params,
             headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
             timeout=10,
         )
+        if r.status_code == 400 and "notification_prefs" in r.text:
+            params["select"] = "subscription"
+            r = requests.get(
+                f"{supabase_url}/rest/v1/push_subscriptions", params=params,
+                headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
+                timeout=10,
+            )
         r.raise_for_status()
         subscriptions = r.json()
     except Exception as exc:
@@ -162,6 +188,9 @@ def _send_push_notifications(ai: dict[str, Any], hotel_id: str, hotel_name: str 
     for row in subscriptions:
         sub_info = row.get("subscription")
         if not sub_info:
+            continue
+        prefs = row.get("notification_prefs") or {}
+        if prefs.get(ntype) is False:
             continue
         try:
             webpush(
@@ -179,4 +208,4 @@ def _send_push_notifications(ai: dict[str, Any], hotel_id: str, hotel_name: str 
         except Exception as exc:
             print(f"[push] Error sending to subscription: {exc}")
 
-    print(f"[push] Sent {sent}/{len(subscriptions)} notifications.")
+    print(f"[push] Sent {sent}/{len(subscriptions)} {ntype} notifications.")
