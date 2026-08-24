@@ -174,7 +174,12 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   open/new/cleared from follow-up memory), next-weeks outlook + callout; no
   Claude by default; Greek/English via dictionary; delivery = in-app entry
   in the day strip + push (4th notification type "Weekly digest") +
-  share-as-image for WhatsApp. Mocks: content artifact c8fb2f2c…, design
+  share-as-image for WhatsApp. ACCESS (agreed 2026-08-24): a "Last week"
+  pill at the left of the day strip, always = last completed Mon–Sun (any
+  weekday), scrolling left to "2/3/4 weeks ago"; closed months appear as
+  month pills ("July") in the same strip; Monday push deep-links to the pill;
+  flags block computed AS OF that week's end (honest history); optional
+  "This week so far" only if testers ask. Mocks: content artifact c8fb2f2c…, design
   canvas e59bb657… (3 chart styles: A Scorecard tiles+bullet bars, B
   Storyline dumbbells, C Chart-first cumulative curve+rings) — STYLE NOT
   CHOSEN YET; ask before building.
