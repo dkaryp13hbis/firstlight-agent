@@ -167,6 +167,25 @@ User-side unblockers still open: firstlight_ro logins (both SQL servers),
 Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 **REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
+- 🔄 2026-08-24 **AI value push: notifications v2 + follow-up memory**
+  (brainstorm → user picked top 3; backend afb644f cards-v1.8-followup,
+  React 7bc243b, SQL 2026-08-24_notification_types.sql — USER MUST PASTE).
+  (1) Intraday pushes, zero-Claude, after 11:00/17:00 UTC data-only runs:
+  ALERT = cancel spike today (>=max(8, 3× trailing daily)) or forward month
+  slipping <=-5% vs STLY since morning; MOMENTUM = month passes LY FINAL or
+  strong booking day (>=max(15, 2× trailing)). Claim-then-send via
+  intraday_log PK(hotel,day,type) → hard cap 1/type/day, silent until SQL
+  pasted; templates use % + counts only (no-derived-euro rule). Data-only
+  runs no longer send the morning-style push (they DID before — 3×/day dupe
+  bug fixed). Morning push body = deterministic headline ladder.
+  (2) Follow-up memory in the novelty gate (7-day window): repeat cards get
+  facts first_flagged + "gap ~N% wider/narrower since"; still-open items
+  resurface every 3rd day as "Still open:" instead of silent demotion.
+  (3) Settings → Notifications: per-type On/Off (Morning/Alerts/Momentum) →
+  push_subscriptions.notification_prefs, sender filters per type
+  (schema-tolerant). Tests: test_intraday.py 15 + 17/34/37 all pass.
+  ⬜ NEXT: paste SQL; watch tomorrow's 03:30 (headline body) + 11:00/17:00
+  (first intraday window); later: group-detection signal, per-card deep-link.
 - ✅ 2026-08-24 **7-day history** (React 77ce96f): pill strip above the Smart
   Summary — `Today · Sat 23 · Fri 22 …` from the hotel's last 7 stored
   briefing rows (data already existed; no backend change). Tap = that day's
