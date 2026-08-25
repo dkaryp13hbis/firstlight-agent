@@ -228,7 +228,7 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   expand); a row of per-day status glyphs (▲ ▼ — ✓) computed exactly as
   the card read each morning (`watchStatusHistory`); for months, net
   rooms per booking day bars from today's `pickup_daily` (no history
-  needed). <2 points → "builds up day by day". "Open in Pace ›" link
+  needed). <2 points → "builds up day by day". Ranges get the net-rooms bars too (user 08-25: "when we expand it should show net rooms booked"): derived as the change in rooms on the books between consecutive mornings (`netRoomsFromSeries`), header shows source + period total. "Open in Pace ›" link
   replaces the header tap-through. Tracked `watch_expand`. Option 2
   (widen `kpi_summary` for slim 30-day history) stays open in spec §7.
   Past-day view: watchlist deliberately hidden (v1); proposed as-of-day
