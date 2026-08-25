@@ -32,7 +32,7 @@ in the section header; the tap on a card goes to the Pace tab.
 | "Your watchlist" section on Today, one line per item, updates every refresh | Watchlist lines in the **morning push** (v2 — push body is per hotel today, would need per-user bodies) |
 | Add from: section "+ Watch" sheet, OTB month card, AI card footer, **heatmap cell** (tap = date, second tap = range; offers date / this week / flagged soft run — built 2026-08-24) | Add from pace-bar tooltip / Booking Speed rows (later) |
 | Per-**user** storage in Supabase, localStorage for the demo hotel | Backend awareness (watched month never demoted by the novelty gate — v2) |
-| EN + EL strings via the same dictionary the UI uses | 7-day sparkline per item (v1.1 — needs `kpi_summary` widened, see §7) |
+| EN + EL strings via the same dictionary the UI uses | 30-day slim history via widened `kpi_summary` (§7) — the 7-day trend strip from stored rows was built 2026-08-25 |
 
 Cap: **5 items per user per hotel** (keeps the section a glance, not a list).
 

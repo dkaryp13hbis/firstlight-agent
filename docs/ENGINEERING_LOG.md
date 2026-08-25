@@ -218,7 +218,21 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   when the date sits in a flagged run of ≥2 dates) / the picked range;
   already-watched → "Watching ✓" disabled; tracked as watch_add
   {from: heatmap}. `softRuns/rangeKey/rangeTitle/isoAdd` reused from
-  lib/watch.ts; `OtbTab` threads `onWatchRange/watchedRanges`. NOT DONE:
+  lib/watch.ts; `OtbTab` threads `onWatchRange/watchedRanges`. TREND STRIP added 2026-08-25 (user:
+  "any chart to check the performance?" → "lets build 1 for now" = no
+  backend change): tap a watch card → expands to a sparkline of rooms
+  booked (month) / booked % (range) THIS YEAR (blue, area) vs LAST YEAR
+  same point (grey dashed), endpoints labelled, one point per stored
+  morning briefing (last 7 report dates via `fetchHistoryRows` — the
+  same rows the day strip opens, fetched lazily once per hotel on first
+  expand); a row of per-day status glyphs (▲ ▼ — ✓) computed exactly as
+  the card read each morning (`watchStatusHistory`); for months, net
+  rooms per booking day bars from today's `pickup_daily` (no history
+  needed). <2 points → "builds up day by day". "Open in Pace ›" link
+  replaces the header tap-through. Tracked `watch_expand`. Option 2
+  (widen `kpi_summary` for slim 30-day history) stays open in spec §7.
+  Past-day view: watchlist deliberately hidden (v1); proposed as-of-day
+  replay with created_at filter — user has not decided. NOT DONE:
   Note editing (column exists), Greek strings (no dictionary yet), source
   watches, push line, novelty-gate awareness (all listed in spec §7).
   ⬜ NEXT: paste SQL → open demo account → add October + a range → next
