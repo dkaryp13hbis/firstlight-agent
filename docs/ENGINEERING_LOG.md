@@ -1,700 +1,701 @@
-`# FirstLight — Engineering Log
-`
-`Living document: architecture, migration progress, decisions, incidents, and release history.
-`Updated with every completed step and every incident. Newest entries first within each section.
-`
-`---
-`
-`## 1. What FirstLight is
-`
-`AI morning briefing for hotels. Pulls live data from the hotel's PMS, computes revenue
-`signals deterministically, has Claude narrate them into insight cards, and delivers via
-`PWA (app.hbis.io), email, and push notifications — every morning plus 2 data refreshes.
-`
-`**Live hotels:** Pome Hotel (Protel, mpehotel 1, 167 rooms) · Potidea Palace (Protel, 236 rooms)
-`
-`---
-`
-`## 2. Architecture
-`
-`### Today (transitional)
-`- **Hotel servers (Windows, on-prem):** full repo copy runs `server.py --daemon` — an HTTP
-`  bridge on localhost:8765 exposing `/fetch` (runs SQL against local Protel/BiData) +
-`  polls Supabase for refresh commands. Exposed via Cloudflare Tunnel
-`  (`pome-data.hbis.io`, `potidea-data.hbis.io`).
-`- **Railway:** `railway_main.py` processor (06:00 UTC full briefing with AI + email;
-`  11:00 & 17:00 UTC data-only refreshes reusing morning AI) + a FastAPI relay
-`  (`web-production-61c4d.up.railway.app`: `/briefing`, `/my/ai-insights`,
-`  `/briefing/latest`, `/commands/pending`). Auto-deploys from GitHub
-`  `dkaryp13hbis/firstlight-agent` main branch.
-`- **Supabase** (`tqfupsvymisnskiwtjut`): `hotels`, `briefings`, `hotel_users`,
-`  `push_subscriptions`, `refresh_commands`.
-`- **Vercel PWA:** app.hbis.io (separate repo `firstlight-pwa`).
-`
-`### Target (cloud migration, in progress)
-`Hotel servers run **only** cloudflared (persistent Windows service TCP-forwarding the
-`PMS DB port). Railway opens on-demand tunnel clients, runs the PMS adapter queries
-`directly, and holds ALL code, queries, and secrets. Updates = git push. Hotel visits =
-`onboarding only. See §4 tracker.
-`
-`### PMS adapter matrix
-`| PMS | Access | Tunnel | Driver | Status |
-`|---|---|---|---|---|
-`| Protel | SQL Server :1433 | yes | pyodbc + msodbcsql18 | **implemented** (`db/adapters/protel_mssql/`) |
-`| Pylon | SQL Server :1433 | yes | pyodbc | planned |
-`| Opera 5 | Oracle :1521 | yes | oracledb (thin) | planned |
-`| Fidelio V8 | Oracle :1521 | yes | oracledb (thin) | planned |
-`| Hotelizer | cloud REST | no | requests | planned |
-`
-`All adapters return the same **HotelDataSnapshot** (`db/contract.py`); the analyst,
-`cards, and app never know which PMS produced the data.
-`
-`---
-`
-`## 3. The AI analyst (v4 / cards spec v1.2)
-`
-`Two layers in `briefing/analyst.py`:
-`
-`**Layer A — compute (pure Python, no AI):** signals = pickup z-score, pace vs same-time-
-`last-year, soft/hot dates (90d), month-end projections. Score =
-``(0.35·Revenue + 0.25·Urgency + 0.25·Magnitude + 0.15·Novelty) × Confidence`.
-`Hard gates: pickup |z| ≥ 2; other signals ≥ 10% deviation; ≥ €1,000 at stake.
-`Projections exposed **only as bands** (occ ±2pts, revenue ±2%) — the point estimate
-`never reaches the LLM. Facts are period-scoped display strings
-`(`{"value": "−23.6%", "period": "Aug full month, vs same time last year"}`).
-`Global ranking (no per-month quota); same-month pace+projection merge; pickup+soft-dates
-`merge; novelty gate (repeat card within 3 days without ≥10% worsening → watchlist).
-`
-`**Layer B — narration (one Claude call per card):** the LLM only phrases pre-computed
-`facts. Validator rejects: any number not verbatim in input; word-cap violations;
-`imperative action openers (soft suggestions only); sentences blending full-month
-`with remaining-period numbers. **Plain-language contract (2026-08-24, `cards-v1.9-plain`):**
-`the reader is a hotel owner, not a revenue manager — short sentences, everyday words,
-`no jargon when a simpler phrase means the same (pickup → new bookings, pace → bookings
-`vs last year, OTB → booked so far, ADR → average rate, close-in → last-minute,
-`compression → dates filling up fast, soft dates → low-booking dates, firming/softening →
-`getting stronger/weaker). Enforced on every path: prompt glossary (cards + hero) →
-``_plainify_text()` deterministic substitution pass on narrated output AND fallback
-`templates (English only; logs + `jargon_replaced` in cards_audit when it fires — a hit
-`means the prompt let something through) → all fallback templates rewritten in plain
-`words → hero driver hints rewritten ("mostly from higher rates", "fewer rooms sold"). SINGLE attempt (cost policy 2026-07-27,
-``NARRATION_ATTEMPTS` env to re-enable retries) → deterministic templated fallback
-`card ships instead. **Narration can never block a briefing** — only data-level
-`failures can.
-`
-`**Word-limit contract (canonical, `_WORD_CAPS` + `_HERO_WORD_CAP` in analyst.py):**
-`
-`| Field | Cap | First-attempt target (~80%) |
-`|---|---|---|
-`| headline | 12 | ≤ 9 |
-`| what_happened | 20 | ≤ 16 |
-`| why_it_matters | 35 | ≤ 28 |
-`| recommended_action | 25 | ≤ 20 |
-`| by_when | 10 | ≤ 8 |
-`| hero paragraph | 110 | ≤ 90 |
-`
-`Enforced on EVERY path — nothing the briefing ships may exceed a cap:
-`1. tool-schema field descriptions state the cap + target at generation time;
-`2. validators reject over-cap narration (single shot → fallback);
-`3. fallback templates are test-proven within caps (test_leadtime/test_hero —
-`   any NEW fallback template must add the same check);
-`4. `_enforce_caps()` / `_clamp_words()` runtime clamp as last resort (logs a
-`   CAP CLAMP warning = template bug to fix).
-`
-`Output carries both new card anatomy (headline/evidence/what/why/action/by_when/
-`at_stake+calc) and legacy fields (title/kpis/findings/action) so the current PWA
-`renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format payloads.
-`
-`---
-`
-`## 4. Cloud migration tracker
-`
-`### Phase 1 — Build (cloud side)
-`| Step | Status | Commit | What / why |
-`|---|---|---|---|
-`| 1. HotelDataSnapshot contract | ✅ 2026-07-22 | `3bf6605` | `db/contract.py` — canonical payload spec + `data_quality` gate (missing fields, sanity checks, publishable verdict). Bad data now refused loudly; two real incidents replayed as tests (17 checks in `test_contract.py`). |
-`| 2. Protel adapter | ✅ 2026-07-22 | `4704c37` | Queries + fetch moved to `db/adapters/protel_mssql/`; `fetch_snapshot(conn, hotel_ctx)` takes identity per call; `get_adapter()` registry; old entry points are shims — zero hotel deployment needed. |
-`| 3. refresh_runs + drop stored HTML | ✅ 2026-07-23 | see below | Operational logbook separate from customer briefings: per-stage timings, data_quality verdict, per-card audit (exact facts given, validation attempts, fallback flag), token usage + estimated USD cost per briefing (sonnet-4-6 rates incl. cache). Status success/degraded/failed; degraded = fallback cards shipped. Railway no longer stores rendered_html — JSON is canonical, email renders transiently, `briefings.source_run_id` links to the run. RunLogger is fail-open (logging can never break a briefing). Requires one-time SQL: `docs/sql/2026-07-23_refresh_runs.sql` in Supabase. |
-`| 4. Tunnel Connection Manager + Dockerfile | ✅ 2026-07-23 | see below | `db/tunnel.py`: on-demand Railway-side cloudflared Access clients — port pool 14330-99, global cap (TUNNEL_CONCURRENCY=5), per-hotel single-flight, readiness health-check, guaranteed cleanup + atexit sweep, service tokens via env only (12 tests, real subprocess/socket). Dockerfile replaces nixpacks: python 3.12 + msodbcsql18 + cloudflared. `connect_mssql()` for explicit-address connections (Encrypt=no — tunnel already encrypts). Railway fetch switch: `pms_config.fetch_mode: "tunnel"` → adapter via tunnel, ANY failure → automatic bridge fallback, path + error logged to refresh_runs. `_get_hotels` falls back to legacy columns if migration SQL not yet run. Requires SQL: `docs/sql/2026-07-23_step4_tunnel.sql`. Hotel-side cloudflared stays permanently running (Windows service). |
-`| 5. Pipeline hardening | ✅ 2026-07-23 | see below | Per-hotel single-flight lock (concurrent refresh skipped); staged timeouts (warn 180s, hard-abandon 480s, env-tunable) via worker thread + first-finish-wins on RunLogger; retry ladder 5/15/45min for failed runs (dedup: retry skips if a briefing appeared meanwhile; no_morning_ai not retried); knobs REFRESH_CONCURRENCY (default 1 until config globals de-globalized — open item), CLAUDE_CONCURRENCY (semaphore in analyst), TUNNEL_CONCURRENCY; word-cap prompt tune (~80% targets, prompt cards-v1.2.1) to cut validation retries; `refresh_runs.attempt` column (schema-tolerant writes). 9 tests. SQL: `docs/sql/2026-07-23_step5_attempt.sql`. |
-`
-`### Phase 2 — Pome pilot
-`6. ✅ 2026-07-23: Cloudflare TCP route `sql-pome.hbis.io → tcp://192.168.100.7:1433` on
-`   existing FL_pome tunnel + Access app with Service Auth policy + service token
-`   `railway-pome-sql` (per-hotel; in hotels.pms_config). Edge verified: no token → 403,
-`   token → 200. NO hotel-server visit was needed (route added remotely to running tunnel).
-`7. ✅ 2026-07-23 21:15 UTC — **FIRST TUNNEL-DIRECT BRIEFING**: fetch_path="tunnel",
-`   fetch 7.9s (vs ~1-2s bridge; includes client spawn + Access handshake + 11 queries),
-`   zero tunnel errors, no fallback. Railway queried Pome's SQL directly; no FirstLight
-`   code involved at the hotel. Bridge stays armed as fallback.
-`7b. ✅ 2026-07-24: **Pome server decommissioned to tunnel-only.** Cloud command
-`   poller (`_poll_refresh_commands`, atomic claim) + 03:30 UTC full-run schedule
-`   replace the daemon and Task Scheduler triggers (`8e1329e`). Daemon killed,
-`   both FirstLight tasks disabled; refresh-button test passed with zero hotel-side
-`   code (21:32 run: poller-claimed, fetch_path=tunnel). Folder stays 1 week as
-`   rollback. Also `5402b37`: manual refreshes now silent (no email/push) — a
-`   debugging day had sent the GM 6 briefing emails; notifications only from
-`   scheduled runs now.
-`8. ⬜ Pilot week: watch refresh_runs (tunnel reliability, fallback count).
-`   Conditions before Potidea/Phase 3: (a) create read-only SQL login `firstlight_ro`
-`   on Pome's SQL Server and swap it into pms_config (currently sa — flagged);
-`   (b) word-cap compliance: v1.2.1 tune insufficient — violations now near-misses
-`   (cap+1..9 words); next: targeted retry feedback quoting offending field + budget,
-`   or relax caps by ~3 words (product decision).
-`
-`### Phase 3 — Complete
-`9. ⬜ Potidea tunnel setup · 10. ⬜ **Delete code folders from both hotel servers** ·
-`11. ⬜ Cost/latency review from audit data (per-card vs consolidated Claude calls decision)
-`
-`### Phase 4 — Scale readiness (before hotel #10)
-`12. ⬜ Load test 20–30 simulated hotels · 13. ⬜ Concurrency tuning (REFRESH=10/TUNNEL=5/CLAUDE=8) ·
-`14. ⬜ Per-hotel briefing time + timezone
-`
-`### TO-DO list (updated 2026-07-27 — read this first)
-`
-`**Done this week:**
-`- ✅ 2026-07-24: first fully-cloud scheduled briefing VERIFIED (Pome via tunnel,
-`  one email + one push; Potidea's stray 04:00 /trigger handled silently)
-`- ✅ 2026-07-25: Signal 3 (booking lead time) shipped (`be83592`); verified live
-`  2026-07-26 — first card `leadtime_jul_2026`, 1 attempt, 0 problems
-`- ✅ 2026-07-26: Hero paragraph shipped (`c4b3e46`); CLAUDE.md + 4 routed skills
-`  (`2ed8199`); target stack + no-Celery + scheduling decisions logged
-`- ✅ 2026-07-27: Hero LIVE debut — 1 attempt, 6.1s, 0 validation problems;
-`  occupancy-vs-rate driver narrated correctly ("rate-for-volume trade")
-`
-`**NEXT SESSION PLAN (prepared 2026-08-18 evening, for 2026-08-19):**
-`1. Morning check (5 min): 03:30 run + 04:15 demo sync → both hotels + both demo
-`   hotels carry `revenueNet`; toggle Net on demo account and eyeball totals.
-`2. ✅ Reporting-year selection → moved into Settings (done morning of 08-19).
-`3. Net follow-up (backend, ~1h, live tunnel validation): logisnet into pickup
-`   windows/daily, top channels, Q16, bridge sources → scaling estimate removed.
-`4. Go-live prep for React: real push subscription on the bell (then run the
-`   notification-rules test on a real iPhone + Android with the 3-type content),
-`   final data-parity pass Vercel vs Pages, then flip DNS/link → Vercel kept 2 wk.
-`5. If time: share-as-image per section (highest-asked UX gap), then i18n layer.
-`User-side unblockers still open: firstlight_ro logins (both SQL servers),
-`Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
-`
-`**REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
-`- 🔄 2026-08-24 **MY WATCHLIST v1 — BUILT** (React `28a249c`, backend
-`  `8df3c65`; user: "lets do this"; spec [docs/WATCHLIST_SPEC.md](WATCHLIST_SPEC.md);
-`  SQL `docs/sql/2026-08-24_watchlist.sql` — USER MUST PASTE; PWA not yet
-`  pushed to Pages). GM pins a
-`  stay month or a date range; one deterministic card per item on Today
-`  (after the MTD strip), rebuilt on every refresh, zero Claude, plain
-`  words, no derived euros. Decisions taken: per-USER rows (own-rows RLS),
-`  placement after MTD strip, cap 5. Gate `WATCHLIST_EMAILS` in
-`  `lib/watch.ts` was demo-only for the first build, then OPENED to everyone
-`  (null) the same evening at the user's request ("apply to Pome and
-`  Potidea") — per-user rows, so each GM/RM keeps their own list.
-`  PWA files: `lib/watch.ts` (pure compute: month/range lines, status
-`  ladder NEW→IMPROVING/WORSENING/STEADY, PASSED, CLOSED, PENDING; sheet
-`  helpers), `lib/speed.ts` (booking-speed math extracted from
-`  `BookingSpeed` so chart + watchlist can't disagree), `api.ts`
-`  (fetchWatchlist → null when table missing = section hidden; addWatch
-`  maps 23505/relation errors to toasts; removeWatch; fetchPrevBriefing =
-`  previous report_date row for "since yesterday"; demo hotel →
-`  localStorage), `components/Watchlist.tsx` (section + cards + WatchSheet:
-`  Month chips with current gap / Date range with From–To + presets This
-`  weekend · Next 7 · Next 14 · ⚠ soft runs from the heatmap rule ·
-`  "Tomorrow you'll see" preview · "n of 5 used"), 👁 toggle on OTB month
-`  headers (`Overview.tsx`), Watch/Watching pill on month-scoped AI cards
-`  (`AiCards.tsx`, month parsed from card id), `types.ts` now types
-`  pickup_daily/cancel_daily/otb_by_date, Info ⓘ key `watch`. Tracking:
-`  watch_add {kind,key,from: sheet|otb_card|ai_card}, watch_remove,
-`  watch_tap (→ Pace tab). Hidden in past-day view; reset on hotel switch.
-`  Verified: `tsc -b` clean, `vite build` OK, fixture checks (scratch
-`  script, 8 cases) all pass, headless Edge render of a `--mode demo` build
-`  shows the section in place (fixture mode seeds two sample watches so
-`  the dev preview is never empty). ALSO FIXED on the way (trust bug the
-`  product review flagged): Smart Summary "Last refresh NaN undefined" —
-`  `SmartSummary.tsx` parsed `data.report_date` (a display string) instead
-`  of `briefing.report_date` (ISO); now "09 AUG · 14:45". HEATMAP ENTRY added same evening
-`  (user: "build the heatmap"): cells in Next 60 Days Demand are tap
-`  targets — one tap = a date, second tap = a range (blue ring + scale on
-`  selected cells); panel under the grid shows booked % vs LY for the
-`  selection and offers Watch <date> / Watch this week (Mon–Sun, clamped
-`  to the first date in view) / Watch <soft run> · behind LY (amber, only
-`  when the date sits in a flagged run of ≥2 dates) / the picked range;
-`  already-watched → "Watching ✓" disabled; tracked as watch_add
-`  {from: heatmap}. `softRuns/rangeKey/rangeTitle/isoAdd` reused from
-`  lib/watch.ts; `OtbTab` threads `onWatchRange/watchedRanges`. TREND STRIP added 2026-08-25 (user:
-`  "any chart to check the performance?" → "lets build 1 for now" = no
-`  backend change): tap a watch card → expands to a sparkline of rooms
-`  booked (month) / booked % (range) THIS YEAR (blue, area) vs LAST YEAR
-`  same point (grey dashed), endpoints labelled, one point per stored
-`  morning briefing (last 7 report dates via `fetchHistoryRows` — the
-`  same rows the day strip opens, fetched lazily once per hotel on first
-`  expand); a row of per-day status glyphs (▲ ▼ — ✓) computed exactly as
-`  the card read each morning (`watchStatusHistory`); for months, net
-`  rooms per booking day bars from today's `pickup_daily` (no history
-`  needed). <2 points → "builds up day by day". Net-rooms bars were added for ranges too (from morning-to-morning deltas, `netRoomsFromSeries` kept in lib) and then REMOVED entirely the same day (user: "does not look good") — strip = sparkline + status glyphs only. Last point is labelled "Today" (report_date = the day the briefing reports on; the day strip uses the same convention — user asked why it showed the 24th on the 25th). "Open in Pace ›" link
-`  replaces the header tap-through. Tracked `watch_expand`. Option 2
-`  (widen `kpi_summary` for slim 30-day history) stays open in spec §7.
-`  Past-day view: watchlist deliberately hidden (v1); proposed as-of-day
-`  replay with created_at filter — user has not decided. NOT DONE:
-`  Note editing (column exists), Greek strings (no dictionary yet), source
-`  watches, push line, novelty-gate awareness (all listed in spec §7).
-`  ⬜ NEXT: paste SQL → open demo account → add October + a range → next
-`  morning check the pill flips from "First day watching"; then widen the
-`  gate. Context: came out of the product-evaluation review (commercial
-`  memory > more BI); sibling item = story status enum on cards — not yet
-`  planned.
-`  Mock (2026-08-24): artifact 93a332c0-aa88-49a9-a924-4b4226709913 — Today
-`  entry, add sheet (Month | Date range, "tomorrow you'll see" preview, 5-cap
-`  counter), 7-day evolution of the October watch with status pills
-`  (First day watching → Getting worse → Steady → Improving → Closed) + gap
-`  sparkline; range watch shown alongside.
-`- ⬜ **WEEKLY DIGEST** (user: "I like it a lot" — parked 2026-08-24, do NOT
-`  build yet). Spec agreed: Monday after 03:30 run; six deterministic blocks —
-`  one-line verdict, week scorecard vs same days LY, MTD + FY OTB, pickup
-`  (booked/cancelled/net, best/worst day), "what the analyst flagged" (still
-`  open/new/cleared from follow-up memory), next-weeks outlook + callout; no
-`  Claude by default; Greek/English via dictionary; delivery = in-app entry
-`  in the day strip + push (4th notification type "Weekly digest") +
-`  share-as-image for WhatsApp. ACCESS (agreed 2026-08-24): a "Last week"
-`  pill at the left of the day strip, always = last completed Mon–Sun (any
-`  weekday), scrolling left to "2/3/4 weeks ago"; closed months appear as
-`  month pills ("July") in the same strip; Monday push deep-links to the pill;
-`  flags block computed AS OF that week's end (honest history); optional
-`  "This week so far" only if testers ask. Mocks: content artifact c8fb2f2c…, design
-`  canvas e59bb657… (3 chart styles: A Scorecard tiles+bullet bars, B
-`  Storyline dumbbells, C Chart-first cumulative curve+rings) — STYLE NOT
-`  CHOSEN YET; ask before building.
-`- ⬜ **MONTHLY DIGEST** (parked with the weekly): fires when a month closes
-`  (1st, after 03:30); same skeleton on the closed month vs LY final — weeks
-`  within the month, shape of the month (best/softest day, days behind LY,
-`  rate-vs-volume), month pickup/churn, flags resolved/still open, next
-`  month OTB at close. Real July 2026 mock on the same canvas.
-`- ⬜ **MULTIPROPERTY PORTFOLIO PAGE** — mock done (artifact b7bb4191…):
-`  Yesterday / MTD / YTD tabs, navy hero (portfolio total, ahead/behind
-`  counts, biggest mover), ranked hotel list with variance pills, "across the
-`  group" flags lifted from each hotel's briefing. Design-first item stays
-`  open; needs group→hotels membership model.
-`- 🔄 2026-08-24 **AI value push: notifications v2 + follow-up memory**
-`  (brainstorm → user picked top 3; backend afb644f cards-v1.8-followup,
-`  React 7bc243b, SQL 2026-08-24_notification_types.sql — USER MUST PASTE).
-`  (1) Intraday pushes, zero-Claude, after 11:00/17:00 UTC data-only runs:
-`  ALERT = cancel spike today (>=max(8, 3× trailing daily)) or forward month
-`  slipping <=-5% vs STLY since morning; MOMENTUM = month passes LY FINAL or
-`  strong booking day (>=max(15, 2× trailing)). Claim-then-send via
-`  intraday_log PK(hotel,day,type) → hard cap 1/type/day, silent until SQL
-`  pasted; templates use % + counts only (no-derived-euro rule). Data-only
-`  runs no longer send the morning-style push (they DID before — 3×/day dupe
-`  bug fixed). Morning push body = deterministic headline ladder.
-`  (2) Follow-up memory in the novelty gate (7-day window): repeat cards get
-`  facts first_flagged + "gap ~N% wider/narrower since"; still-open items
-`  resurface every 3rd day as "Still open:" instead of silent demotion.
-`  (3) Settings → Notifications: per-type On/Off (Morning/Alerts/Momentum) →
-`  push_subscriptions.notification_prefs, sender filters per type
-`  (schema-tolerant). Tests: test_intraday.py 15 + 17/34/37 all pass.
-`  ⬜ NEXT: paste SQL; watch tomorrow's 03:30 (headline body) + 11:00/17:00
-`  (first intraday window); later: group-detection signal, per-card deep-link.
-`- ✅ 2026-08-24 **7-day history** (React 77ce96f): pill strip above the Smart
-`  Summary — `Today · Sat 23 · Fri 22 …` from the hotel's last 7 stored
-`  briefing rows (data already existed; no backend change). Tap = that day's
-`  FULL briefing (data + that day's AI cards) rendered by the same
-`  components; amber "Viewing the briefing of …" banner + Back to Today;
-`  refresh guarded in past view; hotel switch resets to today; feedback
-`  thumbs still work on past cards (report_date-keyed); `history_view`
-`  tracked. Past days load via Supabase (Phase A API has no by-date endpoint
-`  yet — add one before the API becomes the only read path).
-`- 🔄 2026-08-24 **Usage tracking layer** (React 3d4b670 + SQL
-`  2026-08-24_usage_events.sql — USER MUST PASTE). First-party events into
-`  Supabase `usage_events` (user_id/hotel_id/session_id/event/props); RLS =
-`  authenticated INSERT-own-only, reads service-role only. Client
-`  `lib/track.ts`: 10s batching + page-hide flush, fail-silent, GATED to
-`  demo@hbis.io via TRACKED_EMAILS (set to null → track everyone). Events:
-`  app_open (platform/standalone/viewport), session_end (seconds), tab_nav,
-`  hotel_switch, refresh_tap, bell_toggle, setting_change, hero_expand,
-`  voice_play, card_expand, share_tap, feedback_submit. ⬜ NEXT: paste SQL →
-`  browse demo → verify rows; later a usage digest (daily counts per event)
-`  + widen gate at go-live.
-`- ✅ 2026-08-23 Section-header consistency (React 9e04270): every visual now
-`  uses the same SectionLabel (icon + title + ⓘ + Share) OUTSIDE the white
-`  card — Yesterday/MTD got icons, MTD/OTB/butterfly/speed/pace-charts/heat/
-`  bridge/sources titles moved out; "Demand heat" renamed "Next 60 Days
-`  Demand"; "Cancelled revenue · 7 days" strip removed (user spec).
-`- ✅ 2026-08-23 **NO DERIVED EURO FIGURES in briefings — standing rule**
-`  (user, after the hero mis-framed the lead-time signal's €1,079,123
-`  "revenue in motion" as a "€1.08M opportunity"): only real PMS revenue is
-`  ever displayed or narrated. cards-v1.7-noderived (89a1fb5):
-`  `_DERIVED_EUR_FACTS = (value_at_stake, proj_rev_band)` stripped from the
-`  narration prompt + haystack; Signal-5/projection cards now show the
-`  %-vs-reference band instead of the € projection band (chips + texts).
-`  Derived values still drive scoring/floor/novelty internally (_stake_eur).
-`  INCIDENT note: cards-v1.6-nostake (2544f80, pushed 08-19) was silently
-`  never deployed — lost in the Railway 08-19 incident — so the 08-23 03:30
-`  narration still produced at-stake prose. Detected via the €1.08M hero
-`  sentence; fix: /health now exposes `prompt_version` (469f20c) — ALWAYS
-`  verify the served analyst version after a backend push. v1.7 deploy
-`  verified via /health.
-`- ✅ 2026-08-19 **Euro at-stake estimates removed from ALL display + narration**
-`  (user: "remove all calculations at stake etc"; backend 2544f80
-`  cards-v1.6-nostake, React c71ee57). The estimates remain INTERNAL — they
-`  still drive the significance floor, R-scoring and the novelty gate (shipped
-`  insights now carry a bare `_stake_eur` number for tomorrow's novelty
-`  lookup; legacy rows still parse at_stake). Removed: card at_stake field &
-`  "At stake:" action suffix, hero digest stake + fallback "— €X at stake",
-`  soft-dates fallback chip sub, value_at_stake facts from the narration
-`  prompt (Claude can no longer cite them; validator haystack matches).
-`  React drops the At-stake row and sanitizes legacy stored briefings
-`  (evidence subs + recommended_action). Old heroes narrated before this
-`  change still contain the phrase until the next 03:30 run. Tests 17+34
-`  pass (hero test updated to expect NO stake).
-`- ✅ 2026-08-19 **Smart Summary v2 — deterministic** (React da3662a; mock
-`  approved first, artifact a1e6e762). Headline is a client-side rule ladder
-`  over pre-computed facts (first match wins): ~~cancellation spike (churn >=15%
-`  & >=10 rn)~~ -> big yesterday (|vsLY| >=15%, "Strong/Soft {weekday}") ->
-`  **cancellations UP vs prior week (2026-08-28, see release row)** ->
-`  forward month <= -5% vs STLY ("{Month} needs attention") -> pickup
-`  accel/slow (net7 vs prior-week net from pickup_daily, +-15%) -> "Steady
-`  day — MTD {x}%". Sections upgraded: state pills (AHEAD/BEHIND/MIXED,
-`  SPEEDING UP/SLOWING/STEADY), Pickup shows booked/cancelled/net + WoW
-`  arrow, On the Books names best + watch months. NO Claude call — updates on
-`  every refresh (11:00/17:00/manual), follows net mode instantly; the
-`  once-daily narrated hero remains behind "Read the full briefing" (speaker
-`  reads it; both hidden if hero missing). Templates do zero arithmetic
-`  (safety-first) — slots only. EN only until the i18n dictionary lands.
-`- ✅ 2026-08-19 "Where each month stands" section REMOVED (user request; the
-`  MonthStands meter is gone from the Pace tab — pace charts + booking speed
-`  + heat + bridge + sources remain). React 0abd77f + d5adbb3 (the first
-`  commit shipped with dead code that broke the Pages build; fixed forward).
-`- ✅ **REPORTING-YEAR SELECTION → SETTINGS** (user spec 2026-08-19: "put it
-`  also in the settings… reporting year and comparison year"; React 91ea5b2).
-`  In-body bar removed. Settings rows: `Reporting year [2026 | 2027]`,
-`  `Comparison year` (2026 → fixed 2025 = STLY + final; 2027 → [2026 | 2025]),
-`  one-line semantics caption under them. When 2027 is selected a slim
-`  `2027` pill strip under the hero says what's compared and points to
-`  Settings. Session-only (opens on the current year). Modules that follow:
-`  OTB matrix, pickup boxes/butterfly/speed, pace charts; calendar + AI don't.
-`  Backend Q16 stly2 series serves the 2027-vs-2025 branch.
-`- ✅ **Settings: Gross | Net revenue toggle** — SHIPPED 2026-08-18 (React
-`  3364071, served bundle verified). Settings row "Revenue  Gross | Net",
-`  DEFAULT = GROSS, persisted in localStorage `fl_revmode`. Net view derives
-`  from the payload: yesterday/MTD `revenueNet(LY)` and OTB pace
-`  `rev_net/rev_stly_net/rev_final_net` are EXACT (Hitia.logisnet, Q1+Q4);
-`  net ADR = net revenue ÷ nights client-side. Sections that don't carry a
-`  net query yet (pickup windows/daily, top channels, next-year pace, ADR
-`  bridge sources) are scaled by the hotel's MTD net/gross factor so the app
-`  reads in one basis; a small "NET · Revenue and ADR shown net of VAT &
-`  taxes" strip appears under the hero. Hero/AI text stays gross (narrated).
-`  Toggle refuses (toast) until the payload carries net fields.
-`  FOLLOW-UP ⬜: add logisnet to the pickup / channels / Q16 / bridge queries
-`  so the estimate goes away everywhere.
-`- ✅ 2026-08-19 **Instant open** (React 8991bb0): last briefing + hotel list
-`  cached in localStorage per hotel → painted immediately on open, fresh copy
-`  fetched behind it (stale-while-revalidate; cache cleared on Sign out);
-`  session guessed synchronously from the stored Supabase token (no Login
-`  flash); first-ever open shows the navy header + "Loading briefing…" instead
-`  of a white page. Top Sources bars 6px → 14px (user: "much thicker, same
-`  design"), STLY tick 3×20 navy.
-`- ⬜ **App landing page** — change what greets the user on open (login/entry
-`  screen redesign; brand moment before the briefing)
-`- ⬜ **Marketing website for "Xenia"** (working name, user idea 2026-08-18) —
-`  public landing site with LIVE, anonymized briefing data scrolling as a
-`  self-running demo (feed from the demo hotels — Azure Bay / Thalassa)
-`- 🔄 **NOTIFICATIONS — root cause found + fixed 2026-08-19** (user: "I still
-`  don't get any notification even though I clicked the bell"). Three
-`  independent causes, all confirmed by probe, all fixed:
-`  1. React bell had NO push code (local on/off + toast only) → now real Web
-`     Push: `web/public/sw.js`, `src/lib/push.ts` (VAPID subscribe, row per
-`     hotel via delete+insert, unsubscribe), bell state = browser subscription
-`     AND server row **for the hotel in view** (per-hotel tick ✓ green / × red
-`     badge), iOS "add to Home Screen first" hint, notification tap → AI
-`     section. React 9be43c1 / fad982d / 5612f3f.
-`  2. `push_subscriptions` was EMPTY (0 rows): the legacy upsert on
-`     (user_id,hotel_id) 42P10'd because that index never existed — AND the
-`     table carried `push_subscriptions_user_id_key` = UNIQUE(user_id), i.e.
-`     one subscription per USER not per hotel → a 2-hotel user could only ever
-`     be notified for one hotel. `docs/sql/2026-08-14_push_subscriptions_unique.sql`
-`     rewritten (drop per-user unique, add unique (user_id,hotel_id)); user
-`     pasted 2026-08-19 ~00:55 Athens; verified: 2 rows now (Pome + Potidea,
-`     endpoint web.push.apple.com = iPhone Home-Screen app).
-`  3. No way to test without waiting for 03:30 → `POST /push/test?hotel_id=`
-`     (Bearer hotel token) sends a test push to that hotel's subscriptions
-`     (api.py 9408f12). Deploy blocked by RAILWAY INCIDENT "Deployments are
-`     slow to progress / prone to timeout" (3 Snapshot-code timeouts, then a
-`     build stuck >40 min; status.railway.com Identified 01:16 UTC). Old
-`     process keeps serving fine. NEXT: when deployed, fire /push/test for both
-`     hotels (scratchpad push_test.ps1), then the 03:30 run is the real test.
-`  Lessons: probe the table (row count + constraints) before trusting any
-`  client "saved" message; a UNIQUE on the wrong key is invisible until the
-`  second hotel. Legacy Vercel bell also benefits from the SQL fix.
-`- ⬜ **Notification rules — check on real phones**: exactly when/what a user
-`  gets notified (today: 03:30 scheduled run only, manual/data-only silent;
-`  needs the React bell subscribed; verify iOS + Android)
-`- ⬜ **AI insights — re-review**: quality pass on card ranking, wording, caps
-`  and fallbacks against the accumulating 👍/👎 + notes (real + demo testers)
-`- ⬜ Share = IMAGE, per section: React share currently sends a link; port the
-`  old app's capture-to-image share, scoped to specific chart/section blocks
-`  (share pill on each section captures THAT block)
-`- ⬜ Dynamic translation: i18n dictionary layer (en/el, ~150 keys) wired to
-`  the EN/ΕΛ switch — instant UI translation; narration stays per-hotel
-`  next-morning (cost policy)
-`- ⬜ Notification rules audit: verify what arrives on the phone and when
-`  (03:30 only, content format per the 3-type design: briefing/alert/momentum)
-`- ⬜ MULTIPROPERTY PORTFOLIO PAGE (new feature): dedicated view for owners
-`  with 2+ hotels — whole-portfolio performance (per-hotel KPI rows,
-`  aggregate revenue/occupancy, alerts across properties); design first
-`
-`**USER (updated 2026-08-10):**
-`- ✅ 2026-08-10: ALL pending SQL pasted + verified (insight_feedback, hotel_prefs,
-`  hotels.season_settings, refresh_runs.attempt) — thumbs + EN/ΕΛ selector live
-`  in the app from this moment; season_settings null for both hotels awaiting
-`  the user's own Protel rooms/season queries
-`- ⬜ Fill season_settings dates + real-rooms query (user took this)
-`- ⬜ Create `firstlight_ro` read-only login on Pome SQL Server, send password →
-`  swap pms_config off `sa` (security must-fix)
-`- ✅ Word-caps decision RESOLVED 2026-07-27 (cards-v1.4-singleshot) — user
-`  cost policy: NO retries, every Claude call costs. Narration = ONE attempt;
-`  a validation miss ships the free deterministic fallback card. Prevention
-`  moved up-front: word budgets embedded in the tool schema field descriptions
-`  (write ≤80% of cap; over-limit discarded), same for hero. Surgical
-`  retry-feedback code kept dormant behind NARRATION_ATTEMPTS env (default 1).
-`  Expected: cost drops to ~$0.04-0.05/hotel/day flat; watch fallback rate —
-`  if it climbs above ~1 card/day, relax caps +3 words (free fix).
-`
-`**Pilot week (→ ~2026-07-31):**
-`- 🔄 Daily refresh_runs check — Claude (days 1-4: zero tunnel errors; day 4
-`  degraded on word caps, not infrastructure)
-`
-`**End of pilot week — Phase 3 (closes the migration):**
-`- ✅ 2026-08-10 Potidea on the tunnel (route + service token, pms_config, first run OK)
-`  ⬜ decommission old daemon + tasks on the Potidea server (user, RDP) (kills the stray 04:00 trigger; Potidea
-`  gets Signal 3 + hero automatically)
-`- ⬜ Delete FirstLight code folders from BOTH hotel servers → migration complete
-`
-`**Small builds (Claude, anytime — pilot-safe):**
-`- ⬜ Signal 3 polish: exclude comp/house sources from drill-down;
-`  `pms_config.lead_window_days` (default 28)
-`- ✅ Chart fix 2026-07-27: OCCUPANCY line chart — closed months (month_num <
-`  current month) show STLY only; the Final LY dashed line starts at the current
-`  month. Revenue + ADR bar charts deliberately unchanged (user choice).
-`  Legacy payloads without month_num keep the full line (guarded).
-`
-`**Then — the stack migration (sequenced, each phase shippable + rollback-able):**
-`- ✅ 2026-08-13 **Phase A — FastAPI** LIVE (web-cloudflare.up.railway.app): uvicorn 1 worker,
-`  scheduler → lifespan, port /trigger + /briefing/latest, per-hotel API tokens,
-`  kpi_summary column + GET /briefing/history
-`- 🔄 **Phase B — React on Cloudflare Pages** (LIVE at firstlight-pwa.pages.dev, parallel-run with Vercel; go-live sequence pending): audit PWA repo first;
-`  render-from-data; new card anatomy + hero block + Greek/English + text-size
-`  1-5 + bigger OTB charts + closed-month LY fix + scroll fix + 7-day history UI;
-`  reads via FastAPI tokens; parallel-run then retire Vercel; drop rendered_html
-`- ⬜ **Phase C — Postgres on Railway** (~2-3 days + 2-week rollback window):
-`  db/client.py consolidation → pg_dump/restore → env-var flip; LISTEN/NOTIFY
-`  queue; verify backups + nightly dump; retire Supabase
-`- ⬜ Phase 4 scale prep before hotel #10: de-globalize config →
-`  REFRESH_CONCURRENCY=10, load test 20-30 hotels, per-hotel briefing time/tz
-`
-`**PMS INTEGRATIONS ROADMAP (added 2026-08-18):**
-`- On-premises — same process as Protel (tunnel + read-only SQL login + new
-`  adapter folder filling the HotelDataSnapshot contract):
-`  - ⬜ **Pylon** (SQL Server, similar reservation-line model — easiest, do first)
-`  - ⬜ **Opera 5** (Oracle; RESERVATION_NAME + RESERVATION_DAILY_ELEMENT_NAME,
-`    status codes, revenue buckets → filter to room revenue; real port not rename)
-`- Cloud — no SQL/tunnel; WE pull, store, compute. Confirmed by user: APIs give
-`  **book date + cancellation date + last-modified** → STLY reconstructs right
-`  after a 2-year backfill; incremental sync via modified_since:
-`  - ⬜ **Opera Cloud** (OHIP: OAuth, per-property app registration, partner
-`    onboarding lead time — start early)
-`  - ⬜ **Hotelizer** (lighter API, same model)
-`  - shared piece: **reservation store + incremental sync engine** in our
-`    Postgres → Phase C is a PREREQUISITE for cloud PMS; per-PMS = mapping to
-`    canonical reservation row, then Q1–Q16 run over our schema
-`  - discovery per cloud PMS (2 days, sandbox creds): exact cancellation
-`    semantics (do cancelled rows keep stay dates/rate?), how modifications /
-`    rebooks appear (new record vs update)
-`- ⬜ **SEMANTICS.md FIRST** — PMS-neutral definitions (room night, room revenue,
-`  STLY, cancellation in/out, comps, fake rooms, season) every adapter must
-`  satisfy; write before adapter #2
-`
-`**Product roadmap (parallel to stack work, user picks order):**
-`- New card types (compute-only): ADR-vs-occupancy trade-off · cancellation spike
-`- Insight feedback loop (agreed 2026-07-27): 👍/👎 per card + reason chips →
-`  `insight_feedback` table + POST /feedback in Phase A; UI in Phase B card
-`  footer; Tier-1 learning = bounded per-hotel ranking-weight tuning (N
-`  component), pattern-gated (≥5 signals, decay). GUARDRAIL: feedback tunes
-`  ranking/phrasing only — NEVER suppresses hard-gated facts (shoot-the-
-`  messenger protection). Tier 2 editorial prompt notes later; Tier 3 only at
-`  scale. Joins on refresh_runs.cards_audit by card_id.
-`- Onboarding kit → onboarding agent (agreed direction 2026-07-27): v1 kit
-`  (~2-3 days): install-cloudflared.ps1 + SQL discovery probe (Hitia check,
-`  mpehotel list, zimmer count, fake kat detection) + auto-proposed pms_config
-`  + GM verification report — dogfood on Potidea/hotel #3. v2 (pre-scale,
-`  ~1-2 wks): Cloudflare API provisioning + email flow + LLM diagnostic loop
-`  (agent handles weird cases; humans keep: run installer, sign off numbers).
-`- db/adapters/SEMANTICS.md — PMS-neutral metric definitions (STLY, cancellation
-`  in/out, fake rooms) to write BEFORE adapter #2; ~1h, knowledge fresh now
-`- Follow-up loop (advice → outcome tracking) · chatbot · monetization tiers
-`
-`---
-`
-`## 5. Decision log
-`
-`| Date | Decision | Why |
-`|---|---|---|
-`| 2026-08-10 | HERO DRIFT RESOLVED — Option A (keep as is): the hero paragraph stays a morning snapshot; intraday KPI drift (room-revenue value edits after 03:30, e.g. €81,598 vs €81,808) is explained by the "Last refresh" timestamp in the Smart Summary header + the ⓘ hero explainer. NO regeneration on data-only runs | Drift is cents-level and legitimate (both numbers correct for their moment); options B (drift-triggered regen ~$0.005) and C (always regen ~$0.015/day) rejected under the cost policy — zero extra Claude calls |
-`| 2026-07-28 | Pricing: FirstLight = **€99/hotel/mo + VAT, flat, unlimited users** — never per room count. Sold as add-on to Hotel BI (€330), standalone, or €399 bundle. Full commercial policy in [COMMERCIAL.md](COMMERCIAL.md) | Value unit is the briefing (one/hotel/day), COGS flat (~€2–3/mo AI); flat matches Hotel BI's per-property model; unlimited users spreads the habit through the hotel. Only size lever: portfolio discount from 2nd property |
-`| 2026-07-30 | ONE PICKUP TRUTH (user decision): Q9 pickup_daily + Q14 cancel_daily count ALL stay dates (restriction `date > today` + 1yr cap removed) — bookings for consumed nights (walk-ins/same-day) included, so the butterfly RECONCILES EXACTLY with the Pickup Activity card (Q3, same book-date-axis convention). Butterfly/velocity share calendar-aligned 7/14d windows anchored on newest booking date. Analyst Signal 1 guards `m_end < today` so finished months never become cards. Audit trigger: user found +147rn booked / −7rn cancel gaps; root causes = future-only scope + an 8-day distinct-date cancel window |
-`| 2026-07-26 | Data layer end-state: Supabase → **Railway managed Postgres** at the overhaul release (NOT Postgres-in-container — ephemeral FS). FastAPI becomes the ONLY gateway (PWA stops reading the DB directly; needs per-hotel auth). Rationale: once render-from-data routes the PWA through our API, PostgREST value evaporates; colocation + one less external dependency. Migrates together with React/Pages + render-from-data as ONE coordinated release |
-`| 2026-07-26 | Scheduling in the FastAPI container: APScheduler in the lifespan hook, **exactly 1 uvicorn worker while scheduler lives in the API process** (N workers = N schedulers = duplicate briefings/emails). At scale: web/worker split — same image, two Railway services; queue = refresh_commands with FOR UPDATE SKIP LOCKED + LISTEN/NOTIFY. Per-hotel briefing times = per-hotel APScheduler crons (tz-aware) |
-`| 2026-07-26 | NO Celery: ~1k tasks/day at 200 hotels doesn't justify a Redis broker (new always-on dependency in the 03:30 path, Windows dev pain, re-buys locks/retries/audit we have). Postgres-native queue at the Phase 4 split; **Procrastinate** (Postgres-broker task queue) if we want task ergonomics. Revisit only at >50k tasks/day or multi-machine workers (chatbot-driven) |
-`| 2026-07-26 | Concurrency truths: reads scale (precomputed briefings); duplicate refreshes collapse to 1 run (atomic claim + per-hotel lock + AI reuse); fleet-morning compute is the only real 100-at-once problem → Phase 4 (de-globalize config → REFRESH_CONCURRENCY=10 ≈ 15 min/100 hotels; per-tz staggering) |
-`| 2026-07-26 | TARGET ARCHITECTURE (agreed w/ user + CTO input): three layers — Cloudflare = network + frontend (DNS, tunnels, Access, React PWA on Cloudflare Pages after the overhaul; Vercel retires); ONE Docker container = compute (FastAPI adopted when the history endpoint lands, + scheduler + analyst); Supabase = data. Container host (Railway today) is a swappable landlord, revisit at ~20 hotels (DO App Platform / Fly / CF Containers when mature). Backend can NEVER run on CF Workers (pyodbc native driver, cloudflared subprocess, long-running scheduler). Repos stay separate (agent vs PWA) — IP isolation + independent deploys; one VS Code workspace for cross-repo work |
-`| 2026-07-24 | Claude runs ONCE per hotel per day (scheduled morning run only); data-only AND manual refreshes reuse the day's AI insights (`2b91f6e`) | Data barely moves intraday; per-refresh regeneration was pure cost. Hard-caps AI at ~€2-3/hotel/mo; manual refresh drops ~100s → ~10s. Fallback: refresh before any morning AI → generates fresh |
-`| 2026-07-24 | Manual refreshes are silent — no email, no push (`5402b37`) | A debugging day sent the GM 6 briefing emails; notifications/email only from scheduled runs |
-`| 2026-07-24 | Pome server decommissioned to cloudflared-only (`8e1329e`) | Cloud command poller + 03:30 UTC schedule replaced the daemon's last two roles; refresh-button test passed with zero hotel-side code |
-`| 2026-07-22 | Tunnel-direct architecture: hotel servers keep ONLY cloudflared | Protect product IP (code/queries/keys off customer hardware); updates become git-push-only |
-`| 2026-07-22 | NO watermarks / incremental ETL | We run stateless bounded aggregate queries, not a warehouse copy — watermarks add state-sync bugs for no gain |
-`| 2026-07-22 | Keep per-card Claude calls (vs consolidating to 1–2) | Validator isolation: one bad card retries/falls back alone. Revisit only if measured cost/latency says so (Step 11) |
-`| 2026-07-22 | `refresh_runs` (ops) separate from `briefings` (business) | 3 failed attempts + 1 success = 1 customer briefing, 4 audit rows; failed runs must never mix into customer-facing data |
-`| 2026-07-22 | Publication rule: valid data snapshot → publish; narration failures degrade (fallback cards), never block | GMs always get a briefing; `degraded` flag tracks fallback frequency |
-`| 2026-07-22 | HTML rendered on demand, JSON is canonical | Data is 10KB/briefing; stored HTML was the only storage-scale problem |
-`| 2026-07-22 | Stay on Railway (EU region), revisit at ~20+ hotels | Migration cost > savings at current scale; everything is Docker-portable |
-`| 2026-07-22 | Claude cost €1–3/hotel/mo treated as UNPROVEN until measured | Estimate only; refresh_runs token logging produces the real number |
-`| 2026-07-22 | Potidea interim file-update SKIPPED | Legacy briefings work fine (guard fix); avoid repeating the manual process we're eliminating; both hotels get final architecture in Phase 3 |
-`| 2026-07-21 | v1.2 spec before migration Step 1 | Customer-visible quality first; also settles the fact shapes the contract then codifies |
-`| 2026-07-20 | Two-layer analyst: all math in Python, Claude narrates only | Kills hallucinated numbers structurally; validator enforces verbatim copying |
-`
-`---
-`
-`## 6. Incident log ("bad days")
-`
-`| Date | Incident | Root cause | Fix / lesson |
-`|---|---|---|---|
-`| 2026-08-10 | Pome tunnel fetch dead ~03:30→14:45 Athens (5 failed runs, 08001 prelogin handshake; briefing frozen at morning snapshot — gate held, nothing corrupted) | An **RDP browser-rendering connection rule** (`connection_rules: {rdp: {}}`) landed on the Pome SQL Access app during the same-morning dashboard session that created Potidea's app — Access then 403'd the plain TCP tunnel client. Correlated misleadingly with the Phase A deploy minutes earlier | Rule removed → instant recovery (14:45 run success, today-pickup live, kpi_summary flowing). Diagnosis chain worth keeping: container suspected first (2 blind fixes: OpenSSL TLS floor + Driver 17-first fallback — both KEPT, harmless hardening) → Potidea green on same container exonerated it → local tunnel repro failed while direct SQL worked → edge probes: bridge 502 both hotels (connector up) + Access probe 403 Pome / 200 Potidea = smoking gun. Lessons: (1) when two things change the same morning, test BOTH independently before fixing either; (2) `Invoke-WebRequest` with CF-Access headers is a 10-second Access-layer test — use it FIRST for tunnel failures; (3) touching the Zero Trust dashboard for hotel N can break hotel N−1 — after any Access change, probe every hotel's hostname |
-`| 2026-07-23 | App showed "No briefing available" for both hotels after Step 3 deploy, despite push notifications arriving | Step 3 stopped storing `rendered_html`; the PWA renders briefings FROM that field (assumption that it renders from `data` was wrong — the API endpoint was checked, the app's own reads were not) | Hotfix `297ce90` restored HTML storage; both hotels republished within the hour. Lesson: before removing a field, verify what every consumer actually reads — not just the API in front of it. PWA render-from-data is now a prerequisite (open item) before storage removal returns. Side note: dropping the blob had instantly fixed Potidea's `/briefing/latest` 500 — that endpoint chokes on large rows |
-`| 2026-07-23 | Pome produced no morning briefing (3 failed runs: 06:30, 09:00, 14:00 Greece) | `server.py --daemon` was dead — restarted manually in an RDP window the day before, killed when the session was signed out; startup task only fires on reboot. Bridge returned 502 (tunnel up, origin down) | Daemon restarted; refresh republished. Diagnosed in one refresh_runs query (logbook's first save). Lessons: console-started processes die on sign-out — use Task Scheduler / disconnect only; the publication gate correctly kept the last good briefing; this failure class disappears entirely with tunnel-direct (no daemon) |
-`| 2026-07-22 | Both hotels shipped a **1-insight briefing** | Old-format payloads (hotel daemons not restarted / never updated) let only the future-projection signal fire; non-empty ranked list skipped the legacy fallback | Guard on new-data presence (`b6d4185`), later formalized as `data_quality.legacy_mode` (Step 1). Lesson: fallback conditions must test *inputs*, not *outputs*; running daemons cache old code — restart after file updates |
-`| 2026-07-21 | 30 min lost hunting Railway `/trigger` 404 | Two Railway services: FastAPI relay (`web-production-61c4d`) ≠ processor (`railway_main.py`); we probed the relay | Documented both services (§2). Lesson: check prior session history first — the answer usually exists |
-`| 2026-07-21 | Real-data cards review found: full-month rn presented as remaining-period ("4,161 rn in 10 nights"), weak card fired (z +0.7), unexplained €108,298 at stake | No period labels on facts; magnitude gate not enforced; at-stake figure without calc | Spec v1.2 (`3f6063a`): period-scoped facts + blend validator; |z|≥2 gate; no-calc-no-figure rule |
-`| ~2026-07-12 | Potidea showed **zero-data briefings** twice | Empty payload saved over good briefing; only guard was ad-hoc rev==0 check added after the fact | Now a hard contract sanity check (`yesterday_nonzero`) blocking publication (Step 1, tested) |
-`| ongoing | Dev machine cannot call Anthropic API (SSL "Connection error") | Local Python SSL cert issue; curl works | Narration tested in production (Railway); local tests cover compute + validators; fallback path proved resilient (all cards shipped) |
-`| open | FastAPI `/briefing/latest` returns 500 for Potidea's hotel_id (Pome works) | Unknown — possibly row size or null field | To investigate; PWA unaffected (reads Supabase directly) |
-`| historical | Pome server folder is a ZIP download (`firstlight-agent-main`), no git installed | Onboarding shortcut | Made updates painful (curl per file + daemon restart) — a driver of the cloud migration |
-`
-`---
-`
-`## 7. Release history (backend repo, newest first)
-`
-`| Commit | Date | What |
-`|---|---|---|
+# FirstLight — Engineering Log
+
+Living document: architecture, migration progress, decisions, incidents, and release history.
+Updated with every completed step and every incident. Newest entries first within each section.
+
+---
+
+## 1. What FirstLight is
+
+AI morning briefing for hotels. Pulls live data from the hotel's PMS, computes revenue
+signals deterministically, has Claude narrate them into insight cards, and delivers via
+PWA (app.hbis.io), email, and push notifications — every morning plus 2 data refreshes.
+
+**Live hotels:** Pome Hotel (Protel, mpehotel 1, 167 rooms) · Potidea Palace (Protel, 236 rooms)
+
+---
+
+## 2. Architecture
+
+### Today (transitional)
+- **Hotel servers (Windows, on-prem):** full repo copy runs `server.py --daemon` — an HTTP
+  bridge on localhost:8765 exposing `/fetch` (runs SQL against local Protel/BiData) +
+  polls Supabase for refresh commands. Exposed via Cloudflare Tunnel
+  (`pome-data.hbis.io`, `potidea-data.hbis.io`).
+- **Railway:** `railway_main.py` processor (06:00 UTC full briefing with AI + email;
+  11:00 & 17:00 UTC data-only refreshes reusing morning AI) + a FastAPI relay
+  (`web-production-61c4d.up.railway.app`: `/briefing`, `/my/ai-insights`,
+  `/briefing/latest`, `/commands/pending`). Auto-deploys from GitHub
+  `dkaryp13hbis/firstlight-agent` main branch.
+- **Supabase** (`tqfupsvymisnskiwtjut`): `hotels`, `briefings`, `hotel_users`,
+  `push_subscriptions`, `refresh_commands`.
+- **Vercel PWA:** app.hbis.io (separate repo `firstlight-pwa`).
+
+### Target (cloud migration, in progress)
+Hotel servers run **only** cloudflared (persistent Windows service TCP-forwarding the
+PMS DB port). Railway opens on-demand tunnel clients, runs the PMS adapter queries
+directly, and holds ALL code, queries, and secrets. Updates = git push. Hotel visits =
+onboarding only. See §4 tracker.
+
+### PMS adapter matrix
+| PMS | Access | Tunnel | Driver | Status |
+|---|---|---|---|---|
+| Protel | SQL Server :1433 | yes | pyodbc + msodbcsql18 | **implemented** (`db/adapters/protel_mssql/`) |
+| Pylon | SQL Server :1433 | yes | pyodbc | planned |
+| Opera 5 | Oracle :1521 | yes | oracledb (thin) | planned |
+| Fidelio V8 | Oracle :1521 | yes | oracledb (thin) | planned |
+| Hotelizer | cloud REST | no | requests | planned |
+
+All adapters return the same **HotelDataSnapshot** (`db/contract.py`); the analyst,
+cards, and app never know which PMS produced the data.
+
+---
+
+## 3. The AI analyst (v4 / cards spec v1.2)
+
+Two layers in `briefing/analyst.py`:
+
+**Layer A — compute (pure Python, no AI):** signals = pickup z-score, pace vs same-time-
+last-year, soft/hot dates (90d), month-end projections. Score =
+`(0.35·Revenue + 0.25·Urgency + 0.25·Magnitude + 0.15·Novelty) × Confidence`.
+Hard gates: pickup |z| ≥ 2; other signals ≥ 10% deviation; ≥ €1,000 at stake.
+Projections exposed **only as bands** (occ ±2pts, revenue ±2%) — the point estimate
+never reaches the LLM. Facts are period-scoped display strings
+(`{"value": "−23.6%", "period": "Aug full month, vs same time last year"}`).
+Global ranking (no per-month quota); same-month pace+projection merge; pickup+soft-dates
+merge; novelty gate (repeat card within 3 days without ≥10% worsening → watchlist).
+
+**Layer B — narration (one Claude call per card):** the LLM only phrases pre-computed
+facts. Validator rejects: any number not verbatim in input; word-cap violations;
+imperative action openers (soft suggestions only); sentences blending full-month
+with remaining-period numbers. **Plain-language contract (2026-08-24, `cards-v1.9-plain`):**
+the reader is a hotel owner, not a revenue manager — short sentences, everyday words,
+no jargon when a simpler phrase means the same (pickup → new bookings, pace → bookings
+vs last year, OTB → booked so far, ADR → average rate, close-in → last-minute,
+compression → dates filling up fast, soft dates → low-booking dates, firming/softening →
+getting stronger/weaker). Enforced on every path: prompt glossary (cards + hero) →
+`_plainify_text()` deterministic substitution pass on narrated output AND fallback
+templates (English only; logs + `jargon_replaced` in cards_audit when it fires — a hit
+means the prompt let something through) → all fallback templates rewritten in plain
+words → hero driver hints rewritten ("mostly from higher rates", "fewer rooms sold"). SINGLE attempt (cost policy 2026-07-27,
+`NARRATION_ATTEMPTS` env to re-enable retries) → deterministic templated fallback
+card ships instead. **Narration can never block a briefing** — only data-level
+failures can.
+
+**Word-limit contract (canonical, `_WORD_CAPS` + `_HERO_WORD_CAP` in analyst.py):**
+
+| Field | Cap | First-attempt target (~80%) |
+|---|---|---|
+| headline | 12 | ≤ 9 |
+| what_happened | 20 | ≤ 16 |
+| why_it_matters | 35 | ≤ 28 |
+| recommended_action | 25 | ≤ 20 |
+| by_when | 10 | ≤ 8 |
+| hero paragraph | 110 | ≤ 90 |
+
+Enforced on EVERY path — nothing the briefing ships may exceed a cap:
+1. tool-schema field descriptions state the cap + target at generation time;
+2. validators reject over-cap narration (single shot → fallback);
+3. fallback templates are test-proven within caps (test_leadtime/test_hero —
+   any NEW fallback template must add the same check);
+4. `_enforce_caps()` / `_clamp_words()` runtime clamp as last resort (logs a
+   CAP CLAMP warning = template bug to fix).
+
+Output carries both new card anatomy (headline/evidence/what/why/action/by_when/
+at_stake+calc) and legacy fields (title/kpis/findings/action) so the current PWA
+renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format payloads.
+
+---
+
+## 4. Cloud migration tracker
+
+### Phase 1 — Build (cloud side)
+| Step | Status | Commit | What / why |
+|---|---|---|---|
+| 1. HotelDataSnapshot contract | ✅ 2026-07-22 | `3bf6605` | `db/contract.py` — canonical payload spec + `data_quality` gate (missing fields, sanity checks, publishable verdict). Bad data now refused loudly; two real incidents replayed as tests (17 checks in `test_contract.py`). |
+| 2. Protel adapter | ✅ 2026-07-22 | `4704c37` | Queries + fetch moved to `db/adapters/protel_mssql/`; `fetch_snapshot(conn, hotel_ctx)` takes identity per call; `get_adapter()` registry; old entry points are shims — zero hotel deployment needed. |
+| 3. refresh_runs + drop stored HTML | ✅ 2026-07-23 | see below | Operational logbook separate from customer briefings: per-stage timings, data_quality verdict, per-card audit (exact facts given, validation attempts, fallback flag), token usage + estimated USD cost per briefing (sonnet-4-6 rates incl. cache). Status success/degraded/failed; degraded = fallback cards shipped. Railway no longer stores rendered_html — JSON is canonical, email renders transiently, `briefings.source_run_id` links to the run. RunLogger is fail-open (logging can never break a briefing). Requires one-time SQL: `docs/sql/2026-07-23_refresh_runs.sql` in Supabase. |
+| 4. Tunnel Connection Manager + Dockerfile | ✅ 2026-07-23 | see below | `db/tunnel.py`: on-demand Railway-side cloudflared Access clients — port pool 14330-99, global cap (TUNNEL_CONCURRENCY=5), per-hotel single-flight, readiness health-check, guaranteed cleanup + atexit sweep, service tokens via env only (12 tests, real subprocess/socket). Dockerfile replaces nixpacks: python 3.12 + msodbcsql18 + cloudflared. `connect_mssql()` for explicit-address connections (Encrypt=no — tunnel already encrypts). Railway fetch switch: `pms_config.fetch_mode: "tunnel"` → adapter via tunnel, ANY failure → automatic bridge fallback, path + error logged to refresh_runs. `_get_hotels` falls back to legacy columns if migration SQL not yet run. Requires SQL: `docs/sql/2026-07-23_step4_tunnel.sql`. Hotel-side cloudflared stays permanently running (Windows service). |
+| 5. Pipeline hardening | ✅ 2026-07-23 | see below | Per-hotel single-flight lock (concurrent refresh skipped); staged timeouts (warn 180s, hard-abandon 480s, env-tunable) via worker thread + first-finish-wins on RunLogger; retry ladder 5/15/45min for failed runs (dedup: retry skips if a briefing appeared meanwhile; no_morning_ai not retried); knobs REFRESH_CONCURRENCY (default 1 until config globals de-globalized — open item), CLAUDE_CONCURRENCY (semaphore in analyst), TUNNEL_CONCURRENCY; word-cap prompt tune (~80% targets, prompt cards-v1.2.1) to cut validation retries; `refresh_runs.attempt` column (schema-tolerant writes). 9 tests. SQL: `docs/sql/2026-07-23_step5_attempt.sql`. |
+
+### Phase 2 — Pome pilot
+6. ✅ 2026-07-23: Cloudflare TCP route `sql-pome.hbis.io → tcp://192.168.100.7:1433` on
+   existing FL_pome tunnel + Access app with Service Auth policy + service token
+   `railway-pome-sql` (per-hotel; in hotels.pms_config). Edge verified: no token → 403,
+   token → 200. NO hotel-server visit was needed (route added remotely to running tunnel).
+7. ✅ 2026-07-23 21:15 UTC — **FIRST TUNNEL-DIRECT BRIEFING**: fetch_path="tunnel",
+   fetch 7.9s (vs ~1-2s bridge; includes client spawn + Access handshake + 11 queries),
+   zero tunnel errors, no fallback. Railway queried Pome's SQL directly; no FirstLight
+   code involved at the hotel. Bridge stays armed as fallback.
+7b. ✅ 2026-07-24: **Pome server decommissioned to tunnel-only.** Cloud command
+   poller (`_poll_refresh_commands`, atomic claim) + 03:30 UTC full-run schedule
+   replace the daemon and Task Scheduler triggers (`8e1329e`). Daemon killed,
+   both FirstLight tasks disabled; refresh-button test passed with zero hotel-side
+   code (21:32 run: poller-claimed, fetch_path=tunnel). Folder stays 1 week as
+   rollback. Also `5402b37`: manual refreshes now silent (no email/push) — a
+   debugging day had sent the GM 6 briefing emails; notifications only from
+   scheduled runs now.
+8. ⬜ Pilot week: watch refresh_runs (tunnel reliability, fallback count).
+   Conditions before Potidea/Phase 3: (a) create read-only SQL login `firstlight_ro`
+   on Pome's SQL Server and swap it into pms_config (currently sa — flagged);
+   (b) word-cap compliance: v1.2.1 tune insufficient — violations now near-misses
+   (cap+1..9 words); next: targeted retry feedback quoting offending field + budget,
+   or relax caps by ~3 words (product decision).
+
+### Phase 3 — Complete
+9. ⬜ Potidea tunnel setup · 10. ⬜ **Delete code folders from both hotel servers** ·
+11. ⬜ Cost/latency review from audit data (per-card vs consolidated Claude calls decision)
+
+### Phase 4 — Scale readiness (before hotel #10)
+12. ⬜ Load test 20–30 simulated hotels · 13. ⬜ Concurrency tuning (REFRESH=10/TUNNEL=5/CLAUDE=8) ·
+14. ⬜ Per-hotel briefing time + timezone
+
+### TO-DO list (updated 2026-07-27 — read this first)
+
+**Done this week:**
+- ✅ 2026-07-24: first fully-cloud scheduled briefing VERIFIED (Pome via tunnel,
+  one email + one push; Potidea's stray 04:00 /trigger handled silently)
+- ✅ 2026-07-25: Signal 3 (booking lead time) shipped (`be83592`); verified live
+  2026-07-26 — first card `leadtime_jul_2026`, 1 attempt, 0 problems
+- ✅ 2026-07-26: Hero paragraph shipped (`c4b3e46`); CLAUDE.md + 4 routed skills
+  (`2ed8199`); target stack + no-Celery + scheduling decisions logged
+- ✅ 2026-07-27: Hero LIVE debut — 1 attempt, 6.1s, 0 validation problems;
+  occupancy-vs-rate driver narrated correctly ("rate-for-volume trade")
+
+**NEXT SESSION PLAN (prepared 2026-08-18 evening, for 2026-08-19):**
+1. Morning check (5 min): 03:30 run + 04:15 demo sync → both hotels + both demo
+   hotels carry `revenueNet`; toggle Net on demo account and eyeball totals.
+2. ✅ Reporting-year selection → moved into Settings (done morning of 08-19).
+3. Net follow-up (backend, ~1h, live tunnel validation): logisnet into pickup
+   windows/daily, top channels, Q16, bridge sources → scaling estimate removed.
+4. Go-live prep for React: real push subscription on the bell (then run the
+   notification-rules test on a real iPhone + Android with the 3-type content),
+   final data-parity pass Vercel vs Pages, then flip DNS/link → Vercel kept 2 wk.
+5. If time: share-as-image per section (highest-asked UX gap), then i18n layer.
+User-side unblockers still open: firstlight_ro logins (both SQL servers),
+Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
+
+**REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
+- 🔄 2026-08-24 **MY WATCHLIST v1 — BUILT** (React `28a249c`, backend
+  `8df3c65`; user: "lets do this"; spec [docs/WATCHLIST_SPEC.md](WATCHLIST_SPEC.md);
+  SQL `docs/sql/2026-08-24_watchlist.sql` — USER MUST PASTE; PWA not yet
+  pushed to Pages). GM pins a
+  stay month or a date range; one deterministic card per item on Today
+  (after the MTD strip), rebuilt on every refresh, zero Claude, plain
+  words, no derived euros. Decisions taken: per-USER rows (own-rows RLS),
+  placement after MTD strip, cap 5. Gate `WATCHLIST_EMAILS` in
+  `lib/watch.ts` was demo-only for the first build, then OPENED to everyone
+  (null) the same evening at the user's request ("apply to Pome and
+  Potidea") — per-user rows, so each GM/RM keeps their own list.
+  PWA files: `lib/watch.ts` (pure compute: month/range lines, status
+  ladder NEW→IMPROVING/WORSENING/STEADY, PASSED, CLOSED, PENDING; sheet
+  helpers), `lib/speed.ts` (booking-speed math extracted from
+  `BookingSpeed` so chart + watchlist can't disagree), `api.ts`
+  (fetchWatchlist → null when table missing = section hidden; addWatch
+  maps 23505/relation errors to toasts; removeWatch; fetchPrevBriefing =
+  previous report_date row for "since yesterday"; demo hotel →
+  localStorage), `components/Watchlist.tsx` (section + cards + WatchSheet:
+  Month chips with current gap / Date range with From–To + presets This
+  weekend · Next 7 · Next 14 · ⚠ soft runs from the heatmap rule ·
+  "Tomorrow you'll see" preview · "n of 5 used"), 👁 toggle on OTB month
+  headers (`Overview.tsx`), Watch/Watching pill on month-scoped AI cards
+  (`AiCards.tsx`, month parsed from card id), `types.ts` now types
+  pickup_daily/cancel_daily/otb_by_date, Info ⓘ key `watch`. Tracking:
+  watch_add {kind,key,from: sheet|otb_card|ai_card}, watch_remove,
+  watch_tap (→ Pace tab). Hidden in past-day view; reset on hotel switch.
+  Verified: `tsc -b` clean, `vite build` OK, fixture checks (scratch
+  script, 8 cases) all pass, headless Edge render of a `--mode demo` build
+  shows the section in place (fixture mode seeds two sample watches so
+  the dev preview is never empty). ALSO FIXED on the way (trust bug the
+  product review flagged): Smart Summary "Last refresh NaN undefined" —
+  `SmartSummary.tsx` parsed `data.report_date` (a display string) instead
+  of `briefing.report_date` (ISO); now "09 AUG · 14:45". HEATMAP ENTRY added same evening
+  (user: "build the heatmap"): cells in Next 60 Days Demand are tap
+  targets — one tap = a date, second tap = a range (blue ring + scale on
+  selected cells); panel under the grid shows booked % vs LY for the
+  selection and offers Watch <date> / Watch this week (Mon–Sun, clamped
+  to the first date in view) / Watch <soft run> · behind LY (amber, only
+  when the date sits in a flagged run of ≥2 dates) / the picked range;
+  already-watched → "Watching ✓" disabled; tracked as watch_add
+  {from: heatmap}. `softRuns/rangeKey/rangeTitle/isoAdd` reused from
+  lib/watch.ts; `OtbTab` threads `onWatchRange/watchedRanges`. TREND STRIP added 2026-08-25 (user:
+  "any chart to check the performance?" → "lets build 1 for now" = no
+  backend change): tap a watch card → expands to a sparkline of rooms
+  booked (month) / booked % (range) THIS YEAR (blue, area) vs LAST YEAR
+  same point (grey dashed), endpoints labelled, one point per stored
+  morning briefing (last 7 report dates via `fetchHistoryRows` — the
+  same rows the day strip opens, fetched lazily once per hotel on first
+  expand); a row of per-day status glyphs (▲ ▼ — ✓) computed exactly as
+  the card read each morning (`watchStatusHistory`); for months, net
+  rooms per booking day bars from today's `pickup_daily` (no history
+  needed). <2 points → "builds up day by day". Net-rooms bars were added for ranges too (from morning-to-morning deltas, `netRoomsFromSeries` kept in lib) and then REMOVED entirely the same day (user: "does not look good") — strip = sparkline + status glyphs only. Last point is labelled "Today" (report_date = the day the briefing reports on; the day strip uses the same convention — user asked why it showed the 24th on the 25th). "Open in Pace ›" link
+  replaces the header tap-through. Tracked `watch_expand`. Option 2
+  (widen `kpi_summary` for slim 30-day history) stays open in spec §7.
+  Past-day view: watchlist deliberately hidden (v1); proposed as-of-day
+  replay with created_at filter — user has not decided. NOT DONE:
+  Note editing (column exists), Greek strings (no dictionary yet), source
+  watches, push line, novelty-gate awareness (all listed in spec §7).
+  ⬜ NEXT: paste SQL → open demo account → add October + a range → next
+  morning check the pill flips from "First day watching"; then widen the
+  gate. Context: came out of the product-evaluation review (commercial
+  memory > more BI); sibling item = story status enum on cards — not yet
+  planned.
+  Mock (2026-08-24): artifact 93a332c0-aa88-49a9-a924-4b4226709913 — Today
+  entry, add sheet (Month | Date range, "tomorrow you'll see" preview, 5-cap
+  counter), 7-day evolution of the October watch with status pills
+  (First day watching → Getting worse → Steady → Improving → Closed) + gap
+  sparkline; range watch shown alongside.
+- ⬜ **WEEKLY DIGEST** (user: "I like it a lot" — parked 2026-08-24, do NOT
+  build yet). Spec agreed: Monday after 03:30 run; six deterministic blocks —
+  one-line verdict, week scorecard vs same days LY, MTD + FY OTB, pickup
+  (booked/cancelled/net, best/worst day), "what the analyst flagged" (still
+  open/new/cleared from follow-up memory), next-weeks outlook + callout; no
+  Claude by default; Greek/English via dictionary; delivery = in-app entry
+  in the day strip + push (4th notification type "Weekly digest") +
+  share-as-image for WhatsApp. ACCESS (agreed 2026-08-24): a "Last week"
+  pill at the left of the day strip, always = last completed Mon–Sun (any
+  weekday), scrolling left to "2/3/4 weeks ago"; closed months appear as
+  month pills ("July") in the same strip; Monday push deep-links to the pill;
+  flags block computed AS OF that week's end (honest history); optional
+  "This week so far" only if testers ask. Mocks: content artifact c8fb2f2c…, design
+  canvas e59bb657… (3 chart styles: A Scorecard tiles+bullet bars, B
+  Storyline dumbbells, C Chart-first cumulative curve+rings) — STYLE NOT
+  CHOSEN YET; ask before building.
+- ⬜ **MONTHLY DIGEST** (parked with the weekly): fires when a month closes
+  (1st, after 03:30); same skeleton on the closed month vs LY final — weeks
+  within the month, shape of the month (best/softest day, days behind LY,
+  rate-vs-volume), month pickup/churn, flags resolved/still open, next
+  month OTB at close. Real July 2026 mock on the same canvas.
+- ⬜ **MULTIPROPERTY PORTFOLIO PAGE** — mock done (artifact b7bb4191…):
+  Yesterday / MTD / YTD tabs, navy hero (portfolio total, ahead/behind
+  counts, biggest mover), ranked hotel list with variance pills, "across the
+  group" flags lifted from each hotel's briefing. Design-first item stays
+  open; needs group→hotels membership model.
+- 🔄 2026-08-24 **AI value push: notifications v2 + follow-up memory**
+  (brainstorm → user picked top 3; backend afb644f cards-v1.8-followup,
+  React 7bc243b, SQL 2026-08-24_notification_types.sql — USER MUST PASTE).
+  (1) Intraday pushes, zero-Claude, after 11:00/17:00 UTC data-only runs:
+  ALERT = cancel spike today (>=max(8, 3× trailing daily)) or forward month
+  slipping <=-5% vs STLY since morning; MOMENTUM = month passes LY FINAL or
+  strong booking day (>=max(15, 2× trailing)). Claim-then-send via
+  intraday_log PK(hotel,day,type) → hard cap 1/type/day, silent until SQL
+  pasted; templates use % + counts only (no-derived-euro rule). Data-only
+  runs no longer send the morning-style push (they DID before — 3×/day dupe
+  bug fixed). Morning push body = deterministic headline ladder.
+  (2) Follow-up memory in the novelty gate (7-day window): repeat cards get
+  facts first_flagged + "gap ~N% wider/narrower since"; still-open items
+  resurface every 3rd day as "Still open:" instead of silent demotion.
+  (3) Settings → Notifications: per-type On/Off (Morning/Alerts/Momentum) →
+  push_subscriptions.notification_prefs, sender filters per type
+  (schema-tolerant). Tests: test_intraday.py 15 + 17/34/37 all pass.
+  ⬜ NEXT: paste SQL; watch tomorrow's 03:30 (headline body) + 11:00/17:00
+  (first intraday window); later: group-detection signal, per-card deep-link.
+- ✅ 2026-08-24 **7-day history** (React 77ce96f): pill strip above the Smart
+  Summary — `Today · Sat 23 · Fri 22 …` from the hotel's last 7 stored
+  briefing rows (data already existed; no backend change). Tap = that day's
+  FULL briefing (data + that day's AI cards) rendered by the same
+  components; amber "Viewing the briefing of …" banner + Back to Today;
+  refresh guarded in past view; hotel switch resets to today; feedback
+  thumbs still work on past cards (report_date-keyed); `history_view`
+  tracked. Past days load via Supabase (Phase A API has no by-date endpoint
+  yet — add one before the API becomes the only read path).
+- 🔄 2026-08-24 **Usage tracking layer** (React 3d4b670 + SQL
+  2026-08-24_usage_events.sql — USER MUST PASTE). First-party events into
+  Supabase `usage_events` (user_id/hotel_id/session_id/event/props); RLS =
+  authenticated INSERT-own-only, reads service-role only. Client
+  `lib/track.ts`: 10s batching + page-hide flush, fail-silent, GATED to
+  demo@hbis.io via TRACKED_EMAILS (set to null → track everyone). Events:
+  app_open (platform/standalone/viewport), session_end (seconds), tab_nav,
+  hotel_switch, refresh_tap, bell_toggle, setting_change, hero_expand,
+  voice_play, card_expand, share_tap, feedback_submit. ⬜ NEXT: paste SQL →
+  browse demo → verify rows; later a usage digest (daily counts per event)
+  + widen gate at go-live.
+- ✅ 2026-08-23 Section-header consistency (React 9e04270): every visual now
+  uses the same SectionLabel (icon + title + ⓘ + Share) OUTSIDE the white
+  card — Yesterday/MTD got icons, MTD/OTB/butterfly/speed/pace-charts/heat/
+  bridge/sources titles moved out; "Demand heat" renamed "Next 60 Days
+  Demand"; "Cancelled revenue · 7 days" strip removed (user spec).
+- ✅ 2026-08-23 **NO DERIVED EURO FIGURES in briefings — standing rule**
+  (user, after the hero mis-framed the lead-time signal's €1,079,123
+  "revenue in motion" as a "€1.08M opportunity"): only real PMS revenue is
+  ever displayed or narrated. cards-v1.7-noderived (89a1fb5):
+  `_DERIVED_EUR_FACTS = (value_at_stake, proj_rev_band)` stripped from the
+  narration prompt + haystack; Signal-5/projection cards now show the
+  %-vs-reference band instead of the € projection band (chips + texts).
+  Derived values still drive scoring/floor/novelty internally (_stake_eur).
+  INCIDENT note: cards-v1.6-nostake (2544f80, pushed 08-19) was silently
+  never deployed — lost in the Railway 08-19 incident — so the 08-23 03:30
+  narration still produced at-stake prose. Detected via the €1.08M hero
+  sentence; fix: /health now exposes `prompt_version` (469f20c) — ALWAYS
+  verify the served analyst version after a backend push. v1.7 deploy
+  verified via /health.
+- ✅ 2026-08-19 **Euro at-stake estimates removed from ALL display + narration**
+  (user: "remove all calculations at stake etc"; backend 2544f80
+  cards-v1.6-nostake, React c71ee57). The estimates remain INTERNAL — they
+  still drive the significance floor, R-scoring and the novelty gate (shipped
+  insights now carry a bare `_stake_eur` number for tomorrow's novelty
+  lookup; legacy rows still parse at_stake). Removed: card at_stake field &
+  "At stake:" action suffix, hero digest stake + fallback "— €X at stake",
+  soft-dates fallback chip sub, value_at_stake facts from the narration
+  prompt (Claude can no longer cite them; validator haystack matches).
+  React drops the At-stake row and sanitizes legacy stored briefings
+  (evidence subs + recommended_action). Old heroes narrated before this
+  change still contain the phrase until the next 03:30 run. Tests 17+34
+  pass (hero test updated to expect NO stake).
+- ✅ 2026-08-19 **Smart Summary v2 — deterministic** (React da3662a; mock
+  approved first, artifact a1e6e762). Headline is a client-side rule ladder
+  over pre-computed facts (first match wins): ~~cancellation spike (churn >=15%
+  & >=10 rn)~~ -> big yesterday (|vsLY| >=15%, "Strong/Soft {weekday}") ->
+  **cancellations UP vs prior week (2026-08-28, see release row)** ->
+  forward month <= -5% vs STLY ("{Month} needs attention") -> pickup
+  accel/slow (net7 vs prior-week net from pickup_daily, +-15%) -> "Steady
+  day — MTD {x}%". Sections upgraded: state pills (AHEAD/BEHIND/MIXED,
+  SPEEDING UP/SLOWING/STEADY), Pickup shows booked/cancelled/net + WoW
+  arrow, On the Books names best + watch months. NO Claude call — updates on
+  every refresh (11:00/17:00/manual), follows net mode instantly; the
+  once-daily narrated hero remains behind "Read the full briefing" (speaker
+  reads it; both hidden if hero missing). Templates do zero arithmetic
+  (safety-first) — slots only. EN only until the i18n dictionary lands.
+- ✅ 2026-08-19 "Where each month stands" section REMOVED (user request; the
+  MonthStands meter is gone from the Pace tab — pace charts + booking speed
+  + heat + bridge + sources remain). React 0abd77f + d5adbb3 (the first
+  commit shipped with dead code that broke the Pages build; fixed forward).
+- ✅ **REPORTING-YEAR SELECTION → SETTINGS** (user spec 2026-08-19: "put it
+  also in the settings… reporting year and comparison year"; React 91ea5b2).
+  In-body bar removed. Settings rows: `Reporting year [2026 | 2027]`,
+  `Comparison year` (2026 → fixed 2025 = STLY + final; 2027 → [2026 | 2025]),
+  one-line semantics caption under them. When 2027 is selected a slim
+  `2027` pill strip under the hero says what's compared and points to
+  Settings. Session-only (opens on the current year). Modules that follow:
+  OTB matrix, pickup boxes/butterfly/speed, pace charts; calendar + AI don't.
+  Backend Q16 stly2 series serves the 2027-vs-2025 branch.
+- ✅ **Settings: Gross | Net revenue toggle** — SHIPPED 2026-08-18 (React
+  3364071, served bundle verified). Settings row "Revenue  Gross | Net",
+  DEFAULT = GROSS, persisted in localStorage `fl_revmode`. Net view derives
+  from the payload: yesterday/MTD `revenueNet(LY)` and OTB pace
+  `rev_net/rev_stly_net/rev_final_net` are EXACT (Hitia.logisnet, Q1+Q4);
+  net ADR = net revenue ÷ nights client-side. Sections that don't carry a
+  net query yet (pickup windows/daily, top channels, next-year pace, ADR
+  bridge sources) are scaled by the hotel's MTD net/gross factor so the app
+  reads in one basis; a small "NET · Revenue and ADR shown net of VAT &
+  taxes" strip appears under the hero. Hero/AI text stays gross (narrated).
+  Toggle refuses (toast) until the payload carries net fields.
+  FOLLOW-UP ⬜: add logisnet to the pickup / channels / Q16 / bridge queries
+  so the estimate goes away everywhere.
+- ✅ 2026-08-19 **Instant open** (React 8991bb0): last briefing + hotel list
+  cached in localStorage per hotel → painted immediately on open, fresh copy
+  fetched behind it (stale-while-revalidate; cache cleared on Sign out);
+  session guessed synchronously from the stored Supabase token (no Login
+  flash); first-ever open shows the navy header + "Loading briefing…" instead
+  of a white page. Top Sources bars 6px → 14px (user: "much thicker, same
+  design"), STLY tick 3×20 navy.
+- ⬜ **App landing page** — change what greets the user on open (login/entry
+  screen redesign; brand moment before the briefing)
+- ⬜ **Marketing website for "Xenia"** (working name, user idea 2026-08-18) —
+  public landing site with LIVE, anonymized briefing data scrolling as a
+  self-running demo (feed from the demo hotels — Azure Bay / Thalassa)
+- 🔄 **NOTIFICATIONS — root cause found + fixed 2026-08-19** (user: "I still
+  don't get any notification even though I clicked the bell"). Three
+  independent causes, all confirmed by probe, all fixed:
+  1. React bell had NO push code (local on/off + toast only) → now real Web
+     Push: `web/public/sw.js`, `src/lib/push.ts` (VAPID subscribe, row per
+     hotel via delete+insert, unsubscribe), bell state = browser subscription
+     AND server row **for the hotel in view** (per-hotel tick ✓ green / × red
+     badge), iOS "add to Home Screen first" hint, notification tap → AI
+     section. React 9be43c1 / fad982d / 5612f3f.
+  2. `push_subscriptions` was EMPTY (0 rows): the legacy upsert on
+     (user_id,hotel_id) 42P10'd because that index never existed — AND the
+     table carried `push_subscriptions_user_id_key` = UNIQUE(user_id), i.e.
+     one subscription per USER not per hotel → a 2-hotel user could only ever
+     be notified for one hotel. `docs/sql/2026-08-14_push_subscriptions_unique.sql`
+     rewritten (drop per-user unique, add unique (user_id,hotel_id)); user
+     pasted 2026-08-19 ~00:55 Athens; verified: 2 rows now (Pome + Potidea,
+     endpoint web.push.apple.com = iPhone Home-Screen app).
+  3. No way to test without waiting for 03:30 → `POST /push/test?hotel_id=`
+     (Bearer hotel token) sends a test push to that hotel's subscriptions
+     (api.py 9408f12). Deploy blocked by RAILWAY INCIDENT "Deployments are
+     slow to progress / prone to timeout" (3 Snapshot-code timeouts, then a
+     build stuck >40 min; status.railway.com Identified 01:16 UTC). Old
+     process keeps serving fine. NEXT: when deployed, fire /push/test for both
+     hotels (scratchpad push_test.ps1), then the 03:30 run is the real test.
+  Lessons: probe the table (row count + constraints) before trusting any
+  client "saved" message; a UNIQUE on the wrong key is invisible until the
+  second hotel. Legacy Vercel bell also benefits from the SQL fix.
+- ⬜ **Notification rules — check on real phones**: exactly when/what a user
+  gets notified (today: 03:30 scheduled run only, manual/data-only silent;
+  needs the React bell subscribed; verify iOS + Android)
+- ⬜ **AI insights — re-review**: quality pass on card ranking, wording, caps
+  and fallbacks against the accumulating 👍/👎 + notes (real + demo testers)
+- ⬜ Share = IMAGE, per section: React share currently sends a link; port the
+  old app's capture-to-image share, scoped to specific chart/section blocks
+  (share pill on each section captures THAT block)
+- ⬜ Dynamic translation: i18n dictionary layer (en/el, ~150 keys) wired to
+  the EN/ΕΛ switch — instant UI translation; narration stays per-hotel
+  next-morning (cost policy)
+- ⬜ Notification rules audit: verify what arrives on the phone and when
+  (03:30 only, content format per the 3-type design: briefing/alert/momentum)
+- ⬜ MULTIPROPERTY PORTFOLIO PAGE (new feature): dedicated view for owners
+  with 2+ hotels — whole-portfolio performance (per-hotel KPI rows,
+  aggregate revenue/occupancy, alerts across properties); design first
+
+**USER (updated 2026-08-10):**
+- ✅ 2026-08-10: ALL pending SQL pasted + verified (insight_feedback, hotel_prefs,
+  hotels.season_settings, refresh_runs.attempt) — thumbs + EN/ΕΛ selector live
+  in the app from this moment; season_settings null for both hotels awaiting
+  the user's own Protel rooms/season queries
+- ⬜ Fill season_settings dates + real-rooms query (user took this)
+- ⬜ Create `firstlight_ro` read-only login on Pome SQL Server, send password →
+  swap pms_config off `sa` (security must-fix)
+- ✅ Word-caps decision RESOLVED 2026-07-27 (cards-v1.4-singleshot) — user
+  cost policy: NO retries, every Claude call costs. Narration = ONE attempt;
+  a validation miss ships the free deterministic fallback card. Prevention
+  moved up-front: word budgets embedded in the tool schema field descriptions
+  (write ≤80% of cap; over-limit discarded), same for hero. Surgical
+  retry-feedback code kept dormant behind NARRATION_ATTEMPTS env (default 1).
+  Expected: cost drops to ~$0.04-0.05/hotel/day flat; watch fallback rate —
+  if it climbs above ~1 card/day, relax caps +3 words (free fix).
+
+**Pilot week (→ ~2026-07-31):**
+- 🔄 Daily refresh_runs check — Claude (days 1-4: zero tunnel errors; day 4
+  degraded on word caps, not infrastructure)
+
+**End of pilot week — Phase 3 (closes the migration):**
+- ✅ 2026-08-10 Potidea on the tunnel (route + service token, pms_config, first run OK)
+  ⬜ decommission old daemon + tasks on the Potidea server (user, RDP) (kills the stray 04:00 trigger; Potidea
+  gets Signal 3 + hero automatically)
+- ⬜ Delete FirstLight code folders from BOTH hotel servers → migration complete
+
+**Small builds (Claude, anytime — pilot-safe):**
+- ⬜ Signal 3 polish: exclude comp/house sources from drill-down;
+  `pms_config.lead_window_days` (default 28)
+- ✅ Chart fix 2026-07-27: OCCUPANCY line chart — closed months (month_num <
+  current month) show STLY only; the Final LY dashed line starts at the current
+  month. Revenue + ADR bar charts deliberately unchanged (user choice).
+  Legacy payloads without month_num keep the full line (guarded).
+
+**Then — the stack migration (sequenced, each phase shippable + rollback-able):**
+- ✅ 2026-08-13 **Phase A — FastAPI** LIVE (web-cloudflare.up.railway.app): uvicorn 1 worker,
+  scheduler → lifespan, port /trigger + /briefing/latest, per-hotel API tokens,
+  kpi_summary column + GET /briefing/history
+- 🔄 **Phase B — React on Cloudflare Pages** (LIVE at firstlight-pwa.pages.dev, parallel-run with Vercel; go-live sequence pending): audit PWA repo first;
+  render-from-data; new card anatomy + hero block + Greek/English + text-size
+  1-5 + bigger OTB charts + closed-month LY fix + scroll fix + 7-day history UI;
+  reads via FastAPI tokens; parallel-run then retire Vercel; drop rendered_html
+- ⬜ **Phase C — Postgres on Railway** (~2-3 days + 2-week rollback window):
+  db/client.py consolidation → pg_dump/restore → env-var flip; LISTEN/NOTIFY
+  queue; verify backups + nightly dump; retire Supabase
+- ⬜ Phase 4 scale prep before hotel #10: de-globalize config →
+  REFRESH_CONCURRENCY=10, load test 20-30 hotels, per-hotel briefing time/tz
+
+**PMS INTEGRATIONS ROADMAP (added 2026-08-18):**
+- On-premises — same process as Protel (tunnel + read-only SQL login + new
+  adapter folder filling the HotelDataSnapshot contract):
+  - ⬜ **Pylon** (SQL Server, similar reservation-line model — easiest, do first)
+  - ⬜ **Opera 5** (Oracle; RESERVATION_NAME + RESERVATION_DAILY_ELEMENT_NAME,
+    status codes, revenue buckets → filter to room revenue; real port not rename)
+- Cloud — no SQL/tunnel; WE pull, store, compute. Confirmed by user: APIs give
+  **book date + cancellation date + last-modified** → STLY reconstructs right
+  after a 2-year backfill; incremental sync via modified_since:
+  - ⬜ **Opera Cloud** (OHIP: OAuth, per-property app registration, partner
+    onboarding lead time — start early)
+  - ⬜ **Hotelizer** (lighter API, same model)
+  - shared piece: **reservation store + incremental sync engine** in our
+    Postgres → Phase C is a PREREQUISITE for cloud PMS; per-PMS = mapping to
+    canonical reservation row, then Q1–Q16 run over our schema
+  - discovery per cloud PMS (2 days, sandbox creds): exact cancellation
+    semantics (do cancelled rows keep stay dates/rate?), how modifications /
+    rebooks appear (new record vs update)
+- ⬜ **SEMANTICS.md FIRST** — PMS-neutral definitions (room night, room revenue,
+  STLY, cancellation in/out, comps, fake rooms, season) every adapter must
+  satisfy; write before adapter #2
+
+**Product roadmap (parallel to stack work, user picks order):**
+- New card types (compute-only): ADR-vs-occupancy trade-off · cancellation spike
+- Insight feedback loop (agreed 2026-07-27): 👍/👎 per card + reason chips →
+  `insight_feedback` table + POST /feedback in Phase A; UI in Phase B card
+  footer; Tier-1 learning = bounded per-hotel ranking-weight tuning (N
+  component), pattern-gated (≥5 signals, decay). GUARDRAIL: feedback tunes
+  ranking/phrasing only — NEVER suppresses hard-gated facts (shoot-the-
+  messenger protection). Tier 2 editorial prompt notes later; Tier 3 only at
+  scale. Joins on refresh_runs.cards_audit by card_id.
+- Onboarding kit → onboarding agent (agreed direction 2026-07-27): v1 kit
+  (~2-3 days): install-cloudflared.ps1 + SQL discovery probe (Hitia check,
+  mpehotel list, zimmer count, fake kat detection) + auto-proposed pms_config
+  + GM verification report — dogfood on Potidea/hotel #3. v2 (pre-scale,
+  ~1-2 wks): Cloudflare API provisioning + email flow + LLM diagnostic loop
+  (agent handles weird cases; humans keep: run installer, sign off numbers).
+- db/adapters/SEMANTICS.md — PMS-neutral metric definitions (STLY, cancellation
+  in/out, fake rooms) to write BEFORE adapter #2; ~1h, knowledge fresh now
+- Follow-up loop (advice → outcome tracking) · chatbot · monetization tiers
+
+---
+
+## 5. Decision log
+
+| Date | Decision | Why |
+|---|---|---|
+| 2026-08-10 | HERO DRIFT RESOLVED — Option A (keep as is): the hero paragraph stays a morning snapshot; intraday KPI drift (room-revenue value edits after 03:30, e.g. €81,598 vs €81,808) is explained by the "Last refresh" timestamp in the Smart Summary header + the ⓘ hero explainer. NO regeneration on data-only runs | Drift is cents-level and legitimate (both numbers correct for their moment); options B (drift-triggered regen ~$0.005) and C (always regen ~$0.015/day) rejected under the cost policy — zero extra Claude calls |
+| 2026-07-28 | Pricing: FirstLight = **€99/hotel/mo + VAT, flat, unlimited users** — never per room count. Sold as add-on to Hotel BI (€330), standalone, or €399 bundle. Full commercial policy in [COMMERCIAL.md](COMMERCIAL.md) | Value unit is the briefing (one/hotel/day), COGS flat (~€2–3/mo AI); flat matches Hotel BI's per-property model; unlimited users spreads the habit through the hotel. Only size lever: portfolio discount from 2nd property |
+| 2026-07-30 | ONE PICKUP TRUTH (user decision): Q9 pickup_daily + Q14 cancel_daily count ALL stay dates (restriction `date > today` + 1yr cap removed) — bookings for consumed nights (walk-ins/same-day) included, so the butterfly RECONCILES EXACTLY with the Pickup Activity card (Q3, same book-date-axis convention). Butterfly/velocity share calendar-aligned 7/14d windows anchored on newest booking date. Analyst Signal 1 guards `m_end < today` so finished months never become cards. Audit trigger: user found +147rn booked / −7rn cancel gaps; root causes = future-only scope + an 8-day distinct-date cancel window |
+| 2026-07-26 | Data layer end-state: Supabase → **Railway managed Postgres** at the overhaul release (NOT Postgres-in-container — ephemeral FS). FastAPI becomes the ONLY gateway (PWA stops reading the DB directly; needs per-hotel auth). Rationale: once render-from-data routes the PWA through our API, PostgREST value evaporates; colocation + one less external dependency. Migrates together with React/Pages + render-from-data as ONE coordinated release |
+| 2026-07-26 | Scheduling in the FastAPI container: APScheduler in the lifespan hook, **exactly 1 uvicorn worker while scheduler lives in the API process** (N workers = N schedulers = duplicate briefings/emails). At scale: web/worker split — same image, two Railway services; queue = refresh_commands with FOR UPDATE SKIP LOCKED + LISTEN/NOTIFY. Per-hotel briefing times = per-hotel APScheduler crons (tz-aware) |
+| 2026-07-26 | NO Celery: ~1k tasks/day at 200 hotels doesn't justify a Redis broker (new always-on dependency in the 03:30 path, Windows dev pain, re-buys locks/retries/audit we have). Postgres-native queue at the Phase 4 split; **Procrastinate** (Postgres-broker task queue) if we want task ergonomics. Revisit only at >50k tasks/day or multi-machine workers (chatbot-driven) |
+| 2026-07-26 | Concurrency truths: reads scale (precomputed briefings); duplicate refreshes collapse to 1 run (atomic claim + per-hotel lock + AI reuse); fleet-morning compute is the only real 100-at-once problem → Phase 4 (de-globalize config → REFRESH_CONCURRENCY=10 ≈ 15 min/100 hotels; per-tz staggering) |
+| 2026-07-26 | TARGET ARCHITECTURE (agreed w/ user + CTO input): three layers — Cloudflare = network + frontend (DNS, tunnels, Access, React PWA on Cloudflare Pages after the overhaul; Vercel retires); ONE Docker container = compute (FastAPI adopted when the history endpoint lands, + scheduler + analyst); Supabase = data. Container host (Railway today) is a swappable landlord, revisit at ~20 hotels (DO App Platform / Fly / CF Containers when mature). Backend can NEVER run on CF Workers (pyodbc native driver, cloudflared subprocess, long-running scheduler). Repos stay separate (agent vs PWA) — IP isolation + independent deploys; one VS Code workspace for cross-repo work |
+| 2026-07-24 | Claude runs ONCE per hotel per day (scheduled morning run only); data-only AND manual refreshes reuse the day's AI insights (`2b91f6e`) | Data barely moves intraday; per-refresh regeneration was pure cost. Hard-caps AI at ~€2-3/hotel/mo; manual refresh drops ~100s → ~10s. Fallback: refresh before any morning AI → generates fresh |
+| 2026-07-24 | Manual refreshes are silent — no email, no push (`5402b37`) | A debugging day sent the GM 6 briefing emails; notifications/email only from scheduled runs |
+| 2026-07-24 | Pome server decommissioned to cloudflared-only (`8e1329e`) | Cloud command poller + 03:30 UTC schedule replaced the daemon's last two roles; refresh-button test passed with zero hotel-side code |
+| 2026-07-22 | Tunnel-direct architecture: hotel servers keep ONLY cloudflared | Protect product IP (code/queries/keys off customer hardware); updates become git-push-only |
+| 2026-07-22 | NO watermarks / incremental ETL | We run stateless bounded aggregate queries, not a warehouse copy — watermarks add state-sync bugs for no gain |
+| 2026-07-22 | Keep per-card Claude calls (vs consolidating to 1–2) | Validator isolation: one bad card retries/falls back alone. Revisit only if measured cost/latency says so (Step 11) |
+| 2026-07-22 | `refresh_runs` (ops) separate from `briefings` (business) | 3 failed attempts + 1 success = 1 customer briefing, 4 audit rows; failed runs must never mix into customer-facing data |
+| 2026-07-22 | Publication rule: valid data snapshot → publish; narration failures degrade (fallback cards), never block | GMs always get a briefing; `degraded` flag tracks fallback frequency |
+| 2026-07-22 | HTML rendered on demand, JSON is canonical | Data is 10KB/briefing; stored HTML was the only storage-scale problem |
+| 2026-07-22 | Stay on Railway (EU region), revisit at ~20+ hotels | Migration cost > savings at current scale; everything is Docker-portable |
+| 2026-07-22 | Claude cost €1–3/hotel/mo treated as UNPROVEN until measured | Estimate only; refresh_runs token logging produces the real number |
+| 2026-07-22 | Potidea interim file-update SKIPPED | Legacy briefings work fine (guard fix); avoid repeating the manual process we're eliminating; both hotels get final architecture in Phase 3 |
+| 2026-07-21 | v1.2 spec before migration Step 1 | Customer-visible quality first; also settles the fact shapes the contract then codifies |
+| 2026-07-20 | Two-layer analyst: all math in Python, Claude narrates only | Kills hallucinated numbers structurally; validator enforces verbatim copying |
+
+---
+
+## 6. Incident log ("bad days")
+
+| Date | Incident | Root cause | Fix / lesson |
+|---|---|---|---|
+| 2026-08-10 | Pome tunnel fetch dead ~03:30→14:45 Athens (5 failed runs, 08001 prelogin handshake; briefing frozen at morning snapshot — gate held, nothing corrupted) | An **RDP browser-rendering connection rule** (`connection_rules: {rdp: {}}`) landed on the Pome SQL Access app during the same-morning dashboard session that created Potidea's app — Access then 403'd the plain TCP tunnel client. Correlated misleadingly with the Phase A deploy minutes earlier | Rule removed → instant recovery (14:45 run success, today-pickup live, kpi_summary flowing). Diagnosis chain worth keeping: container suspected first (2 blind fixes: OpenSSL TLS floor + Driver 17-first fallback — both KEPT, harmless hardening) → Potidea green on same container exonerated it → local tunnel repro failed while direct SQL worked → edge probes: bridge 502 both hotels (connector up) + Access probe 403 Pome / 200 Potidea = smoking gun. Lessons: (1) when two things change the same morning, test BOTH independently before fixing either; (2) `Invoke-WebRequest` with CF-Access headers is a 10-second Access-layer test — use it FIRST for tunnel failures; (3) touching the Zero Trust dashboard for hotel N can break hotel N−1 — after any Access change, probe every hotel's hostname |
+| 2026-07-23 | App showed "No briefing available" for both hotels after Step 3 deploy, despite push notifications arriving | Step 3 stopped storing `rendered_html`; the PWA renders briefings FROM that field (assumption that it renders from `data` was wrong — the API endpoint was checked, the app's own reads were not) | Hotfix `297ce90` restored HTML storage; both hotels republished within the hour. Lesson: before removing a field, verify what every consumer actually reads — not just the API in front of it. PWA render-from-data is now a prerequisite (open item) before storage removal returns. Side note: dropping the blob had instantly fixed Potidea's `/briefing/latest` 500 — that endpoint chokes on large rows |
+| 2026-07-23 | Pome produced no morning briefing (3 failed runs: 06:30, 09:00, 14:00 Greece) | `server.py --daemon` was dead — restarted manually in an RDP window the day before, killed when the session was signed out; startup task only fires on reboot. Bridge returned 502 (tunnel up, origin down) | Daemon restarted; refresh republished. Diagnosed in one refresh_runs query (logbook's first save). Lessons: console-started processes die on sign-out — use Task Scheduler / disconnect only; the publication gate correctly kept the last good briefing; this failure class disappears entirely with tunnel-direct (no daemon) |
+| 2026-07-22 | Both hotels shipped a **1-insight briefing** | Old-format payloads (hotel daemons not restarted / never updated) let only the future-projection signal fire; non-empty ranked list skipped the legacy fallback | Guard on new-data presence (`b6d4185`), later formalized as `data_quality.legacy_mode` (Step 1). Lesson: fallback conditions must test *inputs*, not *outputs*; running daemons cache old code — restart after file updates |
+| 2026-07-21 | 30 min lost hunting Railway `/trigger` 404 | Two Railway services: FastAPI relay (`web-production-61c4d`) ≠ processor (`railway_main.py`); we probed the relay | Documented both services (§2). Lesson: check prior session history first — the answer usually exists |
+| 2026-07-21 | Real-data cards review found: full-month rn presented as remaining-period ("4,161 rn in 10 nights"), weak card fired (z +0.7), unexplained €108,298 at stake | No period labels on facts; magnitude gate not enforced; at-stake figure without calc | Spec v1.2 (`3f6063a`): period-scoped facts + blend validator; |z|≥2 gate; no-calc-no-figure rule |
+| ~2026-07-12 | Potidea showed **zero-data briefings** twice | Empty payload saved over good briefing; only guard was ad-hoc rev==0 check added after the fact | Now a hard contract sanity check (`yesterday_nonzero`) blocking publication (Step 1, tested) |
+| ongoing | Dev machine cannot call Anthropic API (SSL "Connection error") | Local Python SSL cert issue; curl works | Narration tested in production (Railway); local tests cover compute + validators; fallback path proved resilient (all cards shipped) |
+| open | FastAPI `/briefing/latest` returns 500 for Potidea's hotel_id (Pome works) | Unknown — possibly row size or null field | To investigate; PWA unaffected (reads Supabase directly) |
+| historical | Pome server folder is a ZIP download (`firstlight-agent-main`), no git installed | Onboarding shortcut | Made updates painful (curl per file + daemon restart) — a driver of the cloud migration |
+
+---
+
+## 7. Release history (backend repo, newest first)
+
+| Commit | Date | What |
+|---|---|---|
+| PWA `d614928` | 2026-08-28 | WATCHLIST RANGE STATUS v1.2 (user: "Pome shows Steady for Aug 30–Sep 3 — did we get no nights?"). ROOT CAUSE: range status compared occupancy points vs yesterday with a ±2pt gate = 17 net rooms/day for a 5-night Pome range → a close-in range always read STEADY even with real pickup (the actual net was always on line 2). NEW RULE (`watch.ts rangeLine`): today's net rooms vs what LAST YEAR gained on the same day at the same lead time (`rn_stly` is same-lead-time OTB, so yesterday→today Δrn_stly = LY's net for that day); IMPROVING/GETTING WORSE when the difference ≥ tol = max(2, 0.5% of range room-nights) (Pome 5 nights → 4 rooms). Line 2 now: "+4 rooms since yesterday (last year: +9 on the same day) · lowest date …". Also fixed: range whose end date == report_date showed "Beyond the 90-day window" for one morning (Q10 starts today; report_date = yesterday) → now "Dates have passed". GAP FOUND: spec §5.5 "auto-removed after that day" is not implemented — closed cards persist until Remove (TO-DO). Spec updated (§5.2/5.3/5.5). INCIDENT (self-inflicted, docs only): a `sed` fix for escaped backticks in 586eb1e matched GNU sed's `\`` start-of-buffer anchor and prefixed ~700 log lines with a backtick; repaired in this commit by diffing against ebe1e5f |
 | `586eb1e` + PWA `f813c55` | 2026-08-28 | SMART SUMMARY HEADLINE — cancellation rule fixed (user: "why do both hotels say watch out cancellations every day?"). ROOT CAUSE: rule 1 of the headline ladder fired on an ABSOLUTE ratio (cancelled7 / booked7 >= 15% and >= 10 rn). Both sides count all stay dates, so in late season new bookings dry up while cancellations of months-old bookings keep arriving at a normal rate → ratio always > 15%; 10 rn is < 1% of weekly capacity; rule sat first so it hid "Strong {weekday}". NEW RULE (backend `intraday.headline()` + new `cancel_weeks()`; app `rw()` must mirror — JS diff below): fires only when cancellations are UP vs the hotel's own prior week: `cancelled7 >= 1.5 × prior7` (prior7 = Q14 `cancel_daily` rows dated today-13..today-7; last7 = Q3 `cancellations7d` so it reconciles with the Pickup card) AND `cancelled7 >= max(10, 3% of weekly capacity)` (Pome 35 rn, Potidea 50) AND churn >= 15% (secondary). Moved BELOW "Strong/Soft {weekday}". No Q14 → rule silent. Text: "Cancellations up — 30 rooms out this week, vs 14 the week before." (plain-language rule). test_intraday.py 20 checks incl. the late-season trap (high churn, normal level → silent). APP SIDE — DONE in PWA `f813c55` (SmartSummary.tsx `headlineFor`/`computeFacts`, `npm run build` clean; oxlint binding broken on this machine, pre-existing): add `priorCancelled7` = Σ cancel_daily.cancel_rn where report_date−13 ≤ ref_date ≤ report_date−7 (null if no rows) and `weeklyCap = total_rooms*7`; reorder: ydVar rule first, then `priorCancelled7!=null && cancelled7>=Math.max(10,Math.round(weeklyCap*0.03)) && cancelled7>=1.5*Math.max(priorCancelled7,1) && churnPct>=15` → `Cancellations up — ${cancelled7} rooms out this week, vs ${priorCancelled7} the week before.`; also reword "Booking pace is accelerating/slowing" → "Bookings are speeding up / slowing down" (plain-language rule) |
-`| `586eb1e` | 2026-08-24 | PLAIN-LANGUAGE NARRATION (`cards-v1.9-plain`): user rule — write for a hotel owner, not a revenue expert; short sentences, everyday words, never jargon when a simpler phrase means the same. (1) Card system prompt rule 9 → required rewordings glossary (firming→getting stronger, decelerating→slowing down, compression→filling up fast, ADR dilution→average rate is falling, pickup→new bookings, pace→bookings, OTB→booked so far, lead time→how far ahead guests book, close-in→last-minute, inventory→rooms, rate codes/floors→rate plans/minimum rates, materialise→come through); hero prompt gets the same instruction. (2) New `_PLAIN_TERMS` + `_plainify_text/_plainify_card` — ordered regex substitutions applied AFTER validation to narrated cards, hero, and both fallback paths (en only; sentence-start capital preserved, mid-sentence acronyms lowercased; never touches digits; audit `jargon_replaced` + log line when it fires). (3) Every fallback template rewritten (all 5 signals + softening merge): evidence labels too (PACE→BOOKINGS, ADR OTB→AVG RATE BOOKED, REMAINING OTB→STILL TO COME, PROJECTED→EXPECTED FINISH, CLOSE-IN SHARE→LAST-MINUTE SHARE, SOFTEST→LOWEST DATES, z-score→"swing of X vs normal"). (4) Hero driver hints: rate-led→"mostly from higher rates", occupancy-led→"mostly from more rooms sold", softer→lower/fewer. test_hero.py 53 checks (+26 plain-language), test_leadtime 37, test_retry_feedback 10, test_contract 17 all pass. NOTE: test_preview.py legacy path fails with pre-existing `KeyError: month_num` in `_legacy_generate.pace_row` (not touched; legacy path unused by tunnel hotels). Verify next 03:30 run via cards_audit: `jargon_replaced` should be absent/rare; any hit = tune the prompt glossary |
-`| `3a57175` | 2026-08-14 | PHASE A LIVE + VERIFIED at `web-cloudflare.up.railway.app`: /health = firstlight-api/phase A; smoke test PASSED — 401 no token, 403 cross-hotel token, /briefing/latest both hotels, /briefing/history 7 days w/ kpi_summary, /feedback (real rows incl. user notes). Root causes of the 4-day-late activation: (1) Railway service had a CUSTOM START COMMAND (`python railway_main.py`) silently overriding the Dockerfile CMD — the Phase A image built but never ran; (2) `$PORT` in the replacement start command didn't expand → 502 crash loop → fixed with `python api.py` entry (port read in-process). Old unauthenticated /trigger is now closed behind tokens. LESSON: after a CMD-level change, verify the SERVED process (/health signature), not just the build. 17:00 UTC run will confirm scheduler+poller in the lifespan |
-`| (config) | 2026-08-10 | POTIDEA ONBOARDED TUNNEL-DIRECT (first run of docs/ONBOARDING.md, ~10 min from token to verified data): reused the hotel server's existing cloudflared tunnel — added TCP hostname `sql-potidea.hbis.io` → 192.20.10.8:1433 + Service Auth token `railway-potidea-sql`; local pre-flight through db/tunnel.py BEFORE touching prod config (mpehotel=1 confirmed — the only property on its server; zimmer raw 295/filtered 237 vs configured 236, same off-by-one as Pome; NO `mpe` table on this server — sanity by volume instead); pms_config written (BiData, sa for now); first tunnel run: success, 8.3s fetch, complete, no legacy, ALL signal queries populated for the first time (lead_time 96, pickup_daily 42, cancel_daily 27, consumed 8, pace_next_year); yesterday 209rn/€109,138 matches pre-flight to the euro. Intake deferrals (user): rooms stay 236 + season dates pending user's own Protel queries; language en (app-switchable); recipient_email intentionally empty. REMAINING: 03:30 watch → decommission old bridge (daemon + 2 scheduled tasks) → sa→firstlight_ro on BOTH hotels |
-`| (pending) | 2026-08-04 | CLOSED-SEASON HERO + summary trim + onboarding intake: Q16 `Q_PACE_NEXT` (next-year OTB by month vs this year at same booking stage 364d ago, Q_PACE conventions, fail-open, optional contract field `pace_next_year`); contract carve-out — `yesterday_nonzero` hard gate passes when yd+MTD are all-zero AND next year has bookings (evidence the pipe is alive; all-zero without it still blocks); analyst `_closed_season_slots` → hero pivots to "closed for the season, {ny} has X rn / €Y on the books, {vs stly}, strongest months" (fallback + prompt order both switched, prompt `cards-v1.5-closedseason`); hero chips hidden when yd.revenue=0. Collapsed Smart Summary trimmed to 2 bullets (was 3 — read taller than the full paragraph). ONBOARDING (user-mandated): intake MUST capture real sellable inventory (total_rooms, never the PMS room list) + season open/close dates LY+TY → `hotels.season_settings` (SQL file 2026-08-04, awaiting paste); skill + memory checklists updated. TO-DO: season-aware occupancy denominators (open days, not calendar days) once season_settings is populated |
-`| `85086f5`+`56c7812` | 2026-08-01 | DYNAMIC PICKUP (verified live): the 4 Pickup Activity boxes are tap targets — selecting Today/Yesterday/3-Day/7-Day filters the booked-vs-cancelled butterfly to ONE bar pair per stay month for that window. charts.py precomputes all 4 windows per month (same counting as the boxes → each reconciles exactly), embeds a JSON payload; ~30 lines of in-page JS swap widths/net/labels/alert (animated, no reload). Selected box = 2px blue border on transparent base (no layout shift) + glow; butterfly title shows the window's calendar range (e.g. "· 27 Jul – 02 Aug") and updates per tap. Server default = 7d. Email keeps static Top-month fallback (widget app-only). NOTE: first wiring left an orphaned `{% endif %}` (regex non-greedy cut) → TemplateSyntaxError caught in local render, fixed before push; the .pw-sel CSS also silently missed its anchor first time — both now assert-checked in render verification |
-`| `c4b3e46` | 2026-07-26 | Hero paragraph replaces one-sentence executive_summary (prompt cards-v1.3-hero): 4-6 sentence morning narrative — yesterday w/ occupancy-vs-rate driver decomposition, MTD position, top-signal previews w/ at-stake. Posture emerges from ranked cards (alert-led / opportunity-led / steady). One Claude call, numeric+style validator (110-word cap, no imperatives, must start "Good morning."), deterministic fallback, hero entry in cards_audit. Same `executive_summary` field → zero PWA/email changes. test_hero.py = 28 checks |
-`| `261bffe` | 2026-07-30 | Briefing v9 (verified live): 3 pace charts +26% taller; ALL numbers bold (global groups + highlight_dark filter for hero: € white, +% mint, −% coral on navy); 🔊 narration button on Smart Summary — on-device TTS, waits for async getVoices (voiceschanged + 300ms fallback; first-tap default-male bug fixed), FEMALE English voices only (regex Samantha/Karen/Zira/Aria/...), toggle stop, app-only; 14 ⓘ info buttons — every section + chart card opens a plain-language what-and-why explainer (id-paired panels, inline handlers, exempt from bold rules; becomes the Phase B translations content); Y-axis labels 11px/700; svg font-family enforced via CSS. Upgrade path noted: real TTS (MP3 at morning run, ~$0.01/day) in Phase A if device voices disappoint. INCIDENT AVOIDED: a crashed edit script truncated the template mid-write — restored from git (14416bd), no loss |
-`| PWA `a1d8291` | 2026-07-30 | PWA repo (Option A, direct): canonical lockup B in top bar + canonical app tile icon.svg + no-cache headers on index/sw so app-shell updates arrive on next cold open (was: device froze old shell indefinitely). Phone icon needs remove/re-add; iOS icon needs a 180px PNG export (SVG apple-touch-icon unsupported) — pending asset |
-`| `7d6ca37` | 2026-07-30 | LOGO CANONICAL: brand source code committed verbatim (marks 1/2, white app tile #3 = the app icon, lockups A/B/C); gradient tile removed per user; my reconstructed SVGs deleted. Rule enforced: geometry final, never redraw. PWA repo still needs: header → lockup B, icon → tile #3 export set |
-`| `c6b188e` | 2026-07-30 | Single-header fix: briefing HTML no longer renders an app header (PWA owns it) — was stacking a second header under the PWA chrome. Page starts at tabs + Smart Summary. Verified live |
-`| `d40b1d0` | 2026-07-30 | APP REDESIGN (design-file specs 12a + 6c + 8b, iterated with user): navy app header w/ new FL sunrise logo (inline SVG: corona rays, gradient chart line, FL letterforms) + wordmark + hotel pill + LAST SYNC line; white centered tab bar; gradient Smart Summary hero (navy 160deg + cyan top-right glow) w/ signal chips Room nights/ADR/Revenue; Manrope everywhere (Outfit + IBM Plex Mono removed, incl. all SVG chart text; 12a's Outfit spec deliberately overridden for consistency); 6c surfaces (page #F1F3F8, borderless 18px cards, navy two-layer shadows, solid separators); heatmap = 8b design w/ BLUE ramp kept (purple declined), occ 13.5px/dates 9.5px, vertical month border; unified label system (captions 10.5/600/#79747E, deltas 700, values 800) enforced by a GLOBAL TYPE RULES block last in cascade (!important groups — add elements to groups, never one-off weights). Top-sources + OTB deltas brought into system. Email shares the template → also gets Manrope/surfaces (flagged, accepted) |
-`| `19dda3d` | 2026-07-30 | CHARTS + ADR BRIDGE DEPLOYED to the app briefing: briefing/charts.py computes 5 series — meter, velocity 7d/14d, butterfly (real Q14 cancels), demand heat (60d CONTINUOUS calendar, month change = small navy border on the 1st's cell, no divider rows — user spec), and the ADR BRIDGE card (spec reference impl, Decimal, identity-guarded: suppressed if residual > €0.01; 4 floating bars mix=blue/rate=amber + generated narrative sentence + 5-row channel drill). Template renders APP-ONLY (save_preview passes charts; email send() does not). Placements: butterfly REPLACES Top-month + velocity in Pickup; bridge + meter + heat after pace charts. All fail-open: missing series → chart skipped (legacy payloads keep old layout). First real bridge (July, Q15): ADR 593→515, mix −19 / rate −59, rate-dominant, T.O. rate −€44 the top driver |
-`| `61785a3` | 2026-07-29 | Q15 (consumed_by_source): ADR-bridge input — consumed rn+rev by Sourcen, current month (1st→yesterday) vs LY shifted 364 days (weekday-aligned per spec), active bookings only, logis>0 (comps excluded). Fail-open, optional contract field. test_leadtime → 37 checks |
-`| `fa22696` | 2026-07-28 | Q14 (cancel_daily): daily cancellations by future stay month, last 14 days — the cancel side of Q9 so gross bookings = net + cancels. Fail-open fetch, optional contract field (never blocks, no legacy_mode). Powers churn-butterfly chart (7d/14d windows) + future cancellation-spike card. test_leadtime.py → 33 checks |
-`| `be83592` | 2026-07-25 | Signal 3 (booking lead time): Q13 by stay month × source (28d window vs same window LY), fail-open fetch, optional contract field, compute candidates with city/resort bucket profiles (`hotel_type` in pms_config, default resort), max 2 cards/day, tags MONITOR/ALERT/OPPORTUNITY by window direction × pace status. test_leadtime.py = 23 checks |
-`| `4704c37` | 2026-07-22 | Step 2: Protel adapter behind PMS drawer; back-compat shims |
-`| `3bf6605` | 2026-07-22 | Step 1: HotelDataSnapshot contract + data_quality publication gate |
-`| `3f6063a` | 2026-07-22 | Analyst v1.2: soft language, global ranking, projection bands, period-scoped facts, hard gates, novelty gate |
-`| `b6d4185` | 2026-07-22 | Guard v3 analyst path behind presence of new payload fields (1-insight fix) |
-`| `c5e5eae` | 2026-07-21 | Narration layer per cards spec v1.1: per-card calls, numeric validator, fallback cards, at-stake calcs |
-`| `79a4655` | 2026-07-21 | Two-layer analyst v2 + 3 new SQL queries (Q9 pickup daily, Q10 OTB-by-date-90, Q11 current month remaining) |
-`| `3d4f883` | 2026-07-12 | 14:00 + 20:00 data-only refreshes; zero-data guard |
-`| `a6376b0` | 2026-06-26 | Chart UX improvements; briefing dedup |
-`| `3c09074` | 2026-06-18 | Analyst math consistency + booking window context |
-`| `4f7d8c9` | 2026-06-18 | Insight cards redesign: findings + action + metric sub line |
-`
-`---
-`
-`## 8. Open items (not scheduled)
-`
-`- PWA update to render the new card anatomy (BY WHEN box, tappable AT STAKE calc,
-`  evidence labels) — backend already ships the fields
-`- PWA: language toggle — Greek / English (per-user preference; affects briefing
-`  narration too, so backend prompt needs a language parameter)
-`- PWA: text-size setting — whole-report scale selector, levels 1–5, like phone
-`  accessibility font sizing (requested 2026-07-24)
-`- PWA: the 3 OTB charts are too small — enlarge charts and axis/data labels
-`- Charts (Revenue OTB + Occupancy): for months fully in the past, STLY and
-`  Final LY are the same number — show ONE LY indicator (Final LY) for closed
-`  months; keep both only for current/future months (requested 2026-07-26).
-`  Note: chart is generated in OUR templates (rendered_html), so this is
-`  fixable backend-side without touching the PWA
-`- PWA multiproperty bug: switching hotel jumps straight to AI insights section —
-`  should reset scroll to top of the report (requested 2026-07-24)
-`- Mobile chart library (design handoff received 2026-07-27; test gallery with
-`  REAL Pome data built same day for keep/adjust/skip decision).
-`  CHART 1 SPEC DECIDED 2026-07-28 (curve position meter, under OTB charts):
-`  app design language (not handoff tokens); ALL values in ROOM NIGHTS, no pts;
-`  per month row — grey track = LY final (end labeled), bar = booked now,
-`  tick = LY same date (labeled inline); right column = "+X rn vs LY pace" +
-`  "Y rn to reach LY final". Colors: bar BLUE always; RED only when behind LY
-`  same-date pace; GREEN only as overflow segment past track end when booked >
-`  LY final (labeled "+Z rn above LY final").
-`  CHART 2 SPEC DECIDED 2026-07-28 (velocity / booking speed, under Pickup):
-`  net rooms/day (bookings − cancellations, from pickup_daily), TWO bars per
-`  month — last 7d (navy) + last 14d (accent blue) — for CURRENT + NEXT 3 stay
-`  months; grey tick = LY speed same time (lead_time 28d window); amber tick +
-`  "need X/day" = gap to LY final ÷ days left, REPLACED by green "✓ passed LY
-`  final (+rn)" once booked ≥ LY final; right column shows both speeds labeled
-`  "/day · 7d|14d" + speeding up / slowing down / steady (7d vs 14d).
-`  CHART 3 SPEC 2026-07-28 (churn butterfly, REPLACES Top month in Pickup):
-`  butterfly kept — cancelled left (red tones) / booked right (blue tones),
-`  arms split into THIN PAIRS: top = last 7d, bottom = last 14d, 4-swatch
-`  legend on top; net per window right (red if cancels >60% of gross); amber
-`  alert names worst-churn month. REAL data since Q14 live (2026-07-29 run:
-`  Aug 294 cancels/850 booked in 14d = 35% churn — sample had guessed 45).
-`  CHART 5 SPEC DECIDED 2026-07-28 (demand heat, under OTB): next 60 DAYS,
-`  calendar grid 7 weekday cols (M-S, date-aligned), bigger cells each showing
-`  OCCUPANCY % on top + date dd/mm below; shade = occupancy (7-step blue ramp,
-`  what you read is what colours it); red outline + amber alert = date far
-`  behind LY (occ < 50% of LY when LY ≥30%). Real find: 23-25/09 flagged.
-`  CHART 4 (sparklines) comments pending.
-`  NEXT FEATURE ACCEPTED 2026-07-29: ADR BRIDGE (mix vs rate decomposition,
-`  spec + reference impl received as docs — identity-guaranteed midpoint
-`  method, consumed periods only, 364-day shift, Decimal, centering on ADR-bar,
-`  min_share 3% fold to Other). Needs Q15: per-channel consumed room nights +
-`  revenue, July TY vs July LY(364d) — channel split not in payload today.
-`  Narrative from structured payload only (mix-dominant / rate-dominant /
-`  both templates, no imperatives). Second dimension room_type after channel.
-`  User placements:
-`  1 Curve position meter → under OTB charts · 2 Velocity bullet → under Pickup ·
-`  3 Churn butterfly → REPLACES "Top month" in Pickup · 4 Sparkline multiples →
-`  Pickup (trend) · 5 Demand heat strip → under OTB (demand dates).
-`  Data readiness: charts 1/2/4/5 run on data already shipped; chart 3 needs
-`  Q14 (cancellations by stay month, 28d window — ~half day incl. contract);
-`  chart 4 full fidelity wants Q9 widened 14→30 days. Implementation = Phase B
-`  React components per handoff tokens (44px rows, 14px marks, no chart lib,
-`  Outfit + IBM Plex Mono).
-`- PWA: ⓘ info button on EVERY section (requested 2026-07-27) — tap opens a
-`  tooltip/sheet explaining what the section shows and how to read it (e.g.
-`  Pace: "rooms on the books per month vs the same point last year; Final LY =
-`  where the month actually ended"). Copy written per section, kept in a
-`  translations file from day one so the Greek toggle covers it; definitions
-`  should match db/adapters/SEMANTICS.md wording so app language = metric truth.
-`  Phase B scope.
-`- 7-day history with day-over-day KPI deltas (requested 2026-07-24). Design:
-`  NO new PMS queries — deltas come from stored daily snapshots (briefings has one
-`  row per hotel per report_date already). Backend: (a) new `briefings.kpi_summary`
-`  jsonb column (~200B: occupancy_today, rooms_otb, revenue_mtd, adr, pickup_7d),
-`  populated by cloud_push at publish + SQL migration w/ index (hotel_id,
-`  report_date); (b) `GET /briefing/history?hotel_id&days=7` returning slim rows
-`  ONLY (never rendered_html — large-row lesson); PWA computes ▲▼ deltas
-`  client-side. Phase 2: tap a day → full past briefing via `GET
-`  /briefing/by-date` — depends on PWA render-from-data (avoids storing old HTML).
-`  Manual refreshes overwrite the day's row → history shows final state per day;
-`  failed mornings show as gaps.
-`- PWA: render briefings from `data`/`ai_insights` JSON instead of `rendered_html` —
-`  PREREQUISITE for removing HTML storage (see 2026-07-23 incident); also permanently
-`  fixes the large-row 500 on `/briefing/latest`
-`- Potidea `/briefing/latest` 500 (see incidents)
-`- ~~Signal 3 (lead-time/booking-window signal)~~ SHIPPED 2026-07-25 (see release
-`  history) — lead-time is a first-class metric: demand timing shifts by location
-`  (per-hotel LY baseline), period (per stay month), and source (per-channel
-`  drill-down). City vs resort bucket profiles via `pms_config.hotel_type`
-`- Follow-up loop (track advice given → outcomes; N component of score) — Phase 2,
-`  builds on refresh_runs card audit
-`- Chatbot agent on briefing data; monetization tiers — discussed, parked
+| `586eb1e` | 2026-08-24 | PLAIN-LANGUAGE NARRATION (`cards-v1.9-plain`): user rule — write for a hotel owner, not a revenue expert; short sentences, everyday words, never jargon when a simpler phrase means the same. (1) Card system prompt rule 9 → required rewordings glossary (firming→getting stronger, decelerating→slowing down, compression→filling up fast, ADR dilution→average rate is falling, pickup→new bookings, pace→bookings, OTB→booked so far, lead time→how far ahead guests book, close-in→last-minute, inventory→rooms, rate codes/floors→rate plans/minimum rates, materialise→come through); hero prompt gets the same instruction. (2) New `_PLAIN_TERMS` + `_plainify_text/_plainify_card` — ordered regex substitutions applied AFTER validation to narrated cards, hero, and both fallback paths (en only; sentence-start capital preserved, mid-sentence acronyms lowercased; never touches digits; audit `jargon_replaced` + log line when it fires). (3) Every fallback template rewritten (all 5 signals + softening merge): evidence labels too (PACE→BOOKINGS, ADR OTB→AVG RATE BOOKED, REMAINING OTB→STILL TO COME, PROJECTED→EXPECTED FINISH, CLOSE-IN SHARE→LAST-MINUTE SHARE, SOFTEST→LOWEST DATES, z-score→"swing of X vs normal"). (4) Hero driver hints: rate-led→"mostly from higher rates", occupancy-led→"mostly from more rooms sold", softer→lower/fewer. test_hero.py 53 checks (+26 plain-language), test_leadtime 37, test_retry_feedback 10, test_contract 17 all pass. NOTE: test_preview.py legacy path fails with pre-existing `KeyError: month_num` in `_legacy_generate.pace_row` (not touched; legacy path unused by tunnel hotels). Verify next 03:30 run via cards_audit: `jargon_replaced` should be absent/rare; any hit = tune the prompt glossary |
+| `3a57175` | 2026-08-14 | PHASE A LIVE + VERIFIED at `web-cloudflare.up.railway.app`: /health = firstlight-api/phase A; smoke test PASSED — 401 no token, 403 cross-hotel token, /briefing/latest both hotels, /briefing/history 7 days w/ kpi_summary, /feedback (real rows incl. user notes). Root causes of the 4-day-late activation: (1) Railway service had a CUSTOM START COMMAND (`python railway_main.py`) silently overriding the Dockerfile CMD — the Phase A image built but never ran; (2) `$PORT` in the replacement start command didn't expand → 502 crash loop → fixed with `python api.py` entry (port read in-process). Old unauthenticated /trigger is now closed behind tokens. LESSON: after a CMD-level change, verify the SERVED process (/health signature), not just the build. 17:00 UTC run will confirm scheduler+poller in the lifespan |
+| (config) | 2026-08-10 | POTIDEA ONBOARDED TUNNEL-DIRECT (first run of docs/ONBOARDING.md, ~10 min from token to verified data): reused the hotel server's existing cloudflared tunnel — added TCP hostname `sql-potidea.hbis.io` → 192.20.10.8:1433 + Service Auth token `railway-potidea-sql`; local pre-flight through db/tunnel.py BEFORE touching prod config (mpehotel=1 confirmed — the only property on its server; zimmer raw 295/filtered 237 vs configured 236, same off-by-one as Pome; NO `mpe` table on this server — sanity by volume instead); pms_config written (BiData, sa for now); first tunnel run: success, 8.3s fetch, complete, no legacy, ALL signal queries populated for the first time (lead_time 96, pickup_daily 42, cancel_daily 27, consumed 8, pace_next_year); yesterday 209rn/€109,138 matches pre-flight to the euro. Intake deferrals (user): rooms stay 236 + season dates pending user's own Protel queries; language en (app-switchable); recipient_email intentionally empty. REMAINING: 03:30 watch → decommission old bridge (daemon + 2 scheduled tasks) → sa→firstlight_ro on BOTH hotels |
+| (pending) | 2026-08-04 | CLOSED-SEASON HERO + summary trim + onboarding intake: Q16 `Q_PACE_NEXT` (next-year OTB by month vs this year at same booking stage 364d ago, Q_PACE conventions, fail-open, optional contract field `pace_next_year`); contract carve-out — `yesterday_nonzero` hard gate passes when yd+MTD are all-zero AND next year has bookings (evidence the pipe is alive; all-zero without it still blocks); analyst `_closed_season_slots` → hero pivots to "closed for the season, {ny} has X rn / €Y on the books, {vs stly}, strongest months" (fallback + prompt order both switched, prompt `cards-v1.5-closedseason`); hero chips hidden when yd.revenue=0. Collapsed Smart Summary trimmed to 2 bullets (was 3 — read taller than the full paragraph). ONBOARDING (user-mandated): intake MUST capture real sellable inventory (total_rooms, never the PMS room list) + season open/close dates LY+TY → `hotels.season_settings` (SQL file 2026-08-04, awaiting paste); skill + memory checklists updated. TO-DO: season-aware occupancy denominators (open days, not calendar days) once season_settings is populated |
+| `85086f5`+`56c7812` | 2026-08-01 | DYNAMIC PICKUP (verified live): the 4 Pickup Activity boxes are tap targets — selecting Today/Yesterday/3-Day/7-Day filters the booked-vs-cancelled butterfly to ONE bar pair per stay month for that window. charts.py precomputes all 4 windows per month (same counting as the boxes → each reconciles exactly), embeds a JSON payload; ~30 lines of in-page JS swap widths/net/labels/alert (animated, no reload). Selected box = 2px blue border on transparent base (no layout shift) + glow; butterfly title shows the window's calendar range (e.g. "· 27 Jul – 02 Aug") and updates per tap. Server default = 7d. Email keeps static Top-month fallback (widget app-only). NOTE: first wiring left an orphaned `{% endif %}` (regex non-greedy cut) → TemplateSyntaxError caught in local render, fixed before push; the .pw-sel CSS also silently missed its anchor first time — both now assert-checked in render verification |
+| `c4b3e46` | 2026-07-26 | Hero paragraph replaces one-sentence executive_summary (prompt cards-v1.3-hero): 4-6 sentence morning narrative — yesterday w/ occupancy-vs-rate driver decomposition, MTD position, top-signal previews w/ at-stake. Posture emerges from ranked cards (alert-led / opportunity-led / steady). One Claude call, numeric+style validator (110-word cap, no imperatives, must start "Good morning."), deterministic fallback, hero entry in cards_audit. Same `executive_summary` field → zero PWA/email changes. test_hero.py = 28 checks |
+| `261bffe` | 2026-07-30 | Briefing v9 (verified live): 3 pace charts +26% taller; ALL numbers bold (global groups + highlight_dark filter for hero: € white, +% mint, −% coral on navy); 🔊 narration button on Smart Summary — on-device TTS, waits for async getVoices (voiceschanged + 300ms fallback; first-tap default-male bug fixed), FEMALE English voices only (regex Samantha/Karen/Zira/Aria/...), toggle stop, app-only; 14 ⓘ info buttons — every section + chart card opens a plain-language what-and-why explainer (id-paired panels, inline handlers, exempt from bold rules; becomes the Phase B translations content); Y-axis labels 11px/700; svg font-family enforced via CSS. Upgrade path noted: real TTS (MP3 at morning run, ~$0.01/day) in Phase A if device voices disappoint. INCIDENT AVOIDED: a crashed edit script truncated the template mid-write — restored from git (14416bd), no loss |
+| PWA `a1d8291` | 2026-07-30 | PWA repo (Option A, direct): canonical lockup B in top bar + canonical app tile icon.svg + no-cache headers on index/sw so app-shell updates arrive on next cold open (was: device froze old shell indefinitely). Phone icon needs remove/re-add; iOS icon needs a 180px PNG export (SVG apple-touch-icon unsupported) — pending asset |
+| `7d6ca37` | 2026-07-30 | LOGO CANONICAL: brand source code committed verbatim (marks 1/2, white app tile #3 = the app icon, lockups A/B/C); gradient tile removed per user; my reconstructed SVGs deleted. Rule enforced: geometry final, never redraw. PWA repo still needs: header → lockup B, icon → tile #3 export set |
+| `c6b188e` | 2026-07-30 | Single-header fix: briefing HTML no longer renders an app header (PWA owns it) — was stacking a second header under the PWA chrome. Page starts at tabs + Smart Summary. Verified live |
+| `d40b1d0` | 2026-07-30 | APP REDESIGN (design-file specs 12a + 6c + 8b, iterated with user): navy app header w/ new FL sunrise logo (inline SVG: corona rays, gradient chart line, FL letterforms) + wordmark + hotel pill + LAST SYNC line; white centered tab bar; gradient Smart Summary hero (navy 160deg + cyan top-right glow) w/ signal chips Room nights/ADR/Revenue; Manrope everywhere (Outfit + IBM Plex Mono removed, incl. all SVG chart text; 12a's Outfit spec deliberately overridden for consistency); 6c surfaces (page #F1F3F8, borderless 18px cards, navy two-layer shadows, solid separators); heatmap = 8b design w/ BLUE ramp kept (purple declined), occ 13.5px/dates 9.5px, vertical month border; unified label system (captions 10.5/600/#79747E, deltas 700, values 800) enforced by a GLOBAL TYPE RULES block last in cascade (!important groups — add elements to groups, never one-off weights). Top-sources + OTB deltas brought into system. Email shares the template → also gets Manrope/surfaces (flagged, accepted) |
+| `19dda3d` | 2026-07-30 | CHARTS + ADR BRIDGE DEPLOYED to the app briefing: briefing/charts.py computes 5 series — meter, velocity 7d/14d, butterfly (real Q14 cancels), demand heat (60d CONTINUOUS calendar, month change = small navy border on the 1st's cell, no divider rows — user spec), and the ADR BRIDGE card (spec reference impl, Decimal, identity-guarded: suppressed if residual > €0.01; 4 floating bars mix=blue/rate=amber + generated narrative sentence + 5-row channel drill). Template renders APP-ONLY (save_preview passes charts; email send() does not). Placements: butterfly REPLACES Top-month + velocity in Pickup; bridge + meter + heat after pace charts. All fail-open: missing series → chart skipped (legacy payloads keep old layout). First real bridge (July, Q15): ADR 593→515, mix −19 / rate −59, rate-dominant, T.O. rate −€44 the top driver |
+| `61785a3` | 2026-07-29 | Q15 (consumed_by_source): ADR-bridge input — consumed rn+rev by Sourcen, current month (1st→yesterday) vs LY shifted 364 days (weekday-aligned per spec), active bookings only, logis>0 (comps excluded). Fail-open, optional contract field. test_leadtime → 37 checks |
+| `fa22696` | 2026-07-28 | Q14 (cancel_daily): daily cancellations by future stay month, last 14 days — the cancel side of Q9 so gross bookings = net + cancels. Fail-open fetch, optional contract field (never blocks, no legacy_mode). Powers churn-butterfly chart (7d/14d windows) + future cancellation-spike card. test_leadtime.py → 33 checks |
+| `be83592` | 2026-07-25 | Signal 3 (booking lead time): Q13 by stay month × source (28d window vs same window LY), fail-open fetch, optional contract field, compute candidates with city/resort bucket profiles (`hotel_type` in pms_config, default resort), max 2 cards/day, tags MONITOR/ALERT/OPPORTUNITY by window direction × pace status. test_leadtime.py = 23 checks |
+| `4704c37` | 2026-07-22 | Step 2: Protel adapter behind PMS drawer; back-compat shims |
+| `3bf6605` | 2026-07-22 | Step 1: HotelDataSnapshot contract + data_quality publication gate |
+| `3f6063a` | 2026-07-22 | Analyst v1.2: soft language, global ranking, projection bands, period-scoped facts, hard gates, novelty gate |
+| `b6d4185` | 2026-07-22 | Guard v3 analyst path behind presence of new payload fields (1-insight fix) |
+| `c5e5eae` | 2026-07-21 | Narration layer per cards spec v1.1: per-card calls, numeric validator, fallback cards, at-stake calcs |
+| `79a4655` | 2026-07-21 | Two-layer analyst v2 + 3 new SQL queries (Q9 pickup daily, Q10 OTB-by-date-90, Q11 current month remaining) |
+| `3d4f883` | 2026-07-12 | 14:00 + 20:00 data-only refreshes; zero-data guard |
+| `a6376b0` | 2026-06-26 | Chart UX improvements; briefing dedup |
+| `3c09074` | 2026-06-18 | Analyst math consistency + booking window context |
+| `4f7d8c9` | 2026-06-18 | Insight cards redesign: findings + action + metric sub line |
+
+---
+
+## 8. Open items (not scheduled)
+
+- PWA update to render the new card anatomy (BY WHEN box, tappable AT STAKE calc,
+  evidence labels) — backend already ships the fields
+- PWA: language toggle — Greek / English (per-user preference; affects briefing
+  narration too, so backend prompt needs a language parameter)
+- PWA: text-size setting — whole-report scale selector, levels 1–5, like phone
+  accessibility font sizing (requested 2026-07-24)
+- PWA: the 3 OTB charts are too small — enlarge charts and axis/data labels
+- Charts (Revenue OTB + Occupancy): for months fully in the past, STLY and
+  Final LY are the same number — show ONE LY indicator (Final LY) for closed
+  months; keep both only for current/future months (requested 2026-07-26).
+  Note: chart is generated in OUR templates (rendered_html), so this is
+  fixable backend-side without touching the PWA
+- PWA multiproperty bug: switching hotel jumps straight to AI insights section —
+  should reset scroll to top of the report (requested 2026-07-24)
+- Mobile chart library (design handoff received 2026-07-27; test gallery with
+  REAL Pome data built same day for keep/adjust/skip decision).
+  CHART 1 SPEC DECIDED 2026-07-28 (curve position meter, under OTB charts):
+  app design language (not handoff tokens); ALL values in ROOM NIGHTS, no pts;
+  per month row — grey track = LY final (end labeled), bar = booked now,
+  tick = LY same date (labeled inline); right column = "+X rn vs LY pace" +
+  "Y rn to reach LY final". Colors: bar BLUE always; RED only when behind LY
+  same-date pace; GREEN only as overflow segment past track end when booked >
+  LY final (labeled "+Z rn above LY final").
+  CHART 2 SPEC DECIDED 2026-07-28 (velocity / booking speed, under Pickup):
+  net rooms/day (bookings − cancellations, from pickup_daily), TWO bars per
+  month — last 7d (navy) + last 14d (accent blue) — for CURRENT + NEXT 3 stay
+  months; grey tick = LY speed same time (lead_time 28d window); amber tick +
+  "need X/day" = gap to LY final ÷ days left, REPLACED by green "✓ passed LY
+  final (+rn)" once booked ≥ LY final; right column shows both speeds labeled
+  "/day · 7d|14d" + speeding up / slowing down / steady (7d vs 14d).
+  CHART 3 SPEC 2026-07-28 (churn butterfly, REPLACES Top month in Pickup):
+  butterfly kept — cancelled left (red tones) / booked right (blue tones),
+  arms split into THIN PAIRS: top = last 7d, bottom = last 14d, 4-swatch
+  legend on top; net per window right (red if cancels >60% of gross); amber
+  alert names worst-churn month. REAL data since Q14 live (2026-07-29 run:
+  Aug 294 cancels/850 booked in 14d = 35% churn — sample had guessed 45).
+  CHART 5 SPEC DECIDED 2026-07-28 (demand heat, under OTB): next 60 DAYS,
+  calendar grid 7 weekday cols (M-S, date-aligned), bigger cells each showing
+  OCCUPANCY % on top + date dd/mm below; shade = occupancy (7-step blue ramp,
+  what you read is what colours it); red outline + amber alert = date far
+  behind LY (occ < 50% of LY when LY ≥30%). Real find: 23-25/09 flagged.
+  CHART 4 (sparklines) comments pending.
+  NEXT FEATURE ACCEPTED 2026-07-29: ADR BRIDGE (mix vs rate decomposition,
+  spec + reference impl received as docs — identity-guaranteed midpoint
+  method, consumed periods only, 364-day shift, Decimal, centering on ADR-bar,
+  min_share 3% fold to Other). Needs Q15: per-channel consumed room nights +
+  revenue, July TY vs July LY(364d) — channel split not in payload today.
+  Narrative from structured payload only (mix-dominant / rate-dominant /
+  both templates, no imperatives). Second dimension room_type after channel.
+  User placements:
+  1 Curve position meter → under OTB charts · 2 Velocity bullet → under Pickup ·
+  3 Churn butterfly → REPLACES "Top month" in Pickup · 4 Sparkline multiples →
+  Pickup (trend) · 5 Demand heat strip → under OTB (demand dates).
+  Data readiness: charts 1/2/4/5 run on data already shipped; chart 3 needs
+  Q14 (cancellations by stay month, 28d window — ~half day incl. contract);
+  chart 4 full fidelity wants Q9 widened 14→30 days. Implementation = Phase B
+  React components per handoff tokens (44px rows, 14px marks, no chart lib,
+  Outfit + IBM Plex Mono).
+- PWA: ⓘ info button on EVERY section (requested 2026-07-27) — tap opens a
+  tooltip/sheet explaining what the section shows and how to read it (e.g.
+  Pace: "rooms on the books per month vs the same point last year; Final LY =
+  where the month actually ended"). Copy written per section, kept in a
+  translations file from day one so the Greek toggle covers it; definitions
+  should match db/adapters/SEMANTICS.md wording so app language = metric truth.
+  Phase B scope.
+- 7-day history with day-over-day KPI deltas (requested 2026-07-24). Design:
+  NO new PMS queries — deltas come from stored daily snapshots (briefings has one
+  row per hotel per report_date already). Backend: (a) new `briefings.kpi_summary`
+  jsonb column (~200B: occupancy_today, rooms_otb, revenue_mtd, adr, pickup_7d),
+  populated by cloud_push at publish + SQL migration w/ index (hotel_id,
+  report_date); (b) `GET /briefing/history?hotel_id&days=7` returning slim rows
+  ONLY (never rendered_html — large-row lesson); PWA computes ▲▼ deltas
+  client-side. Phase 2: tap a day → full past briefing via `GET
+  /briefing/by-date` — depends on PWA render-from-data (avoids storing old HTML).
+  Manual refreshes overwrite the day's row → history shows final state per day;
+  failed mornings show as gaps.
+- PWA: render briefings from `data`/`ai_insights` JSON instead of `rendered_html` —
+  PREREQUISITE for removing HTML storage (see 2026-07-23 incident); also permanently
+  fixes the large-row 500 on `/briefing/latest`
+- Potidea `/briefing/latest` 500 (see incidents)
+- ~~Signal 3 (lead-time/booking-window signal)~~ SHIPPED 2026-07-25 (see release
+  history) — lead-time is a first-class metric: demand timing shifts by location
+  (per-hotel LY baseline), period (per stay month), and source (per-channel
+  drill-down). City vs resort bucket profiles via `pms_config.hotel_type`
+- Follow-up loop (track advice given → outcomes; N component of score) — Phase 2,
+  builds on refresh_runs card audit
+- Chatbot agent on briefing data; monetization tiers — discussed, parked

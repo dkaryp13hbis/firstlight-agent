@@ -121,7 +121,7 @@ Hidden in the past-day view (`viewDate != null`) — v1 shows watches as-of toda
 |---|---|---|---|---|
 | month | gap % vs STLY (`(rn − rn_stly) / rn_stly`) | Δ ≥ +1.0 pt | Δ ≤ −1.0 pt | STEADY |
 | month, once `rn ≥ rn_final_ly` | — | "✓ PASSED LAST YEAR'S FINAL" | | |
-| range | occupancy pts (`rn_ty / rooms`) | Δ ≥ +2 pts | Δ ≤ −2 pts | STEADY |
+| range (v1.2, 2026-08-28) | today's net rooms vs last year's net on the same day at the same lead time (`Δrn_ty − Δrn_stly` between yesterday's and today's briefing) | ≥ +tol | ≤ −tol | STEADY — tol = max(2, 0.5% of the range's room-nights) |
 | any, no previous row | — | pill omitted, line says "first day watching" | | |
 
 Same 15%-style hysteresis philosophy as elsewhere: small moves read as steady.
@@ -132,7 +132,7 @@ Month line 1: `{rn} rooms booked · {gap}% {behind|ahead of} same time last year
 Month line 2: `{net_1d:+} rooms since yesterday · {net_7d:+} last 7 days · {cancel_7d} cancelled`
 Month line 3: `Speed {v7}/day · need {need}/day to reach last year's final ({days_left} days left)` — or `✓ passed last year's final (+{over} rooms)`
 Range line 1: `{occ}% booked vs {occ_ly}% same time last year · {rn} rooms`
-Range line 2: `{net_1d:+} rooms since yesterday · lowest date {weekday dd} ({occ_min}%)`
+Range line 2: `{net_1d:+} rooms since yesterday (last year: {net_1d_ly:+} on the same day) · lowest date {weekday dd} ({occ_min}%)`
 
 Plain-language rule applies: "rooms booked", "same time last year", never
 OTB/STLY/pace in prose. No € figures beyond real PMS revenue (none needed here).
@@ -150,7 +150,8 @@ Remove: swipe/“Remove” on the card, or unwatch from the same 👁 toggle.
 - Month watch: when the month closes (report month > watched month) the card
   shows once as `CLOSED — finished {rn} rooms, {gap}% vs last year` with
   "Remove"; auto-removed after that day.
-- Range watch: same, once `end_date < report_date`.
+- Range watch: same, once `end_date ≤ report_date` (report_date = yesterday and `otb_by_date` only carries stay dates from today, so `end_date == report_date` has no rows either — was showing the "beyond the 90-day window" text for one day).
+- NOTE (2026-08-28): the "auto-removed after that day" step is NOT implemented in the app yet — closed cards stay until the user taps Remove. TO-DO.
 - Hotel switch: list is per hotel; loads with the briefing.
 
 ### 5.6 Tracking (`lib/track.ts`)
