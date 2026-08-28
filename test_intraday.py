@@ -31,11 +31,48 @@ def snap(**kw):
     return d
 
 # ── headline ladder ──
+from briefing.intraday import cancel_weeks
+days14 = [str(date.today() - timedelta(days=i)) for i in range(14)]
+def cancels(last7_per_day, prior7_per_day):
+    return ([{"ref_date": days14[i], "cancel_rn": last7_per_day} for i in range(0, 7)] +
+            [{"ref_date": days14[i], "cancel_rn": prior7_per_day} for i in range(7, 14)])
+
+# prior-week window from Q14
+l7, p7 = cancel_weeks(snap(pickup={"cancellations7d": 30}, cancel_daily=cancels(4, 2)))
+check("cancel_weeks: last7 from pickup, prior7 from cancel_daily", (l7, p7) == (30, 14), (l7, p7))
+check("cancel_weeks: no Q14 -> prior None", cancel_weeks(snap(cancel_daily=[]))[1] is None)
+
+# rule: cancellations UP vs the week before (30 vs 14, churn 30%)
+h = headline(snap(pickup={"cancellationsToday": 0, "cancellations7d": 30,
+                          "last7d": {"roomNights": 100}, "today": {"roomNights": 0}},
+                  cancel_daily=cancels(4, 2)))
+check("headline: cancellations up vs prior week", h == "Cancellations up — 30 rooms out this week, vs 14 the week before.", h)
+
+# the late-season trap: high churn ratio but NOT more than usual -> no warning
 h = headline(snap(pickup={"cancellationsToday": 0, "cancellations7d": 20,
-                          "last7d": {"roomNights": 100}, "today": {"roomNights": 0}}))
-check("headline: cancellation rule first", h.startswith("Watch cancellations"), h)
-h = headline(snap(yesterday={"revenue": 80000, "revenueLY": 60000}))
-check("headline: strong day", h.startswith("Strong"), h)
+                          "last7d": {"roomNights": 100}, "today": {"roomNights": 0}},
+                  cancel_daily=cancels(3, 3)))
+check("headline: high churn but normal level -> not the cancellation rule", not h.startswith("Cancellations"), h)
+
+# no Q14 -> cannot compare -> silent
+h = headline(snap(pickup={"cancellationsToday": 0, "cancellations7d": 40,
+                          "last7d": {"roomNights": 100}, "today": {"roomNights": 0}},
+                  cancel_daily=[]))
+check("headline: no prior-week data -> silent", not h.startswith("Cancellations"), h)
+
+# capacity floor: 3% of a week at 236 rooms = 50 rn; 30 is below it
+h = headline(snap(total_rooms=236,
+                  pickup={"cancellationsToday": 0, "cancellations7d": 30,
+                          "last7d": {"roomNights": 100}, "today": {"roomNights": 0}},
+                  cancel_daily=cancels(4, 2)))
+check("headline: below 3% weekly-capacity floor -> silent", not h.startswith("Cancellations"), h)
+
+# a big yesterday now outranks cancellations
+h = headline(snap(yesterday={"revenue": 80000, "revenueLY": 60000},
+                  pickup={"cancellationsToday": 0, "cancellations7d": 30,
+                          "last7d": {"roomNights": 100}, "today": {"roomNights": 0}},
+                  cancel_daily=cancels(4, 2)))
+check("headline: strong day outranks cancellations", h.startswith("Strong"), h)
 check("headline: full euro number", "€80,000".replace(",", ".") in h, h)
 h = headline(snap(pace=[{"month": "Oct", "month_num": cur_m, "rev": 400000, "rev_stly": 480000}]))
 check("headline: month behind", h.startswith("Oct needs attention"), h)

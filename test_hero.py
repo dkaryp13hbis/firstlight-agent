@@ -28,12 +28,12 @@ def check(name, cond, detail=""):
 
 
 print("— Driver hints —")
-check("rate-led up", _driver_hint(1.0, 8.0) == "rate-led")
-check("occupancy-led up", _driver_hint(9.0, 2.0) == "occupancy-led")
-check("both up", _driver_hint(5.0, 5.0) == "occupancy and rate both contributing")
-check("mainly softer rates", _driver_hint(-1.0, -7.0) == "mainly softer rates")
-check("mixed: rate up occ down", _driver_hint(-6.0, 8.0) == "rate up, occupancy down")
-check("flat", _driver_hint(0.5, -0.8) == "occupancy and rate both broadly flat")
+check("rate-led up", _driver_hint(1.0, 8.0) == "mostly from higher rates")
+check("occupancy-led up", _driver_hint(9.0, 2.0) == "mostly from more rooms sold")
+check("both up", _driver_hint(5.0, 5.0) == "more rooms sold and higher rates")
+check("mainly softer rates", _driver_hint(-1.0, -7.0) == "mainly lower rates")
+check("mixed: rate up occ down", _driver_hint(-6.0, 8.0) == "higher rates, fewer rooms sold")
+check("flat", _driver_hint(0.5, -0.8) == "rooms sold and rates both about the same")
 check("missing LY -> empty", _driver_hint(None, 5.0) == "")
 
 print("— Slots —")
@@ -50,7 +50,7 @@ y = slots["yesterday"]
 check("yday revenue formatted", y["revenue"] == "€61,400", y["revenue"])
 check("yday vs LY", y["vs_ly"] == "+6.4%", y["vs_ly"])
 check("yday ADR vs LY", y["adr_vs_ly"] == "+5.7%", y["adr_vs_ly"])
-check("yday driver is rate-led", y["driver"] == "rate-led", y["driver"])
+check("yday driver is rate-led", y["driver"] == "mostly from higher rates", y["driver"])
 check("mtd month label", slots["mtd"]["month"] == "July MTD", slots["mtd"].get("month"))
 check("no None values in slots", all(v is not None for b in slots.values() for v in b.values()))
 
@@ -88,6 +88,43 @@ check("rejects over-length", any("words" in v for v in _hero_violations(
 check("accepts clean paragraph", _hero_violations(
     "Good morning. Yesterday finished at €61,400, +6.4% vs last year, rate-led. "
     "July MTD stands at €1,200,000. August looks strong.") == [])
+
+print("— Plain-language pass —")
+from briefing.analyst import _plainify_text, _plainify_card, _hero_fallback, _PLAIN_TERMS
+_J = [
+    ("Demand is firming.", "Demand is getting stronger."),
+    ("Pace is decelerating.", "Bookings are slowing down."),
+    ("Demand deterioration in Sep.", "Weaker demand in Sep."),
+    ("Three compression dates ahead.", "Three dates filling up fast ahead."),
+    ("ADR dilution is visible.", "Falling average rate is visible."),
+    ("Pickup velocity weakened.", "New bookings have slowed."),
+    ("The advantage is eroding.", "The gap is getting smaller."),
+    ("Demand shifted earlier.", "Guests booked earlier than last year."),
+    ("A soft-date cluster in Oct.", "A several dates with low bookings in Oct."),
+    ("Underlying demand trend is flat.", "Recent booking trend is flat."),
+]
+for src, want in _J:
+    got, _ = _plainify_text(src)
+    check(f"plain: {src[:28]}", got == want, got)
+got, hits = _plainify_text("Aug OTB revenue €61,400 pacing +12.5% vs STLY; ADR €465.")
+check("plain: acronyms mid-sentence stay lowercase",
+      got == "Aug booked so far revenue €61,400 running +12.5% vs same time last year; average rate €465.", got)
+check("plain: numbers untouched", all(n in got for n in ("€61,400", "+12.5%", "€465")))
+check("plain: reports what it replaced", set(hits) == {"OTB", "pacing", "STLY", "ADR"}, hits)
+check("plain: clean text untouched", _plainify_text("Bookings are ahead of last year.")[0] == "Bookings are ahead of last year.")
+card, hits = _plainify_card({"id": "x", "headline": "Sep pickup surging", "evidence": [{"label": "OTB"}],
+                             "what_happened": "Net pickup +43 rn.", "why_it_matters": "", "recommended_action": "The position could support firmer rates.", "by_when": "Today"})
+check("plain card: headline", card["headline"] == "Sep new bookings surging", card["headline"])
+check("plain card: action opener", card["recommended_action"] == "There may be room for higher rates.", card["recommended_action"])
+check("plain card: evidence labels untouched", card["evidence"][0]["label"] == "OTB")
+_fb = _hero_fallback({"yesterday": {"revenue": "€61,400", "vs_ly": "+6.4%", "driver": "mostly from higher rates"},
+                      "mtd": {"revenue": "€1,200,000", "month": "July MTD"}},
+                     [{"headline": "Aug bookings +49.8% ahead of same time last year"}])
+_fb_plain, _fb_hits = _plainify_text(_fb)
+check("hero fallback carries no jargon", not _fb_hits, _fb_hits)
+for _pat, _ in _PLAIN_TERMS:
+    pass
+check("plain terms compile and are ordered longest-first-ish", _PLAIN_TERMS[0][0].pattern.startswith("demand is firming"))
 
 print("— Word-limit contract (clamp) —")
 from briefing.analyst import _clamp_words, _enforce_caps, _WORD_CAPS, _HERO_WORD_CAP

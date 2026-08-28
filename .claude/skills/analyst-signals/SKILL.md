@@ -39,6 +39,16 @@ Two layers, strictly separated:
   template MUST add the cap check to its test) → `_enforce_caps()` runtime
   clamp last resort (a CAP CLAMP log line = template bug, fix the template).
 - Soft language, no imperative openers (`_BANNED_IMPERATIVES`).
+- PLAIN LANGUAGE (user rule 2026-08-24): the reader is a hotel owner, not a
+  revenue manager. Short sentences, everyday words, no jargon when a simpler
+  phrase exists (pickup → new bookings, pace → bookings vs last year, OTB →
+  booked so far, ADR → average rate, close-in → last-minute, compression →
+  filling up fast, soft dates → low-booking dates). Prompt glossary (rule 9)
+  + `_PLAIN_TERMS`/`_plainify_text()` substitution pass on narrated AND
+  fallback text. Any NEW fallback template must be written in plain words
+  (test: `_plainify_text(template)` returns no hits — see test_hero.py).
+  A `jargon_replaced` entry in cards_audit means the prompt slipped — add
+  the phrase to the rule-9 glossary, not just to `_PLAIN_TERMS`.
 - Projections only as bands (occ ±2pts `_occ_band`, rev ±2% `_rev_band`) —
   never a point estimate.
 

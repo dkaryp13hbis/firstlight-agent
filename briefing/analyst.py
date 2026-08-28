@@ -34,7 +34,7 @@ import config
 
 _client = None
 _MODEL = "claude-sonnet-4-6"
-_PROMPT_VERSION = "cards-v1.8-followup"
+_PROMPT_VERSION = "cards-v1.9-plain"
 
 # Cost policy (user decision 2026-07-27): every Claude call costs money, so
 # narration gets ONE attempt — a validation miss goes straight to the free
@@ -269,39 +269,39 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 "value_at_stake_calc": f_calc,
             }
             if negative:
-                hypo = [{"text": f"Cancellations or a demand slowdown for {month_label} — a single source or rate code may account for the swing", "confidence": "Low"}]
+                hypo = [{"text": f"Cancellations or a slowdown in new bookings for {month_label} — one source or rate plan may explain the swing", "confidence": "Low"}]
                 directive = {
                     "type": "investigate_cancellations",
-                    "target": f"yesterday's {month_label} cancellations and bookings by source and rate code",
+                    "target": f"yesterday's {month_label} cancellations and bookings by source and rate plan",
                     "deadline": "today",
                     "trigger_if_monitor": None,
                 }
-                fb_headline = f"{month_label} pickup {'turned negative' if yday_rn < 0 else 'slowed sharply'} vs recent average"
-                fb_why = "Cancellations or a demand slowdown may be behind the swing; a single source or rate code could account for it (confidence: Low)."
-                fb_action = f"It may be worth checking yesterday's {month_label} cancellations for a common source or rate code."
+                fb_headline = f"{month_label} new bookings {'turned negative' if yday_rn < 0 else 'slowed sharply'} vs recent average"
+                fb_why = "Cancellations or a slowdown in new bookings may be behind the swing; one source or rate plan could explain it (confidence: Low)."
+                fb_action = f"It may be worth checking yesterday's {month_label} cancellations for a common source or rate plan."
                 fb_by_when = "Today — before the next briefing."
             else:
-                hypo = [{"text": f"Demand surge for {month_label} — possibly a campaign, event, or group materialising", "confidence": "Low"}]
+                hypo = [{"text": f"Demand for {month_label} is rising fast — possibly a campaign, event, or group coming through", "confidence": "Low"}]
                 directive = {
                     "type": "rate_review_up",
-                    "target": f"open {month_label} nights riding the surge",
+                    "target": f"open {month_label} nights while demand is strong",
                     "deadline": "within 2 days",
                     "trigger_if_monitor": None,
                 }
-                fb_headline = f"{month_label} pickup surging well above recent average"
-                fb_why = "A demand surge may be under way — possibly a campaign, event, or group materialising (confidence: Low)."
-                fb_action = f"The position could support a higher rate on open {month_label} nights."
-                fb_by_when = "Within 2 days, while the surge lasts."
+                fb_headline = f"{month_label} new bookings running well above recent average"
+                fb_why = "Demand may be rising fast — possibly a campaign, event, or group coming through (confidence: Low)."
+                fb_action = f"There may be room for a higher rate on open {month_label} nights."
+                fb_by_when = "Within 2 days, while demand is strong."
 
             fallback_card = {
                 "id": f"pickup_{m_name.lower()}_{sy}",
                 "tag": tag,
                 "headline": fb_headline,
                 "evidence": [
-                    {"label": "YESTERDAY NET", "value": f_yday_net, "sub": f"vs {f_avg} prior 7 days"},
-                    {"label": "REVENUE IMPACT", "value": f_yday_rev, "sub": f"z-score {f_z}"},
+                    {"label": "NET NEW BOOKINGS", "value": f_yday_net, "sub": f"yesterday, vs {f_avg} prior 7 days"},
+                    {"label": "REVENUE IMPACT", "value": f_yday_rev, "sub": f"swing of {f_z} vs normal (above 2 is unusual)"},
                 ],
-                "what_happened": f"Net pickup for {month_label} was {f_yday_net} yesterday against a 7-day average of {f_avg}.",
+                "what_happened": f"Net new bookings for {month_label} were {f_yday_net} yesterday, against a 7-day average of {f_avg}.",
                 "why_it_matters": fb_why,
                 "recommended_action": fb_action,
                 "by_when": fb_by_when,
@@ -428,43 +428,43 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             f_calc  = f"{open_rn:,} open rn × {_eur(abs(adr_gap))} ADR gap = {_eur(stake)}"
             facts["value_at_stake"]      = f_stake
             facts["value_at_stake_calc"] = f_calc
-            hypo = [{"text": "Early-season discounted rate codes may still be open despite compression", "confidence": "Medium"}]
+            hypo = [{"text": "Early-season discounted rate plans may still be open even though demand is strong", "confidence": "Medium"}]
             directive = {
                 "type": "rate_review_up",
-                "target": f"lowest open rate codes, {period_open}",
+                "target": f"lowest open rate plans, {period_open}",
                 "deadline": "this week",
                 "trigger_if_monitor": None,
             }
             fb = {
-                "headline": f"{m_name} volume far ahead of last year, rates trailing",
+                "headline": f"{m_name} rooms booked far ahead of last year, but rates lower",
                 "evidence": [
-                    {"label": f"PACE ({p_full})", "value": f_pct_gap, "sub": "vs same time last year"},
-                    {"label": "ADR OTB vs FINAL LY", "value": f"{f_adr_otb} vs {f_adr_fly}", "sub": f"{f_adr_gap} per room night"},
+                    {"label": f"BOOKINGS ({p_full})", "value": f_pct_gap, "sub": "vs same time last year"},
+                    {"label": "AVG RATE BOOKED vs LAST YEAR FINAL", "value": f"{f_adr_otb} vs {f_adr_fly}", "sub": f"{f_adr_gap} per room night"},
                 ],
-                "what_happened": f"{m_name} full-month OTB is pacing {f_pct_gap} vs same time last year.",
-                "why_it_matters": f"ADR {f_adr_otb} trails final last year {f_adr_fly}; early-season rate codes may still be open (confidence: Medium).",
-                "recommended_action": f"Worth reviewing whether the lowest rate codes still need to be open for {m_name}.",
+                "what_happened": f"{m_name} bookings so far are {f_pct_gap} vs the same time last year.",
+                "why_it_matters": f"Average rate {f_adr_otb} is below last year's final {f_adr_fly}; early-season discounted rate plans may still be open (confidence: Medium).",
+                "recommended_action": f"Worth reviewing whether the lowest rate plans still need to be open for {m_name}.",
                 "by_when": f"This week — about {window_left} selling days left.",
                 "at_stake": {"value": f_stake, "calc": f_calc},
             }
         elif ahead:
             tag = "OPPORTUNITY"
-            hypo = [{"text": "Demand running above last year — remaining inventory may be underpriced for this demand level", "confidence": "Medium"}]
+            hypo = [{"text": "Demand is running above last year — the remaining rooms may be priced too low for this demand", "confidence": "Medium"}]
             directive = {
                 "type": "rate_review_up",
-                "target": f"{m_name} open nights — lowest codes and peak nights",
+                "target": f"{m_name} open nights — lowest rate plans and peak nights",
                 "deadline": "next 2–3 days",
                 "trigger_if_monitor": None,
             }
             fb = {
-                "headline": f"{m_name} pacing {f_pct_gap} ahead of same time last year",
+                "headline": f"{m_name} bookings {f_pct_gap} ahead of same time last year",
                 "evidence": [
-                    {"label": f"PACE ({p_full})", "value": f_pct_gap, "sub": "vs same time last year"},
+                    {"label": f"BOOKINGS ({p_full})", "value": f_pct_gap, "sub": "vs same time last year"},
                     {"label": "REVENUE LEAD", "value": f_rev_delta, "sub": "vs same time last year"},
                 ],
-                "what_happened": f"{m_name} full-month OTB revenue is {f_rev_delta} vs same time last year.",
-                "why_it_matters": "Demand is running above last year; remaining inventory may be underpriced for this demand level (confidence: Medium).",
-                "recommended_action": f"The position could support a higher rate on {m_name} peak nights.",
+                "what_happened": f"{m_name} revenue booked so far is {f_rev_delta} vs same time last year.",
+                "why_it_matters": "Demand is running above last year; the remaining rooms may be priced too low for this level of demand (confidence: Medium).",
+                "recommended_action": f"There may be room for a higher rate on {m_name} peak nights.",
                 "by_when": "Next 2–3 days.",
             }
         else:
@@ -474,22 +474,22 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             f_calc  = f"{abs(rn_gap):,} rn gap × {f_adr_fly} final LY ADR = {_eur(stake)}"
             facts["value_at_stake"]      = f_stake
             facts["value_at_stake_calc"] = f_calc
-            hypo = [{"text": "Demand softness or channel shift vs last year — source-level comparison needed to isolate the driver", "confidence": "Low"}]
+            hypo = [{"text": "Weaker demand, or bookings coming from different sources than last year — a source-by-source comparison would show which", "confidence": "Low"}]
             directive = {
                 "type": "open_promo",
-                "target": f"{m_name} soft nights",
+                "target": f"{m_name} nights with low bookings",
                 "deadline": "within 7 days",
                 "trigger_if_monitor": None,
             }
             fb = {
-                "headline": f"{m_name} pacing {f_pct_gap} behind same time last year",
+                "headline": f"{m_name} bookings {f_pct_gap} behind same time last year",
                 "evidence": [
-                    {"label": f"PACE ({p_full})", "value": f_pct_gap, "sub": "vs same time last year"},
+                    {"label": f"BOOKINGS ({p_full})", "value": f_pct_gap, "sub": "vs same time last year"},
                     {"label": "ROOM NIGHTS", "value": f"{rn_ty:,} vs {rn_stly:,}", "sub": f"{f_rn_gap} vs same time last year"},
                 ],
-                "what_happened": f"{m_name} full-month OTB stands {f_rn_gap} behind same time last year.",
-                "why_it_matters": "Demand softness or a channel shift may explain the gap; a source-level comparison would isolate the driver (confidence: Low).",
-                "recommended_action": f"Consider a targeted offer on {m_name} soft nights if the gap persists.",
+                "what_happened": f"{m_name} bookings so far stand {f_rn_gap} behind same time last year.",
+                "why_it_matters": "Weaker demand, or bookings coming from different sources, may explain the gap; a source-by-source comparison would show which (confidence: Low).",
+                "recommended_action": f"Consider a targeted offer on {m_name} nights with low bookings if the gap persists.",
                 "by_when": "Within 7 days.",
                 "at_stake": {"value": f_stake, "calc": f_calc},
             }
@@ -632,45 +632,45 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             if shrinking:
                 tag = "MONITOR"
                 if behind:
-                    hypo = [{"text": f"Demand for {month_label} is booking closer to arrival than last year — the pace gap may be timing rather than lost demand", "confidence": "Medium"}]
-                    fb_why = "The pace gap may be timing rather than lost demand — bookings are simply arriving later than last year (confidence: Medium)."
-                    fb_action = f"It may be worth holding rates and delaying any {month_label} discounting — demand appears to be arriving later, not disappearing."
+                    hypo = [{"text": f"Guests are booking {month_label} closer to arrival than last year — the booking gap may be timing, not lost demand", "confidence": "Medium"}]
+                    fb_why = "The booking gap may be timing rather than lost demand — bookings are simply arriving later than last year (confidence: Medium)."
+                    fb_action = f"It may be worth holding rates and delaying any {month_label} discounts — bookings appear to be arriving later, not disappearing."
                 else:
-                    hypo = [{"text": f"Guests are committing later for {month_label} — close-in demand is carrying the month", "confidence": "Medium"}]
-                    fb_why = "Close-in demand is carrying the month; discounting early would give margin away to guests who book late anyway (confidence: Medium)."
-                    fb_action = f"Current pricing looks supported by late demand — early {month_label} discounts may be unnecessary."
+                    hypo = [{"text": f"Guests are booking later for {month_label} — last-minute bookings are carrying the month", "confidence": "Medium"}]
+                    fb_why = "Last-minute bookings are carrying the month; discounting early would give money away to guests who book late anyway (confidence: Medium)."
+                    fb_action = f"Current prices look supported by late bookings — early {month_label} discounts may be unnecessary."
                 directive = {
                     "type": "hold_rates",
-                    "target": f"open {month_label} nights — demand books closer-in than last year",
+                    "target": f"open {month_label} nights — guests book closer to arrival than last year",
                     "deadline": "recheck in 7 days",
-                    "trigger_if_monitor": f"{month_label} pickup slowing while lead time stays short",
+                    "trigger_if_monitor": f"{month_label} new bookings slowing while guests keep booking late",
                 }
-                fb_headline = f"{month_label} demand books {abs(shift_i)} days closer to arrival than last year"
-                fb_by_when = "Recheck in 7 days — sooner if pickup slows."
+                fb_headline = f"{month_label} guests book {abs(shift_i)} days closer to arrival than last year"
+                fb_by_when = "Recheck in 7 days — sooner if new bookings slow."
             elif behind:
                 tag = "ALERT"
-                hypo = [{"text": f"The booking window for {month_label} has lengthened while pace is behind — the late demand being counted on may not materialise", "confidence": "Medium"}]
+                hypo = [{"text": f"Guests are booking {month_label} earlier than last year while bookings are behind — the late demand being counted on may not come through", "confidence": "Medium"}]
                 directive = {
                     "type": "investigate_demand",
-                    "target": f"{month_label} pricing and visibility — late demand is not compensating",
+                    "target": f"{month_label} pricing and visibility — late bookings are not making up the gap",
                     "deadline": "within 2 days",
                     "trigger_if_monitor": None,
                 }
-                fb_why = "Guests now commit earlier, so waiting for a late surge to close the gap looks riskier than last year (confidence: Medium)."
-                fb_action = f"A review of {month_label} pricing and channel visibility may be warranted — the window to influence the month is closing earlier."
-                fb_headline = f"{month_label} books {abs(shift_i)} days earlier than last year while pace lags"
+                fb_why = "Guests now book earlier, so waiting for late bookings to close the gap looks riskier than last year (confidence: Medium)."
+                fb_action = f"A review of {month_label} prices and where the hotel is listed may be worthwhile — the time to influence the month is running out earlier."
+                fb_headline = f"{month_label} books {abs(shift_i)} days earlier than last year while bookings lag"
                 fb_by_when = "Within 2 days."
             else:
                 tag = "OPPORTUNITY" if pace_status == "ahead" else "MONITOR"
-                hypo = [{"text": f"Guests commit earlier for {month_label} than last year — demand confidence looks stronger", "confidence": "Medium"}]
+                hypo = [{"text": f"Guests book {month_label} earlier than last year — demand looks stronger", "confidence": "Medium"}]
                 directive = {
                     "type": "rate_review_up",
-                    "target": f"open {month_label} nights — early commitment supports firmer rates",
+                    "target": f"open {month_label} nights — early bookings support higher rates",
                     "deadline": "within 3 days",
                     "trigger_if_monitor": None,
                 }
-                fb_why = "Earlier commitment usually signals stronger demand confidence, which can support firmer pricing (confidence: Medium)."
-                fb_action = f"The position could support firmer rates on open {month_label} nights."
+                fb_why = "Guests booking earlier usually means stronger demand, which can support higher prices (confidence: Medium)."
+                fb_action = f"There may be room for higher rates on open {month_label} nights."
                 fb_headline = f"{month_label} guests book {abs(shift_i)} days earlier than last year"
                 fb_by_when = "Within 3 days."
 
@@ -679,14 +679,14 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 "tag": tag,
                 "headline": fb_headline,
                 "evidence": [
-                    {"label": "AVG LEAD TIME", "value": f"{lead_ty_i}d",
+                    {"label": "DAYS BOOKED AHEAD", "value": f"{lead_ty_i}d",
                      "sub": f"vs {lead_ly_i}d same window last year"},
-                    {"label": "CLOSE-IN SHARE", "value": f_share_ty,
-                     "sub": f"vs {f_share_ly} LY, within {close_label}"},
+                    {"label": "LAST-MINUTE SHARE", "value": f_share_ty,
+                     "sub": f"vs {f_share_ly} last year, within {close_label}"},
                 ],
-                "what_happened": (f"Last-28-day bookings for {month_label} average "
-                                  f"{f_lead_ty} before arrival, versus {f_lead_ly} "
-                                  f"same window last year."),
+                "what_happened": (f"Bookings made in the last 28 days for {month_label} "
+                                  f"arrive {f_lead_ty} after booking, versus {f_lead_ly} "
+                                  f"last year."),
                 "why_it_matters": fb_why,
                 "recommended_action": fb_action,
                 "by_when": fb_by_when,
@@ -813,15 +813,15 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 fb = {
                     "id": f"soft_dates_{_cal.month_abbr[major_month].lower()}",
                     "tag": "ALERT",
-                    "headline": f"{len(top_soft)} nights pacing {f_avg_gap} behind same time last year",
+                    "headline": f"{len(top_soft)} nights with bookings {f_avg_gap} behind same time last year",
                     "evidence": [
-                        {"label": "SOFTEST DATES", "value": softest_str, "sub": "vs same time last year"},
-                        {"label": f"AVG GAP ({date_range})", "value": f_avg_gap, "sub": "vs last year's booking position"},
+                        {"label": "LOWEST DATES", "value": softest_str, "sub": "vs same time last year"},
+                        {"label": f"AVG GAP ({date_range})", "value": f_avg_gap, "sub": "vs bookings at same time last year"},
                     ],
                     "what_happened": f"{len(top_soft)} stay dates between {first_lbl} and {last_lbl} average {f_avg_gap} vs same time last year.",
-                    "why_it_matters": "These dates trail last year's booking position; if the gap persists the shortfall grows (confidence: Medium).",
-                    "recommended_action": f"A softer rate or package could help {date_range} if the trend continues.",
-                    "by_when": "Within 7 days — window closing.",
+                    "why_it_matters": "These dates have fewer bookings than last year at this point; if the gap persists the shortfall grows (confidence: Medium).",
+                    "recommended_action": f"A lower rate or a package could help {date_range} if the trend continues.",
+                    "by_when": "Within 7 days — time is running out.",
                     "at_stake": {"value": f_stake, "calc": f_calc},
                 }
                 candidates.append({
@@ -840,10 +840,10 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                         "days_to_nearest_arrival": top_soft[0]["days_out"],
                         "booking_window_days_left": top_soft[0]["days_out"],
                         "facts": facts,
-                        "cause_hypotheses": [{"text": "Demand softness concentrated on these dates — check for last-year events or groups that have not repeated", "confidence": "Medium"}],
+                        "cause_hypotheses": [{"text": "Weaker demand on these specific dates — check for last-year events or groups that have not repeated", "confidence": "Medium"}],
                         "action_directives": {
                             "type": "rate_review_down",
-                            "target": f"soft dates {date_range}, largest gaps first",
+                            "target": f"low-booking dates {date_range}, largest gaps first",
                             "deadline": "within 7 days",
                             "trigger_if_monitor": None,
                         },
@@ -883,8 +883,8 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                     {"label": "NEAR-FULL DATES", "value": " · ".join(_pct(d["occ_ty"], 0) for d in top_hot), "sub": date_range},
                 ],
                 "what_happened": f"{len(top_hot)} nights ({date_range}) are close to selling out at unchanged rates.",
-                "why_it_matters": "Close-in compression suggests the remaining rooms would sell at a higher price (confidence: High).",
-                "recommended_action": f"The position could support a higher rate on {date_range}; worth reviewing open discount codes.",
+                "why_it_matters": "These dates are filling up fast, so the remaining rooms would likely sell at a higher price (confidence: High).",
+                "recommended_action": f"There may be room for a higher rate on {date_range}; worth reviewing open discounts.",
                 "by_when": f"Today — {nearest['label']} is {nearest['days_out']} days out.",
             }
             candidates.append({
@@ -903,7 +903,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                     "days_to_nearest_arrival": nearest["days_out"],
                     "booking_window_days_left": nearest["days_out"],
                     "facts": facts,
-                    "cause_hypotheses": [{"text": "Close-in compression — demand exceeding remaining supply on these dates", "confidence": "High"}],
+                    "cause_hypotheses": [{"text": "Dates filling up fast — demand is higher than the rooms left on these dates", "confidence": "High"}],
                     "action_directives": {
                         "type": "close_discounts",
                         "target": f"remaining rooms on {date_range}",
@@ -976,7 +976,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                     f_calc  = f"{ref_label} {_eur(ref)} − upper projection {_eur(band_hi)} = {_eur(stake)}"
                     facts["value_at_stake"]      = f_stake
                     facts["value_at_stake_calc"] = f_calc
-                hypo = [{"text": "Remaining-month OTB pacing below last year's close-in pickup", "confidence": "Medium"}]
+                hypo = [{"text": "Bookings for the rest of the month are running below last year's last-minute bookings", "confidence": "Medium"}]
                 directive = {
                     "type": "open_promo",
                     "target": f"remaining {month_name} nights",
@@ -984,14 +984,14 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                     "trigger_if_monitor": None,
                 }
                 fb = {
-                    "headline": f"{month_name} projected around {f_vs_band} vs {ref_label}",
+                    "headline": f"{month_name} expected to finish around {f_vs_band} vs {ref_label}",
                     "evidence": [
-                        {"label": "PROJECTED FINISH", "value": f_vs_band, "sub": f"vs {ref_label}"},
-                        {"label": "REMAINING OTB", "value": f_rem_otb, "sub": f"{days_left} days left"},
+                        {"label": "EXPECTED FINISH", "value": f_vs_band, "sub": f"vs {ref_label}"},
+                        {"label": "STILL TO COME", "value": f_rem_otb, "sub": f"{days_left} days left"},
                     ],
-                    "what_happened": f"Month-end revenue is projected {f_vs_band} vs {ref_label}.",
-                    "why_it_matters": "Remaining-month bookings may be pacing below last year's close-in pickup (confidence: Medium).",
-                    "recommended_action": f"Consider a close-in offer on remaining {month_name} nights.",
+                    "what_happened": f"Month-end revenue is expected to land {f_vs_band} vs {ref_label}.",
+                    "why_it_matters": "Bookings for the rest of the month may be running below last year's last-minute bookings (confidence: Medium).",
+                    "recommended_action": f"Consider a last-minute offer on remaining {month_name} nights.",
                     "by_when": f"Within 2–3 days; {days_left} days left.",
                 }
                 if "value_at_stake" in facts:
@@ -1000,20 +1000,20 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 hypo = [{"text": "Cancellations in the remaining days are the main risk to the finish", "confidence": "High"}]
                 directive = {
                     "type": "monitor_only",
-                    "target": f"remaining {month_name} OTB",
+                    "target": f"remaining {month_name} bookings",
                     "deadline": "daily until month close",
-                    "trigger_if_monitor": f"cancellations exceed the trailing baseline on any remaining {month_name} date",
+                    "trigger_if_monitor": f"cancellations run above the recent normal on any remaining {month_name} date",
                 }
                 fb = {
                     "headline": f"{month_name} on track to finish around {f_vs_band} vs {ref_label}",
                     "evidence": [
-                        {"label": "PROJECTED FINISH", "value": f_vs_band, "sub": f"vs {ref_label}"},
-                        {"label": "REMAINING OTB", "value": f_rem_otb, "sub": "not yet realised"},
+                        {"label": "EXPECTED FINISH", "value": f_vs_band, "sub": f"vs {ref_label}"},
+                        {"label": "STILL TO COME", "value": f_rem_otb, "sub": "booked, not yet earned"},
                     ],
-                    "what_happened": f"Month-end revenue is projected {f_vs_band} vs {ref_label}.",
-                    "why_it_matters": f"{f_rem_otb} is still on the books, not realised; cancellations in the final {days_left} days are the main risk (confidence: High).",
+                    "what_happened": f"Month-end revenue is expected to land {f_vs_band} vs {ref_label}.",
+                    "why_it_matters": f"{f_rem_otb} is booked but not yet earned; cancellations in the final {days_left} days are the main risk (confidence: High).",
                     "recommended_action": "No action suggested — worth watching cancellations daily.",
-                    "by_when": "Daily until month close; trigger: cancellations above baseline.",
+                    "by_when": "Daily until month end; trigger: cancellations above normal.",
                 }
 
             fb["id"]  = f"proj_{month_name.lower()}_{today.year}"
@@ -1102,43 +1102,43 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             if stake >= _STAKE_FLOOR_EUR:
                 facts["value_at_stake"]      = _eur(stake)
                 facts["value_at_stake_calc"] = f"{ref_label} {_eur(ref)} − upper projection {_eur(band_hi)} = {_eur(stake)}"
-            hypo = [{"text": "Booking pace behind last year — group or contracted business may not have re-materialised", "confidence": "Low"}]
+            hypo = [{"text": "Bookings behind last year — group or contract business may not have come back", "confidence": "Low"}]
             directive = {
                 "type": "open_promo",
-                "target": f"{month_label} demand-building offer",
+                "target": f"{month_label} offer to build bookings",
                 "deadline": "within 7 days",
                 "trigger_if_monitor": None,
             }
             fb = {
                 "headline": f"{m_name} projected around {f_vs_band} vs {ref_label}",
                 "evidence": [
-                    {"label": "PROJECTED FINISH", "value": f_vs_band, "sub": f"vs {ref_label}"},
-                    {"label": "OCC OTB vs SAME TIME LY", "value": f"{facts['occ_otb']['value']} vs {facts['occ_same_time_ly']['value']}", "sub": f"final last year {facts['final_ly_occ']['value']}"},
+                    {"label": "EXPECTED FINISH", "value": f_vs_band, "sub": f"vs {ref_label}"},
+                    {"label": "OCCUPANCY BOOKED vs SAME TIME LY", "value": f"{facts['occ_otb']['value']} vs {facts['occ_same_time_ly']['value']}", "sub": f"final last year {facts['final_ly_occ']['value']}"},
                 ],
-                "what_happened": f"{m_name} is projecting {f_vs_band} vs {ref_label}.",
-                "why_it_matters": "Booking pace trails last year; group or contracted business may not have re-materialised (confidence: Low).",
-                "recommended_action": f"If the trend continues, an option is a demand-building offer for {m_name}.",
+                "what_happened": f"{m_name} is expected to land {f_vs_band} vs {ref_label}.",
+                "why_it_matters": "Bookings are behind last year; group or contract business may not have come back (confidence: Low).",
+                "recommended_action": f"If the trend continues, an offer to build {m_name} bookings is an option.",
                 "by_when": f"Within 7 days; {days_to_start} days to month start.",
             }
             if "value_at_stake" in facts:
                 fb["at_stake"] = {"value": facts["value_at_stake"], "calc": facts["value_at_stake_calc"]}
         else:
-            hypo = [{"text": "Volume position ahead of last year — early rate floors will anchor the final ADR", "confidence": "Medium"}]
+            hypo = [{"text": "Rooms booked ahead of last year — early minimum rates will set the final average rate", "confidence": "Medium"}]
             directive = {
                 "type": "rate_review_up",
-                "target": f"{month_label} rate floors",
+                "target": f"{month_label} minimum rates",
                 "deadline": "this week",
                 "trigger_if_monitor": None,
             }
             fb = {
-                "headline": f"{m_name} projecting around {f_vs_band} vs {ref_label}",
+                "headline": f"{m_name} expected to finish around {f_vs_band} vs {ref_label}",
                 "evidence": [
-                    {"label": "PROJECTED FINISH", "value": f_vs_band, "sub": f"vs {ref_label}"},
-                    {"label": "ADR OTB vs FINAL LY", "value": f"{facts['adr_otb']['value']} vs {facts['adr_final_ly']['value']}", "sub": f"OTB occ {facts['occ_otb']['value']}"},
+                    {"label": "EXPECTED FINISH", "value": f_vs_band, "sub": f"vs {ref_label}"},
+                    {"label": "AVG RATE BOOKED vs LAST YEAR FINAL", "value": f"{facts['adr_otb']['value']} vs {facts['adr_final_ly']['value']}", "sub": f"occupancy booked {facts['occ_otb']['value']}"},
                 ],
-                "what_happened": f"{m_name} is projecting {f_vs_band} vs {ref_label}.",
-                "why_it_matters": "The volume position is ahead of last year; early rate floors will anchor the final ADR outcome (confidence: Medium).",
-                "recommended_action": f"It may be worth reviewing {m_name} rate floors while demand runs ahead.",
+                "what_happened": f"{m_name} is expected to land {f_vs_band} vs {ref_label}.",
+                "why_it_matters": "Rooms booked are ahead of last year; the minimum rates set early will shape the final average rate (confidence: Medium).",
+                "recommended_action": f"It may be worth reviewing {m_name} minimum rates while demand runs ahead.",
                 "by_when": "This week.",
             }
         fb["id"]  = f"proj_{m_name.lower()}_{today.year}"
@@ -1288,13 +1288,13 @@ def _merge_pickup_soft(candidates: list[dict]) -> list[dict]:
     fb = {
         "id": f"softening_{m_short.lower()}",
         "tag": "ALERT",
-        "headline": f"{m_short} softening: pickup and pace gap point the same way",
+        "headline": f"{m_short} weakening: new bookings and booking gap point the same way",
         "evidence": [
-            {"label": "YESTERDAY NET", "value": pf["yday_net_rn"]["value"], "sub": f"vs {pf['trailing_avg']['value']} prior 7 days"},
-            {"label": f"SOFT DATES ({sf['date_range']})", "value": f"{sf['count']} nights {sf['avg_gap_pts']['value']}", "sub": "vs same time last year"},
+            {"label": "NET NEW BOOKINGS", "value": pf["yday_net_rn"]["value"], "sub": f"yesterday, vs {pf['trailing_avg']['value']} prior 7 days"},
+            {"label": f"LOW-BOOKING DATES ({sf['date_range']})", "value": f"{sf['count']} nights {sf['avg_gap_pts']['value']}", "sub": "vs same time last year"},
         ],
-        "what_happened": f"{month_label} pickup was {pf['yday_net_rn']['value']} yesterday and {sf['count']} stay dates trail same time last year.",
-        "why_it_matters": "Two independent signals point at the same dates, so this looks like genuine softness rather than a one-off (confidence: Medium).",
+        "what_happened": f"{month_label} new bookings were {pf['yday_net_rn']['value']} yesterday and {sf['count']} stay dates trail same time last year.",
+        "why_it_matters": "Two separate signals point at the same dates, so this looks like genuinely weaker demand rather than a one-off (confidence: Medium).",
         "recommended_action": f"Worth checking {m_short} cancellations for a common source; a targeted offer is an option.",
         "by_when": "Investigate today; offer decision within 3–4 days.",
         "at_stake": {"value": sf["value_at_stake"], "calc": sf["value_at_stake_calc"]},
@@ -1315,10 +1315,10 @@ def _merge_pickup_soft(candidates: list[dict]) -> list[dict]:
             "days_to_nearest_arrival": soft["insight"]["days_to_nearest_arrival"],
             "booking_window_days_left": soft["insight"]["booking_window_days_left"],
             "facts": facts,
-            "cause_hypotheses": [{"text": "Cancellations and the pace gap point at the same dates — demand genuinely softening rather than a one-off", "confidence": "Medium"}],
+            "cause_hypotheses": [{"text": "Cancellations and the booking gap point at the same dates — demand is genuinely getting weaker, not a one-off", "confidence": "Medium"}],
             "action_directives": {
                 "type": "investigate_cancellations",
-                "target": f"{month_label} cancellations by source and rate code; targeted offer on soft dates if broad",
+                "target": f"{month_label} cancellations by source and rate plan; targeted offer on low-booking dates if widespread",
                 "deadline": "investigate today; offer decision within 3–4 days",
                 "trigger_if_monitor": None,
             },
@@ -1448,8 +1448,31 @@ STRICT RULES
    and trigger briefly.
 8. at_stake: always omit — value-at-stake estimates are not narrated
    the field entirely - never invent a value.
-9. Audience: a general manager without a revenue background must
-   understand every sentence. No jargon without a plain-language anchor.
+9. AUDIENCE: a hotel owner, not a revenue-management expert. Short
+   sentences. Everyday words. Never use industry jargon when a simpler
+   phrase means the same thing. Translate, do not echo, the technical
+   keys in the facts JSON. Required rewordings:
+     "demand is firming"        -> "demand is getting stronger"
+     "pace is decelerating"     -> "bookings are slowing down"
+     "demand deterioration"     -> "demand is getting weaker"
+     "compression dates"        -> "dates filling up fast"
+     "ADR dilution"             -> "the average rate is falling"
+     "pickup velocity weakened" -> "new bookings have slowed"
+     "the advantage is eroding" -> "the gap is getting smaller"
+     "demand shifted earlier"   -> "guests booked earlier than last year"
+     "soft-date cluster"        -> "several dates have low bookings"
+     "underlying demand trend"  -> "recent booking trend"
+     "pickup"                   -> "new bookings"
+     "pace" / "pacing"          -> "bookings" / "running" (vs last year)
+     "OTB" / "on the books"     -> "booked so far"
+     "lead time"                -> "how far ahead guests book"
+     "close-in"                 -> "last-minute"
+     "inventory"                -> "rooms"
+     "rate codes" / "rate floors" -> "rate plans" / "minimum rates"
+     "materialise"              -> "come through"
+     "channel shift"            -> "bookings coming from different sources"
+   Everyday hotel words are fine: occupancy, room nights, average rate,
+   revenue, cancellations, same time last year.
 10. Language: write in English.
 11. Actions are light suggestions. Never use imperative verbs (change,
     remove, increase, decrease, cut, raise, close, open, act) as the
@@ -1534,6 +1557,90 @@ def _clamp_words(text: str, cap: int) -> str:
     if len(words) <= cap:
         return text
     return " ".join(words[:cap]).rstrip(",;:.") + "…"
+
+
+# ── Plain-language contract (2026-08-24) ─────────────────────────────────────
+# The reader is a hotel owner, not a revenue manager. The prompts ask Claude for
+# everyday words; this deterministic pass catches what slips through and also
+# cleans the templated fallbacks. Ordered: longer phrases first. English only.
+_PLAIN_TERMS: list[tuple[re.Pattern, str]] = [(re.compile(p, re.IGNORECASE), r) for p, r in [
+    (r"demand is firming",             "demand is getting stronger"),
+    (r"\bfirming\b",                   "getting stronger"),
+    (r"pace is decelerating",          "bookings are slowing down"),
+    (r"\bdecelerating\b",              "slowing down"),
+    (r"demand deterioration",          "weaker demand"),
+    (r"\bdeteriorating\b",             "getting weaker"),
+    (r"close-in compression",          "dates filling up fast"),
+    (r"compression dates",             "dates filling up fast"),
+    (r"\bcompression\b",               "high demand"),
+    (r"\b(?:ADR|rate) dilution\b",     "falling average rate"),
+    (r"pickup velocity weakened",      "new bookings have slowed"),
+    (r"pickup velocity",               "the speed of new bookings"),
+    (r"\bnet pick-?up\b",              "net new bookings"),
+    (r"\bpick-?up\b",                  "new bookings"),
+    (r"advantage is eroding",          "gap is getting smaller"),
+    (r"\beroding\b",                   "shrinking"),
+    (r"demand shifted earlier",        "guests booked earlier than last year"),
+    (r"soft-date cluster",             "several dates with low bookings"),
+    (r"\bsoft dates\b",                "low-booking dates"),
+    (r"\bsoft nights\b",               "low-booking nights"),
+    (r"underlying demand trend",       "recent booking trend"),
+    (r"\bon[ -]the[ -]books\b",        "booked so far"),
+    (r"\bOTB\b",                       "booked so far"),
+    (r"\bSTLY\b",                      "same time last year"),
+    (r"\bADR\b",                       "average rate"),
+    (r"\bRevPAR\b",                    "revenue per available room"),
+    (r"\bmateriali[sz]ed?\b",          "come through"),
+    (r"\bremaining inventory\b",       "remaining rooms"),
+    (r"\binventory\b",                 "rooms"),
+    (r"\bclose-in\b",                  "last-minute"),
+    (r"\brate floors?\b",              "minimum rates"),
+    (r"\brate codes\b",                "rate plans"),
+    (r"\brate code\b",                 "rate plan"),
+    (r"\bfirmer (rates?|pricing|prices?)\b", r"higher \1"),
+    (r"\bdemand softness\b",           "weaker demand"),
+    (r"\bsoftening\b",                 "getting weaker"),
+    (r"\bsofter (rates?|pricing|prices?)\b", r"lower \1"),
+    (r"\bsofter occupancy\b",          "lower occupancy"),
+    (r"\bchannel shift\b",             "a change in where bookings come from"),
+    (r"\bbooking window\b",            "how far ahead guests book"),
+    (r"\bpace gap\b",                  "booking gap"),
+    (r"\bbooking pace\b",              "bookings"),
+    (r"\bpacing\b",                    "running"),
+    (r"the position could support",    "there may be room for"),
+]]
+_PLAIN_FIELDS = ("headline", "what_happened", "why_it_matters",
+                 "recommended_action", "by_when")
+
+
+def _plainify_text(text: str) -> tuple[str, list[str]]:
+    """Replace jargon phrases with everyday wording. Keeps the capital letter
+    when the match opened a sentence. Never touches digits. Returns
+    (new_text, [jargon phrases replaced])."""
+    if not text:
+        return text, []
+    hits: list[str] = []
+    def _sub(m: re.Match, repl: str) -> str:
+        out = m.expand(repl)
+        hits.append(m.group(0))
+        # keep a capital only where the match opened a sentence — never for
+        # mid-sentence acronyms (STLY/OTB/ADR), which become lowercase words
+        before = m.string[:m.start()].rstrip()
+        at_start = not before or before[-1] in ".!?"
+        return out[0].upper() + out[1:] if at_start else out[0].lower() + out[1:]
+    for pat, repl in _PLAIN_TERMS:
+        text = pat.sub(lambda m, r=repl: _sub(m, r), text)
+    return text, hits
+
+
+def _plainify_card(card: dict) -> tuple[dict, list[str]]:
+    """Apply the plain-language pass to every prose field of a card."""
+    hits: list[str] = []
+    for f in _PLAIN_FIELDS:
+        if card.get(f):
+            card[f], h = _plainify_text(str(card[f]))
+            hits += h
+    return card, hits
 
 
 def _enforce_caps(card: dict) -> dict:
@@ -1690,6 +1797,12 @@ def _narrate_card(wrapper: dict, fallback_card: dict, meta: dict | None = None,
         problems = [f"invented number: {t}" for t in bad_nums] + style + period
         if not problems:
             result_card = _harden_card(card, wrapper)
+            if lang == "en":
+                result_card, jargon = _plainify_card(result_card)
+                if jargon:
+                    audit["jargon_replaced"] = jargon
+                    print(f"[analyst] Card '{wrapper['insight']['id']}': plain-language pass replaced {jargon}")
+                result_card = _enforce_caps(result_card)
             break
 
         print(f"[analyst] Card '{wrapper['insight']['id']}' attempt {attempt + 1} rejected: {problems}")
@@ -1702,7 +1815,10 @@ def _narrate_card(wrapper: dict, fallback_card: dict, meta: dict | None = None,
     if result_card is None:
         print(f"[analyst] Card '{wrapper['insight']['id']}': validation failed — using free templated fallback (no retry, cost policy).")
         audit["fallback_used"] = True
-        result_card = _enforce_caps(dict(fallback_card))
+        result_card = dict(fallback_card)
+        if lang == "en":
+            result_card, _ = _plainify_card(result_card)
+        result_card = _enforce_caps(result_card)
 
     audit["latency_ms"] = int((_time.monotonic() - t0) * 1000)
     if meta is not None:
@@ -1745,16 +1861,16 @@ def _driver_hint(vol_pct: float | None, adr_pct: float | None) -> str:
         return ""
     v, a = vol_pct, adr_pct
     if abs(v) < 1.5 and abs(a) < 1.5:
-        return "occupancy and rate both broadly flat"
+        return "rooms sold and rates both about the same"
     if v >= 0 and a >= 0:
-        if abs(a) >= 2 * max(abs(v), 0.1): return "rate-led"
-        if abs(v) >= 2 * max(abs(a), 0.1): return "occupancy-led"
-        return "occupancy and rate both contributing"
+        if abs(a) >= 2 * max(abs(v), 0.1): return "mostly from higher rates"
+        if abs(v) >= 2 * max(abs(a), 0.1): return "mostly from more rooms sold"
+        return "more rooms sold and higher rates"
     if v <= 0 and a <= 0:
-        if abs(a) >= 2 * max(abs(v), 0.1): return "mainly softer rates"
-        if abs(v) >= 2 * max(abs(a), 0.1): return "mainly softer occupancy"
-        return "softer occupancy and rates"
-    return "rate up, occupancy down" if a > 0 else "occupancy up, rate down"
+        if abs(a) >= 2 * max(abs(v), 0.1): return "mainly lower rates"
+        if abs(v) >= 2 * max(abs(a), 0.1): return "mainly fewer rooms sold"
+        return "fewer rooms sold and lower rates"
+    return "higher rates, fewer rooms sold" if a > 0 else "more rooms sold, lower rates"
 
 
 def _closed_season_slots(data: dict) -> dict | None:
@@ -1851,7 +1967,7 @@ def _hero_fallback(slots: dict, cards: list[dict]) -> str:
     cs = slots.get("closed_season")
     if cs:
         parts = ["Good morning.", "The hotel is closed for the season."]
-        s = f"Next year already has {cs['rn_otb']} on the books at {cs['revenue_otb']}"
+        s = f"Next year already has {cs['rn_otb']} booked so far at {cs['revenue_otb']}"
         if cs.get("rn_vs_stly"):
             s += f", {cs['rn_vs_stly']} vs the same time last year"
         parts.append(s + ".")
@@ -1916,6 +2032,10 @@ def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
         f"{json.dumps(digest, ensure_ascii=False, indent=2)}\n\n"
         f"Write ONE flowing paragraph of 4-6 short sentences, max {_HERO_WORD_CAP} words, starting "
         "exactly with \"" + greeting + ".\" Order: " + order_text + ". "
+        "Write for a hotel owner, not a revenue expert: short sentences, everyday "
+        "words, no industry jargon (say 'booked so far' not 'on the books', 'new "
+        "bookings' not 'pickup', 'bookings vs last year' not 'pace', 'average rate' "
+        "not 'ADR', 'last-minute' not 'close-in'). "
         "Soft advisory tone, no imperatives, no "
         "exclamation marks. Never invent causes (nationalities, room types, events, "
         "weather) — only what the data shows. Every number must appear verbatim in the "
@@ -1950,6 +2070,11 @@ def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
             if bad:
                 problems.append(f"numbers not in input data: {', '.join(bad[:5])}")
             if hero and not problems:
+                if lang == "en":
+                    hero, jargon = _plainify_text(hero)
+                    if jargon:
+                        print(f"[analyst] Hero: plain-language pass replaced {jargon}")
+                    hero = _clamp_words(hero, _HERO_WORD_CAP)
                 if meta is not None:
                     meta["cards_audit"].append({
                         "card_id": "hero", "signal": "hero", "tag": "HERO",
@@ -1968,6 +2093,8 @@ def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
             "latency_ms": int((_time.time() - t0) * 1000),
             "validation_problems": problems,
         })
+    if lang == "en":
+        fallback, _ = _plainify_text(fallback)
     return _clamp_words(fallback, _HERO_WORD_CAP)
 
 

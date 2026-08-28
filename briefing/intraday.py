@@ -11,7 +11,7 @@ is claimed BEFORE sending, so two runs can never double-push. If the table
 does not exist yet (SQL not pasted), checks run but nothing is sent.
 
 Also home of `headline()` — the deterministic morning-push body (same rule
-ladder as the app's Smart Summary).
+ladder as the app's Smart Summary — change both together).
 """
 from __future__ import annotations
 
@@ -32,18 +32,50 @@ def _eur0(v: float) -> str:
     return "€" + f"{v:,.0f}".replace(",", ".")
 
 
+def cancel_weeks(data: dict[str, Any]) -> tuple[int, int | None]:
+    """(cancelled last 7 days, cancelled the 7 days before that) in room nights.
+    Last-7 comes from the Pickup card (Q3 `cancellations7d`) so the headline
+    reconciles with what the app shows; prior-7 comes from Q14 `cancel_daily`
+    (14-day window, all stay dates). Prior is None when Q14 is missing —
+    then no comparison is possible and the cancellation rule stays silent."""
+    pu = data.get("pickup", {}) or {}
+    last7 = int(pu.get("cancellations7d", 0) or 0)
+    cd = data.get("cancel_daily", []) or []
+    if not cd:
+        return last7, None
+    today = date.today()
+    lo, hi = today - timedelta(days=13), today - timedelta(days=7)
+    prior7 = 0
+    seen = False
+    for r in cd:
+        try:
+            d = date.fromisoformat(str(r.get("ref_date"))[:10])
+        except ValueError:
+            continue
+        if lo <= d <= hi:
+            seen = True
+            prior7 += int(r.get("cancel_rn", 0) or 0)
+    return last7, (prior7 if seen else None)
+
+
 def headline(data: dict[str, Any]) -> str:
-    """One sentence for the morning push body. Facts only, no estimates."""
+    """One sentence for the morning push body. Facts only, no estimates.
+    Mirror of the app's Smart Summary ladder (keep both in sync):
+      1. big yesterday (|vs LY| >= 15%)         -> "Strong/Soft {weekday} — …"
+      2. cancellations UP vs the week before    -> "Cancellations up — …"
+      3. worst forward month <= -5% vs STLY     -> "{Month} needs attention — …"
+      4. else                                   -> "Steady day — MTD …"
+    Rule 2 (2026-08-28): compares to the hotel's own recent normal instead of
+    an absolute churn ratio — late-season resorts always exceeded 15% churn
+    because new bookings dry up while cancellations of old bookings continue,
+    so both hotels showed "Watch cancellations" every day."""
     y = data.get("yesterday", {}) or {}
     m = data.get("mtd", {}) or {}
     pu = data.get("pickup", {}) or {}
     booked7 = (pu.get("last7d") or {}).get("roomNights", 0) or 0
-    cancelled7 = pu.get("cancellations7d", 0) or 0
     yd_var = _var(y.get("revenue", 0) or 0, y.get("revenueLY", 0) or 0)
     mtd_var = _var(m.get("revenue", 0) or 0, m.get("revenueLY", 0) or 0)
 
-    if booked7 > 0 and cancelled7 >= 10 and cancelled7 / booked7 >= 0.15:
-        return f"Watch cancellations — {cancelled7} rooms out this week."
     if abs(yd_var) >= 15:
         try:
             wd = datetime.fromisoformat(str(data.get("report_date"))).strftime("%A")
@@ -51,6 +83,13 @@ def headline(data: dict[str, Any]) -> str:
             wd = "day"
         word = "Strong" if yd_var > 0 else "Soft"
         return f"{word} {wd} — {_eur0(y.get('revenue', 0))}, {yd_var:+.0f}% on last year."
+    cancelled7, prior7 = cancel_weeks(data)
+    total_rooms = int(data.get("total_rooms", 0) or 0)
+    floor = max(10, round(total_rooms * 7 * 0.03))          # 3% of a week's capacity
+    churn = cancelled7 / booked7 if booked7 > 0 else 0.0
+    if (prior7 is not None and cancelled7 >= floor
+            and cancelled7 >= 1.5 * max(prior7, 1) and churn >= 0.15):
+        return f"Cancellations up — {cancelled7} rooms out this week, vs {prior7} the week before."
     worst = None
     cur_m = date.today().month
     for p in data.get("pace", []) or []:
