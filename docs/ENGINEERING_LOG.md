@@ -176,6 +176,25 @@ User-side unblockers still open: firstlight_ro logins (both SQL servers),
 Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 **REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
+- 🔄 2026-09-04 **DATA-FRESHNESS MONITORING** (user: servers sometimes error
+  and nobody notices stale data; wants Power-BI-style refresh history in the
+  app). Backend 765af25 + React d6d023e + SQL
+  2026-09-04_refresh_runs_read.sql (USER MUST PASTE for the in-app history).
+  Four layers: (1) `briefing/audit.py` daily 07:10 UTC — per hotel MISSED
+  (report_date < yesterday) / FAILED (runs today, none ok) / FROZEN (zero
+  bookings+cancels 2+ days in open season, or identical 'yesterday' across
+  report days = frozen PMS export; skipped when MTD=0 closed season) → ONE
+  ops email to OPS_EMAIL (default dk@) only on problems; offline smoke test
+  passed (fresh silent, stale MISSED+FAILED, frozen 2 flags). (2) /health
+  gains `stale_hotels` (60s cache) → ⬜ USER: register a free external
+  pinger (UptimeRobot-style) on /health alerting on unreachable OR
+  non-empty stale_hotels — covers Railway-down. (3) App: amber banner on
+  Today when briefing older than yesterday → opens Data health. (4)
+  Settings → **Data health** sheet: freshness verdict, frozen-data warning
+  (movement over last 2 report days), refresh history last 3 days grouped
+  by day (time/type/retry/error_type/duration/status badges incl.
+  degraded); reads refresh_runs via new member-scoped RLS select policy
+  (service-role writes untouched); `data_health_open` tracked.
 - 🔄 2026-08-24 **MY WATCHLIST v1 — BUILT** (React `28a249c`, backend
   `8df3c65`; user: "lets do this"; spec [docs/WATCHLIST_SPEC.md](WATCHLIST_SPEC.md);
   SQL `docs/sql/2026-08-24_watchlist.sql` — USER MUST PASTE; PWA not yet
