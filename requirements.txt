@@ -8,3 +8,4 @@ pyodbc==5.2.0
 tzdata==2025.2
 fastapi==0.115.6
 uvicorn==0.32.1
+psycopg[binary,pool]==3.2.3

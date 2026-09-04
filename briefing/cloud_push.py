@@ -88,6 +88,14 @@ def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str |
             resp = requests.post(url, json=payload, headers=headers, timeout=30)
         resp.raise_for_status()
         print(f"[cloud] Pushed briefing for {yesterday} (hotel {hotel_id[:8]}…) -> HTTP {resp.status_code}")
+        try:  # Phase C dual-write (no-op unless STORAGE=dual|pg)
+            from db import store
+            pg_payload = {k: v for k, v in payload.items() if k != "generated_at"}
+            if source_run_id:
+                pg_payload["source_run_id"] = source_run_id
+            store.upsert_briefing(pg_payload)
+        except Exception:
+            pass
         if notify:
             _send_push_notifications(ai, hotel_id,
                                      hotel_name=data.get("hotel_name") or config.HOTEL_NAME,

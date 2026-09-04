@@ -54,6 +54,11 @@ class RunLogger:
                     continue  # attempt column not migrated yet — retry without it
                 r.raise_for_status()
                 self.run_id = r.json()[0]["id"]
+                try:  # Phase C dual-write (no-op unless STORAGE=dual|pg)
+                    from db import store
+                    store.insert_run({"id": self.run_id, **payload})
+                except Exception:
+                    pass
                 return
             except Exception as exc:
                 print(f"[run-log] start failed (continuing unlogged): {exc}")
@@ -90,6 +95,11 @@ class RunLogger:
             payload["error_type"] = error_type
         if error_message is not None:
             payload["error_message"] = str(error_message)[:2000]
+        try:  # Phase C dual-write (no-op unless STORAGE=dual|pg)
+            from db import store
+            store.update_run(self.run_id, payload)
+        except Exception:
+            pass
         core_keys = ("status", "completed_at", "timings", "error_type", "error_message")
         for attempt_payload in (payload, {k: v for k, v in payload.items() if k in core_keys}):
             try:

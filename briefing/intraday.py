@@ -195,6 +195,11 @@ def _claim(hotel_id: str, ntype: str) -> bool:
                                "Content-Type": "application/json", "Prefer": "return=minimal"},
                       timeout=10)
         if r.status_code in (200, 201):
+            try:  # Phase C dual-write mirror (no-op unless STORAGE=dual|pg)
+                from db import store
+                store.claim_intraday(hotel_id, str(date.today()), ntype)
+            except Exception:
+                pass
             return True
         if r.status_code == 409 or "duplicate" in r.text:
             print(f"[intraday] {ntype} already sent today — skipping.")
