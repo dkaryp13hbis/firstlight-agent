@@ -36,9 +36,14 @@ precondition is ✅.
 Move what only the BACKEND touches; the app keeps reading Supabase until C2.
 1. Provision Railway Postgres (same project as the processor). Enable
    automated Railway backups; note connection string as `DATABASE_URL`.
-2. Schema: translate the tables above (DDL from `docs/sql/` history; write
-   `docs/sql/pg/schema.sql` — one file, reviewed, committed). No RLS in
-   Railway PG (single-tenant service access); app access stays via API.
+2. Schema: ✅ WRITTEN 2026-09-04 — `docs/sql/pg/schema.sql` (all 12 tables,
+   derived from the live column inventory + every docs/sql constraint;
+   includes the LISTEN/NOTIFY trigger for refresh_commands and the
+   count-verification query; no RLS by design — service-only access, the
+   app goes through the API). Apply with:
+   psql "$DATABASE_URL" -f docs/sql/pg/schema.sql
+   NOTE: no local psql on the dev machine — first real parse happens on the
+   provisioned Railway PG; run the file there before anything else.
 3. `db/store.py`: one module wrapping psycopg (pool of 5); every backend
    Supabase REST call gets a PG twin behind a `STORAGE=pg|supabase` env
    switch. Fail-open rule unchanged.
