@@ -495,7 +495,20 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   needs the React bell subscribed; verify iOS + Android)
 - ⬜ **AI insights — re-review**: quality pass on card ranking, wording, caps
   and fallbacks against the accumulating 👍/👎 + notes (real + demo testers)
-- ⬜ Share = IMAGE, per section: React share currently sends a link; port the
+- ✅ 2026-09-04 **Share = IMAGE, per section** (React 2fd969a). Every ↑Share
+  pill captures ITS section (html-to-image, pixelRatio 2, iOS warm-up
+  double-render, the pill itself filtered out) and composes a branded PNG:
+  #EAEDF1 frame, header hotel name + section title + report date, footer
+  app icon + "FirstLight · firstlight.hbis.io". Native share sheet with
+  files (WhatsApp path) when canShare({files}); else download; link-share
+  only as last-resort fallback. data-share-root wrappers added for the
+  fragment sections (Pickup Activity / AI Insights / Pace); all other
+  sections resolve via the label's parent wrapper. share_tap now carries
+  mode:'image'. ⬜ VERIFY ON REAL PHONES (iOS foreignObject rendering is
+  the known risk — test WhatsApp share of Yesterday + a Pace chart; report
+  any blank/partial captures). Preview-artifact caveat: single-file preview
+  can't fetch /fonts, capture may degrade there — live app is the test.
+  (superseded item:) React share previously sent a link; port the
   old app's capture-to-image share, scoped to specific chart/section blocks
   (share pill on each section captures THAT block)
 - ⬜ Dynamic translation: i18n dictionary layer (en/el, ~150 keys) wired to
