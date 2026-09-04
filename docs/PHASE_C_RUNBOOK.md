@@ -34,16 +34,21 @@ precondition is ✅.
 
 ### C1 — backend-owned storage (2–3 days, invisible to users)
 Move what only the BACKEND touches; the app keeps reading Supabase until C2.
-1. Provision Railway Postgres (same project as the processor). Enable
-   automated Railway backups; note connection string as `DATABASE_URL`.
+1. ✅ 2026-09-05 PROVISIONED: service "Postgres" (PG 18) in project
+   zucchini-friendship / env cloudflare — PRIVATE-ONLY (no public access;
+   reach it via `railway connect Postgres --tunnel-only`; CLI logged in as
+   d.karypidis@hbis.io, SSH key firstlight-dev registered; DB password in
+   C:\FirstLightBackups\pg.env). ⬜ user: add the DATABASE_URL reference
+   to the web service's Variables (Add Reference), leave STORAGE unset.
 2. Schema: ✅ WRITTEN 2026-09-04 — `docs/sql/pg/schema.sql` (all 12 tables,
    derived from the live column inventory + every docs/sql constraint;
    includes the LISTEN/NOTIFY trigger for refresh_commands and the
    count-verification query; no RLS by design — service-only access, the
    app goes through the API). Apply with:
    psql "$DATABASE_URL" -f docs/sql/pg/schema.sql
-   NOTE: no local psql on the dev machine — first real parse happens on the
-   provisioned Railway PG; run the file there before anything else.
+   ✅ APPLIED 2026-09-05 on the real instance via tunnel: PG 18.6, all 12
+   tables + every unique/PK constraint + refresh_commands_notify trigger
+   verified from information_schema/pg_constraint.
 3. `db/store.py`: ✅ WRITTEN + WIRED (dormant) 2026-09-04 — psycopg3 pool
    (max 5, lazy import: production untouched until the env flip), modes
    STORAGE=supabase (default, no-op) | dual (write both) | pg (read PG).
@@ -56,6 +61,11 @@ Move what only the BACKEND touches; the app keeps reading Supabase until C2.
    image grows slightly on next deploy — inert until STORAGE is set).
 4. **Dual-write window (3 days)**: backend writes BOTH stores, reads
    Supabase. Verify nightly: row counts + latest briefing hash match.
+   HEAD START ✅ 2026-09-05: the FULL 2026-09-04 backup (736 rows, all 12
+   tables) was mirrored into PG through store.mirror_rows — counts ALL
+   MATCH the backup. So the initial restore is done and rehearsed; the
+   dual-write window only needs to prove the DELTAS. (Re-mirror once more
+   right before enabling STORAGE=dual to catch up the gap days.)
 5. Flip backend reads to PG (`STORAGE=pg`). Supabase still gets writes
    (for the app + rollback).
 6. Queue: replace refresh_commands polling with LISTEN/NOTIFY; the app
@@ -63,10 +73,13 @@ Move what only the BACKEND touches; the app keeps reading Supabase until C2.
 
 ### C2 — app traffic through the API (3–4 days)
 The app stops talking to Supabase for DATA (auth stays).
-1. New FastAPI endpoints (all Bearer-token, per-hotel):
-   GET /briefing/by-date · GET /runs · POST /refresh ·
-   GET+POST /watchlist · POST /feedback · GET+PUT /prefs ·
-   POST /push/subscribe+unsubscribe · POST /events (usage batch)
+1. ✅ SHIPPED 2026-09-04/05 (609bfa5, live-verified: 401s closed, real
+   by-date + runs calls OK): GET /briefing/by-date + /runs (hotel token);
+   /watchlist GET+POST+DELETE, POST /feedback, GET+PUT /prefs,
+   /push subscribe+unsubscribe+prefs, POST /events batch — user-owned
+   endpoints authenticate the app's Supabase JWT against GoTrue (5-min
+   cache) + hotel_users membership; user_id always from the verified
+   token. POST /refresh = existing /trigger.
 2. React `api.ts`: point each direct `sb.from(...)` call at the endpoint;
    the read chain already prefers the API when configured. Per-user data
    (watchlist, feedback) carries the Supabase JWT → API verifies it
