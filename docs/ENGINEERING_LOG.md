@@ -176,6 +176,27 @@ User-side unblockers still open: firstlight_ro logins (both SQL servers),
 Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 **REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
+- ✅ 2026-09-04 **BACKUPS + PHASE C RUNBOOK** (user: "I want to do everything
+  now — start with your suggested steps"; also declared Claude = CTO,
+  best-practice-by-default standing rule, saved to memory).
+  (a) Off-platform nightly backup: `scripts/backup_supabase.ps1` (PowerShell
+  transport — local Python can't SSL to Supabase) dumps all 12 tables as
+  NDJSON.gz to C:\FirstLightBackups\YYYY-MM-DD\ (creds in backup.env
+  there, NOT in repo), reparse-verifies, prunes >14 days; first dump 736
+  rows / ~4.2MB verified; Task Scheduler "FirstLightBackup" daily 08:30
+  local. RESTORE DRILL PASSED: intraday_log round-trip via on_conflict
+  ignore-duplicates (idempotent). `scripts/backup_supabase.py` = same for
+  Linux/Railway later (has --restore <folder> --table <name>).
+  (b) [docs/PHASE_C_RUNBOOK.md](PHASE_C_RUNBOOK.md): full 12-table
+  inventory with app-direct-access map, C1 backend storage w/ dual-write
+  window → C2 app-via-API (8 new endpoints, JWT verified against Supabase
+  Auth) → C3 keep Supabase Auth (recommendation); cutover verification
+  list; rollback = env flip / Pages rollback, Supabase untouched 14 days.
+  GATE to start C1: React go-live stable 1wk + external pinger + 5 clean
+  audit days + firstlight_ro swap. Noted in passing: usage_events has 18
+  rows (tester tracking LIVE), intraday_log 2 rows (intraday pushes FIRED).
+  refresh_runs RLS verified end-to-end as demo user (sees only own hotels;
+  demo hotels legitimately have no runs — real accounts see history).
 - 🔄 2026-09-04 **DATA-FRESHNESS MONITORING** (user: servers sometimes error
   and nobody notices stale data; wants Power-BI-style refresh history in the
   app). Backend 765af25 + React d6d023e + SQL
