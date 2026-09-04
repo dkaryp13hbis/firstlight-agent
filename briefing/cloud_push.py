@@ -154,7 +154,7 @@ def send_typed_push(hotel_id: str, hotel_name: str, title: str, body: str,
 
     if not title_is_full:
         title = f"{hotel_name} · {title}"[:80]
-    pwa_url = os.getenv("PWA_URL", "https://app.hbis.io")
+    pwa_url = os.getenv("PWA_URL", "https://firstlight.hbis.io")
     push_payload = json.dumps({"title": title, "body": body[:180],
                                "sectionId": section_id, "url": pwa_url})
 
