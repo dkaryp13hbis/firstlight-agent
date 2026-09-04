@@ -39,6 +39,9 @@ async def lifespan(app: FastAPI):
     from briefing.demo_sync import sync_demo_briefings
     sched.add_job(sync_demo_briefings, "cron", hour=4, minute=15)
     sched.add_job(sync_demo_briefings, "cron", hour=17, minute=20)
+    # Daily data-freshness audit (ops email only when something is wrong)
+    from briefing.audit import run_daily_audit
+    sched.add_job(run_daily_audit, "cron", hour=7, minute=10)
     sched.start()
     threading.Thread(target=core._poll_refresh_commands, daemon=True).start()
     core.log.info("[api] Scheduler 03:30 full | 06:00 catch-up | 11:00+17:00 data-only UTC; poller up")
@@ -120,8 +123,12 @@ def auth_hotel(request: Request, hotel_id: str = Query(...)) -> str:
 @app.get("/health")
 def health():
     from briefing.analyst import _PROMPT_VERSION
+    from briefing.audit import stale_hotels
     return {"status": "ok", "service": "firstlight-api", "phase": "A",
-            "prompt_version": _PROMPT_VERSION}
+            "prompt_version": _PROMPT_VERSION,
+            # stale = latest briefing older than yesterday; an external uptime
+            # pinger can alert on this field even when we can't send email
+            "stale_hotels": stale_hotels()}
 
 
 @app.post("/trigger", status_code=202)
