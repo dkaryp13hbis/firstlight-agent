@@ -176,6 +176,24 @@ User-side unblockers still open: firstlight_ro logins (both SQL servers),
 Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 **REACT APP PUNCH-LIST (pinned by user 2026-08-16, pre-go-live):**
+- ✅ 2026-09-04 **REACT GO-LIVE — https://firstlight.hbis.io** (user decision
+  after domain exploration: firstlight.io/.co/.eu taken — RDAP false
+  positives corrected by NS lookups; subdomain of hbis.io chosen
+  deliberately, "an HBIS app" brand architecture; firstlight.travel noted
+  as the spin-off insurance option, not bought). Custom domain on the
+  Pages project (same CF account as the zone → auto DNS+cert). VERIFIED
+  end to end: current bundle, sw.js push handler, standalone manifest
+  #061535, icons, Data health + tracking markers present. Backend 9ca3bce:
+  PWA_URL default → firstlight.hbis.io (notification taps). TERMS:
+  firstlight.hbis.io = the official address for GMs/testers from today;
+  firstlight-pwa.pages.dev keeps working as alias (existing installs +
+  push subscriptions unaffected — origin-bound, untouched); legacy Vercel
+  app untouched as ROLLBACK STANDBY until 2026-09-18; first morning cycle
+  on new domain = 2026-09-05 03:30 (also clean-audit day 1 of 5 for the
+  Phase C gate). Tester tracking first snapshot at go-live: 18 events /
+  5 sessions (iOS standalone + browser + desktop), tabs→AI Insights,
+  card_expand leadtime_sep, history_view used. ⬜ user: Railway PWA_URL
+  env check; external /health pinger still open.
 - ✅ 2026-09-04 **BACKUPS + PHASE C RUNBOOK** (user: "I want to do everything
   now — start with your suggested steps"; also declared Claude = CTO,
   best-practice-by-default standing rule, saved to memory).
