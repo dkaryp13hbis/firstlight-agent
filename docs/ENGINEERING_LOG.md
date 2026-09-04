@@ -447,8 +447,19 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   flash); first-ever open shows the navy header + "Loading briefing…" instead
   of a white page. Top Sources bars 6px → 14px (user: "much thicker, same
   design"), STLY tick 3×20 navy.
-- ⬜ **App landing page** — change what greets the user on open (login/entry
-  screen redesign; brand moment before the briefing)
+- ✅ 2026-09-04 **Login screen — "Pre-dawn"** (React e543a2f; user-supplied
+  handoff login-1b-2a-code.html copied verbatim): #0b1530 bg, three aurora
+  glows, 9g mark with 2a slow-orbit corona (flSpin 30s, reduced-motion
+  off-switch), wordmark First<Light cyan> + "BEFORE THE DAY BEGINS" Plex
+  Mono tagline, glass inputs (54px r15, focus cyan ring), gradient submit
+  with cyan glow, POWERED BY HBIS footer. Fonts self-hosted per standing
+  rule: outfit-var.woff2 (100-900 latin) + plexmono 400/500/600 latin
+  (~78KB) added to public/fonts + fonts.css. Functional extras: friendlier
+  wrong-password message; "Forgot password?" now sends the Supabase reset
+  email (redirect to origin; recovery lands the user signed in — a proper
+  in-app new-password screen is a noted gap). Verified live on
+  firstlight.hbis.io (bundle BM0neC5Q + font files 200). This closes the
+  "app landing page" punch-list item.
 - ⬜ **Marketing website for "Xenia"** (working name, user idea 2026-08-18) —
   public landing site with LIVE, anonymized briefing data scrolling as a
   self-running demo (feed from the demo hotels — Azure Bay / Thalassa)
