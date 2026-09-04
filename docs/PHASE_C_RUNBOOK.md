@@ -44,9 +44,16 @@ Move what only the BACKEND touches; the app keeps reading Supabase until C2.
    psql "$DATABASE_URL" -f docs/sql/pg/schema.sql
    NOTE: no local psql on the dev machine — first real parse happens on the
    provisioned Railway PG; run the file there before anything else.
-3. `db/store.py`: one module wrapping psycopg (pool of 5); every backend
-   Supabase REST call gets a PG twin behind a `STORAGE=pg|supabase` env
-   switch. Fail-open rule unchanged.
+3. `db/store.py`: ✅ WRITTEN + WIRED (dormant) 2026-09-04 — psycopg3 pool
+   (max 5, lazy import: production untouched until the env flip), modes
+   STORAGE=supabase (default, no-op) | dual (write both) | pg (read PG).
+   Hooks live at the 4 backend write sites: cloud_push briefing upsert,
+   RunLogger insert+patch (reuses the Supabase run id so stores stay
+   joinable), intraday claim mirror. Also mirror_rows(table, rows) +
+   counts() for step 4's nightly verify, and read functions ready for
+   step 5. test_store.py: 12 dormant-mode checks incl. the lazy-import
+   guarantee. psycopg[binary,pool]==3.2.3 added to requirements (Railway
+   image grows slightly on next deploy — inert until STORAGE is set).
 4. **Dual-write window (3 days)**: backend writes BOTH stores, reads
    Supabase. Verify nightly: row counts + latest briefing hash match.
 5. Flip backend reads to PG (`STORAGE=pg`). Supabase still gets writes
