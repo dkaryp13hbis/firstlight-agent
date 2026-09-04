@@ -79,6 +79,69 @@ def _sb_get(path: str, params: dict) -> list:
     return r.json()
 
 
+def _sb_write(method: str, path: str, params: dict | None, body,
+              prefer: str = "return=minimal") -> list | None:
+    url, key = _sb()
+    try:
+        r = _req.request(method, f"{url}/rest/v1/{path}", params=params or {},
+                         json=body,
+                         headers={"apikey": key, "Authorization": f"Bearer {key}",
+                                  "Content-Type": "application/json", "Prefer": prefer},
+                         timeout=15)
+    except _req.RequestException as exc:
+        raise HTTPException(503, "storage unreachable") from exc
+    if r.status_code == 409 or "23505" in r.text[:200]:
+        raise HTTPException(409, "duplicate")
+    if r.status_code >= 400:
+        raise HTTPException(502, f"storage error {r.status_code}")
+    try:
+        return r.json() if r.text else None
+    except ValueError:
+        return None
+
+
+# ── App-user auth (Supabase JWT; storage-agnostic — survives Phase C) ────────
+
+_USERS: dict = {}                     # jwt -> (user_id, expiry)
+_USERS_LOCK = threading.Lock()
+
+
+def auth_user(request: Request) -> str:
+    """The app's Supabase session JWT → user id (verified against GoTrue).
+    Auth stays on Supabase through Phase C; only data storage moves."""
+    auth = request.headers.get("authorization", "")
+    jwt = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+    if not jwt:
+        raise HTTPException(401, "missing user token")
+    now = _time.time()
+    with _USERS_LOCK:
+        hit = _USERS.get(jwt)
+        if hit and hit[1] > now:
+            return hit[0]
+    url, key = _sb()
+    try:
+        r = _req.get(f"{url}/auth/v1/user",
+                     headers={"apikey": key, "Authorization": f"Bearer {jwt}"},
+                     timeout=10)
+    except _req.RequestException as exc:
+        raise HTTPException(503, "auth unreachable") from exc
+    if r.status_code != 200 or not r.json().get("id"):
+        raise HTTPException(401, "invalid user token")
+    uid = r.json()["id"]
+    with _USERS_LOCK:
+        _USERS[jwt] = (uid, now + 300)
+        if len(_USERS) > 500:
+            _USERS.clear()
+    return uid
+
+
+def require_member(user_id: str, hotel_id: str) -> None:
+    rows = _sb_get("hotel_users", {"user_id": f"eq.{user_id}",
+                                   "hotel_id": f"eq.{hotel_id}", "select": "id"})
+    if not rows:
+        raise HTTPException(403, "not a member of this hotel")
+
+
 # ── Per-hotel token auth (hotels.api_token) ──────────────────────────────────
 
 _TOKENS: dict = {"at": 0.0, "map": {}}          # token -> hotel_id, 60s cache
@@ -211,6 +274,167 @@ def push_test(hotel_id: str = Depends(auth_hotel)):
             hotel_id, hotel_name=name)
     log = buf.getvalue().strip().splitlines()
     return {"hotel_id": hotel_id, "subscriptions": len(subs), "log": log[-6:]}
+
+
+# ── C2 endpoints (Phase C prep 3/3, 2026-09-04): the app's direct Supabase
+# reads/writes as API calls. Backed by Supabase today; the storage flip later
+# happens inside these handlers only. Hotel-scoped data = hotel token;
+# user-owned data = the app's Supabase JWT + hotel membership.
+
+@app.get("/briefing/by-date")
+def briefing_by_date(hotel_id: str = Depends(auth_hotel), date: str = Query(...)):
+    rows = _sb_get("briefings", {
+        "hotel_id": f"eq.{hotel_id}", "report_date": f"eq.{date}",
+        "select": "report_date,generated_at,data,ai_insights",
+        "order": "generated_at.desc", "limit": "1",
+    })
+    if not rows:
+        raise HTTPException(404, "no briefing for that date")
+    return rows[0]
+
+
+@app.get("/runs")
+def runs(hotel_id: str = Depends(auth_hotel), days: int = Query(3, ge=1, le=14)):
+    from datetime import datetime, timedelta, timezone
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    rows = _sb_get("refresh_runs", {
+        "hotel_id": f"eq.{hotel_id}", "started_at": f"gte.{since}",
+        "select": "started_at,completed_at,run_type,status,error_type,attempt",
+        "order": "started_at.desc", "limit": "50",
+    })
+    return {"hotel_id": hotel_id, "runs": rows}
+
+
+@app.get("/watchlist")
+def watchlist_get(request: Request, hotel_id: str = Query(...)):
+    uid = auth_user(request)
+    require_member(uid, hotel_id)
+    rows = _sb_get("watchlist", {
+        "user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}",
+        "select": "id,kind,key,label,note,created_at", "order": "created_at.asc",
+    })
+    return {"items": rows}
+
+
+@app.post("/watchlist", status_code=201)
+def watchlist_add(request: Request, body: dict):
+    uid = auth_user(request)
+    hotel_id = str(body.get("hotel_id", ""))
+    require_member(uid, hotel_id)
+    if body.get("kind") not in ("month", "range") or not body.get("key"):
+        raise HTTPException(422, "kind must be month|range with a key")
+    existing = _sb_get("watchlist", {"user_id": f"eq.{uid}",
+                                     "hotel_id": f"eq.{hotel_id}", "select": "id"})
+    if len(existing) >= 5:
+        raise HTTPException(409, "watchlist is full (5)")
+    row = {"user_id": uid, "hotel_id": hotel_id, "kind": body["kind"],
+           "key": str(body["key"]), "label": body.get("label")}
+    out = _sb_write("POST", "watchlist", None, row, prefer="return=representation")
+    return out[0] if out else row
+
+
+@app.delete("/watchlist/{item_id}")
+def watchlist_remove(item_id: str, request: Request):
+    uid = auth_user(request)
+    _sb_write("DELETE", "watchlist",
+              {"id": f"eq.{item_id}", "user_id": f"eq.{uid}"}, None)
+    return {"removed": item_id}
+
+
+@app.post("/feedback", status_code=201)
+def feedback_post(request: Request, body: dict):
+    uid = auth_user(request)
+    hotel_id = str(body.get("hotel_id", ""))
+    require_member(uid, hotel_id)
+    if body.get("verdict") not in (1, -1) or not body.get("card_id"):
+        raise HTTPException(422, "verdict 1|-1 and card_id required")
+    row = {"hotel_id": hotel_id, "report_date": body.get("report_date"),
+           "card_id": body["card_id"], "verdict": body["verdict"],
+           "reason": body.get("reason"), "card_content": body.get("card_content"),
+           "user_id": uid}
+    _sb_write("POST", "insight_feedback",
+              {"on_conflict": "hotel_id,report_date,card_id,user_id"}, row,
+              prefer="resolution=merge-duplicates,return=minimal")
+    return {"ok": True}
+
+
+@app.get("/prefs")
+def prefs_get(request: Request, hotel_id: str = Query(...)):
+    uid = auth_user(request)
+    require_member(uid, hotel_id)
+    rows = _sb_get("hotel_prefs", {"hotel_id": f"eq.{hotel_id}", "select": "language,updated_at"})
+    return rows[0] if rows else {"language": "en"}
+
+
+@app.put("/prefs")
+def prefs_put(request: Request, body: dict):
+    uid = auth_user(request)
+    hotel_id = str(body.get("hotel_id", ""))
+    require_member(uid, hotel_id)
+    if body.get("language") not in ("en", "el"):
+        raise HTTPException(422, "language must be en|el")
+    from datetime import datetime, timezone
+    _sb_write("POST", "hotel_prefs", {"on_conflict": "hotel_id"},
+              {"hotel_id": hotel_id, "language": body["language"],
+               "updated_at": datetime.now(timezone.utc).isoformat()},
+              prefer="resolution=merge-duplicates,return=minimal")
+    return {"ok": True}
+
+
+@app.post("/push/subscribe", status_code=201)
+def push_subscribe(request: Request, body: dict):
+    uid = auth_user(request)
+    hotel_id = str(body.get("hotel_id", ""))
+    require_member(uid, hotel_id)
+    if not isinstance(body.get("subscription"), dict):
+        raise HTTPException(422, "subscription object required")
+    _sb_write("DELETE", "push_subscriptions",
+              {"user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}"}, None)
+    _sb_write("POST", "push_subscriptions", None,
+              {"hotel_id": hotel_id, "user_id": uid, "subscription": body["subscription"]})
+    return {"ok": True}
+
+
+@app.post("/push/unsubscribe")
+def push_unsubscribe(request: Request, body: dict):
+    uid = auth_user(request)
+    hotel_id = str(body.get("hotel_id", ""))
+    _sb_write("DELETE", "push_subscriptions",
+              {"user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}"}, None)
+    return {"ok": True}
+
+
+@app.put("/push/prefs")
+def push_prefs(request: Request, body: dict):
+    uid = auth_user(request)
+    hotel_id = str(body.get("hotel_id", ""))
+    prefs = body.get("notification_prefs")
+    if not isinstance(prefs, dict):
+        raise HTTPException(422, "notification_prefs object required")
+    _sb_write("PATCH", "push_subscriptions",
+              {"user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}"},
+              {"notification_prefs": prefs})
+    return {"ok": True}
+
+
+@app.post("/events", status_code=202)
+def events(request: Request, body: dict):
+    """Usage-tracking batch. user_id is taken from the verified JWT, never
+    from the payload."""
+    uid = auth_user(request)
+    evs = body.get("events")
+    if not isinstance(evs, list) or not evs or len(evs) > 100:
+        raise HTTPException(422, "events: list of 1..100")
+    rows = []
+    for e in evs:
+        if not isinstance(e, dict) or not e.get("event"):
+            continue
+        rows.append({"user_id": uid, "hotel_id": e.get("hotel_id"),
+                     "session_id": str(e.get("session_id", ""))[:64],
+                     "event": str(e["event"])[:64], "props": e.get("props")})
+    if rows:
+        _sb_write("POST", "usage_events", None, rows)
+    return {"accepted": len(rows)}
 
 
 if __name__ == "__main__":
