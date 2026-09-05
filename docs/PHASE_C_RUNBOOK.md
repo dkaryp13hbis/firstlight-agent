@@ -59,8 +59,16 @@ Move what only the BACKEND touches; the app keeps reading Supabase until C2.
    step 5. test_store.py: 12 dormant-mode checks incl. the lazy-import
    guarantee. psycopg[binary,pool]==3.2.3 added to requirements (Railway
    image grows slightly on next deploy — inert until STORAGE is set).
-4. **Dual-write window (3 days)**: backend writes BOTH stores, reads
-   Supabase. Verify nightly: row counts + latest briefing hash match.
+4. **Dual-write window (3 days)** — ✅ OPENED 2026-09-04 ~21:10 UTC
+   (STORAGE=dual + DATABASE_URL on the web service). Day 1 verified by
+   hand 2026-09-05: 03:30 briefings + runs in BOTH stores, values equal;
+   full backup mirrored (749 rows ALL MATCH). Now AUTOMATED:
+   - 07:20 UTC server-side `run_dual_verify` (audit.py): per-table counts
+     + latest-briefing equality, ops email only on drift (db4e1d7)
+   - 08:40 local `FirstLightMirror` task (scripts/mirror_to_pg.ps1):
+     mirrors the day's backup into PG through the CLI tunnel — keeps
+     app-written tables synced until C2 (tested: 749 rows)
+   Window counts from 2026-09-05; read-flip candidate 2026-09-08+.
    HEAD START ✅ 2026-09-05: the FULL 2026-09-04 backup (736 rows, all 12
    tables) was mirrored into PG through store.mirror_rows — counts ALL
    MATCH the backup. So the initial restore is done and rehearsed; the
