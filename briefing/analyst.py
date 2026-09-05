@@ -34,7 +34,7 @@ import config
 
 _client = None
 _MODEL = "claude-sonnet-4-6"
-_PROMPT_VERSION = "cards-v1.9-plain"
+_PROMPT_VERSION = "cards-v1.9.1-plain-caps"
 
 # Cost policy (user decision 2026-07-27): every Claude call costs money, so
 # narration gets ONE attempt — a validation miss goes straight to the free
@@ -1480,8 +1480,8 @@ STRICT RULES
     "The position could support...". Vary openers across cards.
 12. LENGTH CAPS ARE HARD LIMITS — outputs over cap are REJECTED. Before
     submitting, count the words in every field. Target ~80% of each cap:
-    headline ~9 words (max 12); what_happened ~15 (max 20); why_it_matters
-    ~28 (max 35); recommended_action ~18 (max 25); by_when ~6 (max 10).
+    headline ~9 words (max 12); what_happened ~22 (max 28); why_it_matters
+    ~33 (max 42); recommended_action ~25 (max 32); by_when ~6 (max 10).
     If a thought does not fit, drop detail — never squeeze more words in.
 13. Occupancy/revenue projections: only use the low-high band provided
     ("around 91-95%"). Never present a single-point projection or the
@@ -1511,9 +1511,9 @@ _CARD_TOOL: dict[str, Any] = {
                     "required": ["label", "value", "sub"],
                 },
             },
-            "what_happened":      {"type": "string", "description": "HARD LIMIT 20 words — write 16 or fewer. Over-limit submissions are discarded."},
-            "why_it_matters":     {"type": "string", "description": "HARD LIMIT 35 words — write 28 or fewer. Over-limit submissions are discarded."},
-            "recommended_action": {"type": "string", "description": "HARD LIMIT 25 words — write 20 or fewer. Soft opener, never an imperative verb first. Over-limit submissions are discarded."},
+            "what_happened":      {"type": "string", "description": "HARD LIMIT 28 words — write 22 or fewer. Over-limit submissions are discarded."},
+            "why_it_matters":     {"type": "string", "description": "HARD LIMIT 42 words — write 33 or fewer. Over-limit submissions are discarded."},
+            "recommended_action": {"type": "string", "description": "HARD LIMIT 32 words — write 25 or fewer. Soft opener, never an imperative verb first. Over-limit submissions are discarded."},
             "by_when":            {"type": "string", "description": "HARD LIMIT 10 words — write 8 or fewer."},
             "at_stake": {
                 "type": "object",
@@ -1531,7 +1531,7 @@ _HERO_TOOL: dict[str, Any] = {
     "description": "Submit the morning hero paragraph shown at the top of the briefing.",
     "input_schema": {
         "type": "object",
-        "properties": {"hero": {"type": "string", "description": "4-6 short sentences starting exactly with 'Good morning.' HARD LIMIT 110 words — write 90 or fewer. Over-limit submissions are discarded."}},
+        "properties": {"hero": {"type": "string", "description": "4-6 short sentences starting exactly with 'Good morning.' HARD LIMIT 125 words — write 100 or fewer. Over-limit submissions are discarded."}},
         "required": ["hero"],
     },
 }
@@ -1547,9 +1547,13 @@ _BANNED_IMPERATIVES = {"change", "remove", "increase", "decrease", "cut",
 #   2. validators reject over-cap narration → deterministic fallback ships
 #   3. fallback templates are test-enforced within caps (test_leadtime etc.)
 #   4. _enforce_caps() is the last-resort runtime clamp — nothing ever ships over
-_WORD_CAPS = {"headline": 12, "what_happened": 20, "why_it_matters": 35,
-              "recommended_action": 25, "by_when": 10}
-_HERO_WORD_CAP = 110
+# Caps relaxed 2026-09-05: the v1.9 plain-language vocabulary is ~20% wordier
+# than the jargon it replaced ("channel shift" -> "bookings coming from
+# different sources"), so 4/6 cards + the hero fell back on 09-05. Policy
+# 2026-07-27: relax caps rather than pay for retries.
+_WORD_CAPS = {"headline": 12, "what_happened": 28, "why_it_matters": 42,
+              "recommended_action": 32, "by_when": 10}
+_HERO_WORD_CAP = 125
 
 
 def _clamp_words(text: str, cap: int) -> str:
