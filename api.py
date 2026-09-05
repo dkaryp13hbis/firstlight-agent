@@ -191,6 +191,7 @@ def health():
     from briefing.audit import stale_hotels
     return {"status": "ok", "service": "firstlight-api", "phase": "A",
             "prompt_version": _PROMPT_VERSION,
+            "build": os.getenv("RAILWAY_GIT_COMMIT_SHA", "")[:7] or "local",
             # stale = latest briefing older than yesterday; an external uptime
             # pinger can alert on this field even when we can't send email
             "stale_hotels": stale_hotels()}
