@@ -166,3 +166,64 @@ def run_daily_audit() -> None:
             print("[audit] All hotels fresh and moving.")
     except Exception as exc:  # noqa: BLE001
         print(f"[audit] Audit failed (non-fatal): {exc}")
+
+
+# ── Phase C: dual-write verification (scheduled 07:20 UTC while STORAGE=dual) ─
+
+def dual_verify() -> list[str]:
+    """Compare Postgres against Supabase: per-table row counts and the latest
+    briefing per active hotel (report_date + yesterday revenue). Returns
+    problem strings; empty = stores agree. Server-side only (DATABASE_URL)."""
+    from db import store
+    if not store.enabled():
+        return []
+    problems: list[str] = []
+    pg = store.counts()
+    for table, pg_n in pg.items():
+        try:
+            url, key = _sb()
+            r = _req.get(f"{url}/rest/v1/{table}", params={"select": "id", "limit": "1"},
+                         headers={"apikey": key, "Authorization": f"Bearer {key}",
+                                  "Prefer": "count=exact", "Range": "0-0"}, timeout=15)
+            sb_n = int(r.headers.get("Content-Range", "*/0").split("/")[-1])
+        except Exception as exc:  # noqa: BLE001
+            problems.append(f"dual: count check for {table} errored ({exc})")
+            continue
+        # PG may be AHEAD only transiently; behind = missed dual-writes
+        if pg_n < sb_n:
+            problems.append(f"dual: {table} behind — pg={pg_n} supabase={sb_n} "
+                            f"(missed dual-writes or app-table drift; re-mirror)")
+    for h in _get("hotels", {"active": "eq.true", "select": "id,name"}):
+        sb_rows = _get("briefings", {"hotel_id": f"eq.{h['id']}",
+                                     "select": "report_date,data",
+                                     "order": "report_date.desc", "limit": "1"})
+        pg_row = store.get_latest_briefing(h["id"], ["report_date", "data"])
+        if not sb_rows or not pg_row:
+            problems.append(f"dual: {h['name']} latest briefing missing "
+                            f"(sb={bool(sb_rows)} pg={bool(pg_row)})")
+            continue
+        sb_d, pg_d = sb_rows[0], pg_row
+        sb_rev = ((sb_d.get("data") or {}).get("yesterday") or {}).get("revenue")
+        pg_rev = ((pg_d.get("data") or {}).get("yesterday") or {}).get("revenue")
+        if str(sb_d["report_date"]) != str(pg_d["report_date"]) or sb_rev != pg_rev:
+            problems.append(f"dual: {h['name']} latest briefing differs — "
+                            f"sb {sb_d['report_date']}/€{sb_rev} vs pg {pg_d['report_date']}/€{pg_rev}")
+    return problems
+
+
+def run_dual_verify() -> None:
+    """Scheduler entry — fail-open; ops email only on problems."""
+    try:
+        problems = dual_verify()
+        if problems:
+            print(f"[dual-verify] {len(problems)} problem(s): {problems}")
+            try:
+                _send_ops_email(problems)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[dual-verify] ops email failed: {exc}")
+        else:
+            from db import store
+            state = "stores agree" if store.enabled() else "PG not participating (skipped)"
+            print(f"[dual-verify] {state}.")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[dual-verify] failed (non-fatal): {exc}")

@@ -40,8 +40,10 @@ async def lifespan(app: FastAPI):
     sched.add_job(sync_demo_briefings, "cron", hour=4, minute=15)
     sched.add_job(sync_demo_briefings, "cron", hour=17, minute=20)
     # Daily data-freshness audit (ops email only when something is wrong)
-    from briefing.audit import run_daily_audit
+    from briefing.audit import run_daily_audit, run_dual_verify
     sched.add_job(run_daily_audit, "cron", hour=7, minute=10)
+    # Phase C: Postgres-vs-Supabase agreement check (no-op unless STORAGE set)
+    sched.add_job(run_dual_verify, "cron", hour=7, minute=20)
     sched.start()
     threading.Thread(target=core._poll_refresh_commands, daemon=True).start()
     core.log.info("[api] Scheduler 03:30 full | 06:00 catch-up | 11:00+17:00 data-only UTC; poller up")
