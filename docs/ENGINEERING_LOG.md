@@ -535,6 +535,16 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   DECISIONS RECORDED: §3 FL Pulse restyle + §6 chart shells already live —
   §6 keeps our pill-top bars over the spec's rx3 (user: "keep the live
   one"); §9 tablet side-rail NOT built (placeholder comment in Shell.tsx).
+  FOLLOW-UPS same day (React 232c23a → f905300, live CDErRH9z): labels
+  10→11.5px (user: bigger); then FINAL nav per user-supplied
+  bottom-nav-final.html — outline→FILLED icon swap on the active tab
+  (label 800, gradient indicator top -9, badge hides at 0, wraps the icon),
+  and the NEW Pace icon B (this-year bars solid / last-year hollow)
+  applied BOTH in the nav and in ICONS.pace (Pace section header) — the
+  two must stay identical (comment in Shell.tsx). Verification lesson
+  re-learned: grep the LIVE bundle for a string unique to the new commit
+  (the pace polyline + clock paths exist elsewhere → two false-positive
+  "verified" calls before the real one).
 - ⬜ Dynamic translation: i18n dictionary layer (en/el, ~150 keys) wired to
   the EN/ΕΛ switch — instant UI translation; narration stays per-hotel
   next-morning (cost policy)
