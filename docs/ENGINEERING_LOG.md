@@ -549,7 +549,9 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   blur (content scrolls visibly underneath), .fl-tabbar class in index.css
   with -webkit- prefix + @supports solid-white fallback; padding 10px,
   indicator -11.5. The spec's 1.5px gradient top hairline was REMOVED next
-  commit (95ce18a) — user: "i dont need this"; bar has no border at all.
+  commit (95ce18a) — user: "i dont need this" — then replaced with a plain
+  grey 1px #DDE3EC top border (b54e407, user: white-on-white needed
+  separation). Final: frosted bar + grey hairline.
 - ⬜ Dynamic translation: i18n dictionary layer (en/el, ~150 keys) wired to
   the EN/ΕΛ switch — instant UI translation; narration stays per-hotel
   next-morning (cost policy)
