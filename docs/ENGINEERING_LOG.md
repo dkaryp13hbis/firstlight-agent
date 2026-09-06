@@ -544,7 +544,12 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   two must stay identical (comment in Shell.tsx). Verification lesson
   re-learned: grep the LIVE bundle for a string unique to the new commit
   (the pace polyline + clock paths exist elsewhere → two false-positive
-  "verified" calls before the real one).
+  "verified" calls before the real one). THEN frosted glass (React f0b7f33,
+  user-supplied bottom-nav-frosted.html): bar = 72% white + 14px backdrop
+  blur (content scrolls visibly underneath), top hairline = 1.5px
+  brand-gradient border-image, .fl-tabbar class in index.css with
+  -webkit- prefix + @supports solid-white fallback; padding 10px,
+  indicator -11.5.
 - ⬜ Dynamic translation: i18n dictionary layer (en/el, ~150 keys) wired to
   the EN/ΕΛ switch — instant UI translation; narration stays per-hotel
   next-morning (cost policy)
