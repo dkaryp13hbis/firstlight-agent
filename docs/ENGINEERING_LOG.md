@@ -511,6 +511,30 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   (superseded item:) React share previously sent a link; port the
   old app's capture-to-image share, scoped to specific chart/section blocks
   (share pill on each section captures THAT block)
+- ✅ 2026-09-06 **Mobile shell v2.2** (React c21e72b, from the user-supplied
+  MOBILE-SHELL-UPDATE.md spec; scope decided item-by-item by the user:
+  "1.4.5 build them, 2 no, 3 already live, 6 keep the live one, 7 build,
+  8 build as bugfix, 9 not yet, 10 build"):
+  §1 bottom tab bar — fixed, safe-area padded, 19px stroke icons per tab,
+  gradient active indicator, FL Pulse count badge (kept CONSTANT — §2 "pulse
+  once on new insights" DECLINED), haptic tick; top tab row deleted; main
+  padding-bottom 84px+safe-area. Pull-to-refresh wrapper now transforms only
+  while pulling (a permanent transform would have trapped the fixed bar).
+  §4 collapsing header — scrollY>60 collapses (expand <20, hysteresis): bare
+  22px mark + hotel name (ellipsis, picker tap scrolls up first) + mini ↻;
+  bell/share hidden; row 2 max-height/opacity animated.
+  §5 day strip — 44px right-edge fade; past-day banner restyled to spec
+  strip (#FBF3DF/#EDDCA8/#6D4C00, clock icon, "Viewing Fri 4 Sep · not
+  live" + Back to Today).
+  §7 loading/offline — fl-shimmer skeletons on first load AND ~1.5s on
+  manual refresh; fetch-fail-with-cache shows grey "Offline · showing
+  briefing as of {date}" strip instead of an error.
+  §8 BUGFIX (user-reported): switching hotels now resets the active tab to
+  Overview + scrolls to top (chart selections already reset per-hotel).
+  §10 viewport-fit=cover for edge-to-edge safe-area.
+  DECISIONS RECORDED: §3 FL Pulse restyle + §6 chart shells already live —
+  §6 keeps our pill-top bars over the spec's rx3 (user: "keep the live
+  one"); §9 tablet side-rail NOT built (placeholder comment in Shell.tsx).
 - ⬜ Dynamic translation: i18n dictionary layer (en/el, ~150 keys) wired to
   the EN/ΕΛ switch — instant UI translation; narration stays per-hotel
   next-morning (cost policy)
