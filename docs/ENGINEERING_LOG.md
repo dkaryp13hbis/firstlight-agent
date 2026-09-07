@@ -552,8 +552,9 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   commit (95ce18a) — user: "i dont need this" — then replaced with a plain
   grey 1px #DDE3EC top border (b54e407, user: white-on-white needed
   separation). FINAL FORM (bfa9b93, user screenshot): FLOATING PILL —
-  inset 12px, bottom 12px + safe-area, radius 22, full 1px #E2E7F0 border,
-  soft shadow, blur kept (78% white); main bottom padding 96px.
+  inset 12px, radius 22, full 1px #E2E7F0 border, soft shadow, blur kept
+  (78% white); main bottom padding 96px. Lowered on user feedback
+  (c41c7fb): bottom = 4px + HALF the safe-area (was 12px + full).
 - ⬜ Dynamic translation: i18n dictionary layer (en/el, ~150 keys) wired to
   the EN/ΕΛ switch — instant UI translation; narration stays per-hotel
   next-morning (cost policy)
