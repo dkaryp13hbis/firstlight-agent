@@ -555,6 +555,11 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   inset 12px, radius 22, full 1px #E2E7F0 border, soft shadow, blur kept
   (78% white); main bottom padding 96px. Lowered on user feedback
   (c41c7fb): bottom = 4px + HALF the safe-area (was 12px + full).
+  BUGFIX (2701ed1, user: "menu hidden a bit when scrolling"): nav now
+  createPortal'd to <body> — the pull-to-refresh wrapper transforms while
+  dragging, and a transformed ancestor turns position:fixed into
+  ancestor-relative, dragging the pill off-screen during the gesture.
+  Rule: NOTHING position:fixed may live inside the pull wrapper.
 - ⬜ Dynamic translation: i18n dictionary layer (en/el, ~150 keys) wired to
   the EN/ΕΛ switch — instant UI translation; narration stays per-hotel
   next-morning (cost policy)
