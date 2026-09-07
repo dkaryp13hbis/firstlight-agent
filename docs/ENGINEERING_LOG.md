@@ -560,6 +560,10 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   dragging, and a transformed ancestor turns position:fixed into
   ancestor-relative, dragging the pill off-screen during the gesture.
   Rule: NOTHING position:fixed may live inside the pull wrapper.
+  HEADER (b5b7be9, user: header should come back on scroll-up): collapse
+  logic now direction-based — collapse past 60px going DOWN, expand after
+  ~12px of UPWARD scroll anywhere (or near top), iOS-style; was
+  expand-only-near-top hysteresis.
 - ⬜ Dynamic translation: i18n dictionary layer (en/el, ~150 keys) wired to
   the EN/ΕΛ switch — instant UI translation; narration stays per-hotel
   next-morning (cost policy)
