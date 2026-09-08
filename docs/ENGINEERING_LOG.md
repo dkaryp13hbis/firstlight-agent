@@ -565,6 +565,14 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   flashed open/closed ("confusing" — user). Final: original hysteresis,
   collapse >60px / expand <20px near the top. Don't re-propose
   direction-based without a tap-jitter guard.
+  LIQUID GLASS (249b97c, 2026-09-08, user: iOS-26 Liquid Glass tab bar):
+  bar = 55% white + blur(18px) saturate(1.7), rgba border, inset specular
+  top highlight; NEW .fl-lens — glass bubble under the active tab, width
+  20%, left animates .38s springy cubic-bezier (morphs across on tab
+  switch, reduced-motion: none), chromatic conic-gradient edge ring via
+  mask-composite; gradient top indicator REMOVED (lens replaces it).
+  Web limits noted to user: no true refraction/warp, slide not Apple's
+  stretch-merge morph.
 - ⬜ Dynamic translation: i18n dictionary layer (en/el, ~150 keys) wired to
   the EN/ΕΛ switch — instant UI translation; narration stays per-hotel
   next-morning (cost policy)
