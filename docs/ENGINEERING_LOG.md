@@ -575,7 +575,7 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   stretch-merge morph. POLISH (7b2641f, user: selection fired on finger
   LIFT, wants native touch-down + rounder): tabs select onPointerDown
   (guarded onClick e.detail===0 keeps keyboard); lens radius 999px
-  capsule (REVERTED to 19px same day, 37112ef — user), slide .38s→.28s. Verification lesson #3: 'onPointerDown' is a
+  capsule (REVERTED to 19px same day, 37112ef — user), slide .38s→.28s, then .45s gentler spring (75bddd7 — user: slower, like iOS). Verification lesson #3: 'onPointerDown' is a
   USELESS bundle marker — react-dom contains every event name; match the
   hash against the local build or grep a truly unique literal.
   ICON SYNC (8935932, user): Next 60 Days Demand section header now uses
