@@ -578,6 +578,10 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   capsule (REVERTED to 19px same day, 37112ef — user), slide .38s→.28s. Verification lesson #3: 'onPointerDown' is a
   USELESS bundle marker — react-dom contains every event name; match the
   hash against the local build or grep a truly unique literal.
+  ICON SYNC (8935932, user): Next 60 Days Demand section header now uses
+  the Calendar tab's calendar icon (new ICONS.cal60, replaces the heat
+  grid) — Pace/Calendar/FL Pulse are matched nav↔section pairs;
+  Overview(sun)/Pickup(trend) intentionally keep their report identities.
 - ⬜ Dynamic translation: i18n dictionary layer (en/el, ~150 keys) wired to
   the EN/ΕΛ switch — instant UI translation; narration stays per-hotel
   next-morning (cost policy)
