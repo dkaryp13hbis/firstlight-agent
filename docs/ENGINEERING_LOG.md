@@ -575,7 +575,7 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   stretch-merge morph. POLISH (7b2641f, user: selection fired on finger
   LIFT, wants native touch-down + rounder): tabs select onPointerDown
   (guarded onClick e.detail===0 keeps keyboard); lens radius 999px
-  capsule, slide .38s→.28s. Verification lesson #3: 'onPointerDown' is a
+  capsule (REVERTED to 19px same day, 37112ef — user), slide .38s→.28s. Verification lesson #3: 'onPointerDown' is a
   USELESS bundle marker — react-dom contains every event name; match the
   hash against the local build or grep a truly unique literal.
 - ⬜ Dynamic translation: i18n dictionary layer (en/el, ~150 keys) wired to
