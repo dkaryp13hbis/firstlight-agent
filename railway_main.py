@@ -370,6 +370,16 @@ def _process_hotel_locked(hotel: dict, run, force: bool, data_only: bool, result
         # BEFORE this run overwrites it.
         prev_data = _get_existing_data(hotel["id"]) if (data_only and not manual) else None
 
+        # Follow-up engine ("one watchlist, two authors", 2026-09-10): keep
+        # FirstLight's auto-watched months current, resolve/retire, attach
+        # card meta + closures. Fail-open — never blocks the briefing.
+        try:
+            from briefing.followup import update_followups
+            update_followups(hotel["id"], data, ai,
+                             is_morning=not data_only and not manual)
+        except Exception as _fe:
+            log.warning(f"[processor] followup engine skipped: {_fe}")
+
         from briefing.cloud_push import push_to_cloud
         with run.stage("publish"):
             push_to_cloud(data, ai, rendered_html=rendered_html,

@@ -33,8 +33,12 @@ async def lifespan(app: FastAPI):
     sched = BackgroundScheduler()
     sched.add_job(core.run_all_hotels, "cron", hour=3, minute=30)   # full
     sched.add_job(core.run_all_hotels, "cron", hour=6, minute=0)    # catch-up
-    sched.add_job(lambda: core.run_all_hotels(data_only=True), "cron", hour=11, minute=0)
-    sched.add_job(lambda: core.run_all_hotels(data_only=True), "cron", hour=17, minute=0)
+    # 5 intraday data-only refreshes (user-approved 2026-09-10, follow-up
+    # engine cadence): ~10:00-22:00 hotel time (Athens = UTC+2/+3). No AI —
+    # events, alert checks and watch states only; push volume gated by
+    # thresholds, not cadence.
+    for _h in (7, 10, 13, 16, 19):
+        sched.add_job(lambda: core.run_all_hotels(data_only=True), "cron", hour=_h, minute=0)
     # Demo mirror: refresh anonymized copies after the morning run + evening
     from briefing.demo_sync import sync_demo_briefings
     sched.add_job(sync_demo_briefings, "cron", hour=4, minute=15)
@@ -312,10 +316,21 @@ def runs(hotel_id: str = Depends(auth_hotel), days: int = Query(3, ge=1, le=14))
 def watchlist_get(request: Request, hotel_id: str = Query(...)):
     uid = auth_user(request)
     require_member(uid, hotel_id)
-    rows = _sb_get("watchlist", {
-        "user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}",
-        "select": "id,kind,key,label,note,created_at", "order": "created_at.asc",
-    })
+    # The user's own rows PLUS hotel-level FirstLight rows (follow-up engine,
+    # 2026-09-10). Schema-tolerant: until the source columns are pasted the
+    # or/select 400s and we fall back to the legacy per-user query.
+    try:
+        rows = _sb_get("watchlist", {
+            "hotel_id": f"eq.{hotel_id}",
+            "or": f"(user_id.eq.{uid},source.eq.firstlight)",
+            "select": "id,kind,key,label,note,created_at,source,flagged_date,first_gap,last_gap",
+            "order": "created_at.asc",
+        })
+    except Exception:
+        rows = _sb_get("watchlist", {
+            "user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}",
+            "select": "id,kind,key,label,note,created_at", "order": "created_at.asc",
+        })
     return {"items": rows}
 
 
