@@ -48,6 +48,39 @@ analyst never sees SQL, only the HotelDataSnapshot contract.
    (see `ops-monitoring` skill). Manual refreshes reuse AI, so this is free.
 7. `docs/ENGINEERING_LOG.md`: release-history row.
 
+## Opera 5 / Oracle (`db/adapters/opera_oracle/`, since 2026-09-12)
+
+Different shape, same conventions. Source = the hotel group's BI view
+`OPERA.EUROTEL_TARGIT_WBLKNM` (one row per reservation per stay night — the
+view their Power BI reads, so numbers reconcile by construction). The adapter
+runs ONE bounded extract per property (`Q_GRAIN`: stay date × book date ×
+cancel date × source × status group, 13 months back → next year end) and
+computes every Protel query in Python (`fetcher.compute_pack`). Rules:
+
+- Status is PER NIGHT: `RESERVED`/`CHECKED IN` = occupied night (`NO_ROOMS`,
+  `ROOM_REVENUE` net, `+ ROOM_REVENUE_TAX` gross); `CHECKED OUT` = departure-day
+  row (0 nights, day-use revenue only); `CANCELLED` = lost night
+  (`CANCELLED_ROOM_NIGHTS`, `CLX_ROOM_REVENUE_GROSS`, `CANCELLATION_DATE`).
+  `NULL` status / `R_TYPE = 'B'` = unpicked group block → excluded. `NO SHOW`,
+  `PROSPECT` excluded.
+- **Pseudo rooms (`PSUEDO_ROOM_YN = 'Y'`, PM/PI posting masters): nights
+  excluded, REVENUE INCLUDED** — Hotel BI convention, verified day by day.
+  NEVER put the pseudo predicate in the WHERE clause: it makes the view scan
+  27 s instead of 2 s (predicate pushdown into the UNION). Keep it in the
+  SELECT `CASE`.
+- Property selector = `RESORT` code (`pms_config.sql.pms_hotel_id`, e.g.
+  `"CITY"`). Physical inventory = `RESORT$_ROOM_CATEGORY.NUMBER_ROOMS` where
+  `PSUEDO_ROOM_TYPE IS NULL`.
+- Night-audit gate: `OPERA.BUSINESSDATE.STATE` for yesterday must be
+  `CLOSED`, else fetch raises (retry ladder handles it).
+- Binds are named (`:resort`), driver = python-oracledb thin (no client libs).
+- Validate with `scripts/validate_opera.py` (VPN or local cloudflared port):
+  native `RESERVATION_STAT_DAILY` cross-check + Hotel BI candidates.
+  Unit tests: `py -3.13 test_opera.py` (synthetic grain rows).
+
+Shared payload assembly for ALL adapters: `db/adapters/assemble.py` — an
+adapter only has to produce the Protel-shaped result rows.
+
 ## Per-hotel variation
 
 Hotel character lives in `hotels.pms_config` (e.g. `hotel_type: city|resort`

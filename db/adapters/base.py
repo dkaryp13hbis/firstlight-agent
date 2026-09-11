@@ -16,11 +16,13 @@ Every adapter is a package under db/adapters/<pms_type>/ exposing:
 - Return value: a HotelDataSnapshot payload (see db/contract.py) with
   `data_quality` already attached. Queries MUST stay bounded (stateless
   windowed aggregates — no full-history reloads).
+- `CONNECTOR` (module attribute, optional): "mssql" (default) or "oracle" —
+  tells the tunnel path which driver opens the connection.
 
 Registered adapters:
     protel_mssql   Protel on-prem (SQL Server / BiData)     — implemented
     pylon_mssql    Pylon on-prem (SQL Server)               — planned
-    opera5_oracle  Opera 5 on-prem (Oracle)                 — planned
+    opera_oracle   Opera 5 on-prem (Oracle)                 — implemented
     fidelio_oracle Fidelio V8 on-prem (Oracle)              — planned
     hotelizer_api  Hotelizer cloud (REST)                   — planned
 """
@@ -29,6 +31,7 @@ from importlib import import_module
 
 _REGISTRY = {
     "protel_mssql": "db.adapters.protel_mssql.fetcher",
+    "opera_oracle": "db.adapters.opera_oracle.fetcher",
 }
 
 

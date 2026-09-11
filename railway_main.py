@@ -118,7 +118,7 @@ def _fetch_via_tunnel(hotel: dict, pms_cfg: dict) -> dict:
     """Tunnel-direct fetch: open a cloudflared Access client to the hotel's SQL
     port and run the PMS adapter's queries from the cloud."""
     from db.tunnel import manager
-    from db.connection import connect_mssql
+    from db.connection import connect_mssql, connect_oracle
     from db.adapters.base import get_adapter
 
     sql = pms_cfg.get("sql") or {}
@@ -128,9 +128,15 @@ def _fetch_via_tunnel(hotel: dict, pms_cfg: dict) -> dict:
         pms_cfg.get("cf_access_client_id", ""),
         pms_cfg.get("cf_access_client_secret", ""),
     ) as port:
-        conn = connect_mssql("127.0.0.1", port,
-                             sql["user"], sql["password"],
-                             sql.get("database", "bidata"))
+        if getattr(adapter, "CONNECTOR", "mssql") == "oracle":
+            # Opera/Fidelio: sql.database = Oracle service name (e.g. "opera")
+            conn = connect_oracle("127.0.0.1", port,
+                                  sql["user"], sql["password"],
+                                  sql.get("database") or sql.get("service_name") or "opera")
+        else:
+            conn = connect_mssql("127.0.0.1", port,
+                                 sql["user"], sql["password"],
+                                 sql.get("database", "bidata"))
         try:
             return adapter.fetch_snapshot(conn, {
                 "hotel_name":   hotel["name"],

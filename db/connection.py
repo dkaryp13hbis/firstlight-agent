@@ -2,6 +2,18 @@ import pyodbc
 import config
 
 
+def connect_oracle(host: str, port: int, user: str, password: str,
+                   service_name: str = "opera", timeout: int = 30):
+    """Connect to an Oracle PMS database (Opera 5 / Fidelio) by explicit
+    address — used by the Railway tunnel-direct path (host is a local
+    cloudflared port). python-oracledb THIN mode: pure Python, no Oracle
+    client libraries in the image. Encryption comes from the tunnel."""
+    import oracledb
+    return oracledb.connect(user=user, password=password,
+                            dsn=f"{host}:{port}/{service_name}",
+                            tcp_connect_timeout=timeout)
+
+
 def connect_mssql(host: str, port: int, user: str, password: str,
                   database: str = "bidata",
                   driver: str | None = None,

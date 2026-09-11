@@ -10,3 +10,6 @@ logs/
 *.log
 .venv/
 venv/
+
+# Opera validation harness output (hotel data)
+scripts/_opera_snapshot_*.json

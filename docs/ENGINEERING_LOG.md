@@ -36,6 +36,10 @@ Hotel servers run **only** cloudflared (persistent Windows service TCP-forwardin
 PMS DB port). Railway opens on-demand tunnel clients, runs the PMS adapter queries
 directly, and holds ALL code, queries, and secrets. Updates = git push. Hotel visits =
 onboarding only. See §4 tracker.
+Data + identity (decided 2026-09-10): our own Postgres on Railway with our own
+login system (no Supabase at all); tenancy Group → Company (unique VAT) → Hotel,
+users attached at any level; public app https://firstlight.hbis.io; push + app
+only, no email channel.
 
 ### PMS adapter matrix
 | PMS | Access | Tunnel | Driver | Status |
@@ -151,6 +155,25 @@ renders unchanged. Legacy fallback path (`_legacy_generate`) serves old-format p
 14. ⬜ Per-hotel briefing time + timezone
 
 ### TO-DO list (updated 2026-07-27 — read this first)
+
+**PLATFORM DECISIONS 2026-09-10 (user) → new Phase C work, in order:**
+- ⬜ **C3 own login system** (2–3 days): apply `docs/sql/pg/2026-09-10_tenancy_auth.sql`
+  on Railway PG → API `/auth/login|logout|change-password`, `GET /me`,
+  `auth_user()` on session tokens, `require_member()` on `hotel_access`,
+  `AUTH=supabase|own` flag → admin CLI for users/passwords (no email;
+  phone handover) → import auth.users SAME uuid + hotel_users →
+  memberships → React login + forced change-password → 1-week parallel
+  run → drop JWT path + hotel_users. Details: PHASE_C_RUNBOOK §C3.
+- ⬜ **C4 tenancy** (1 day): backfill real companies (VAT from client
+  files), `org_id` per hotel, group Pome+Potidea only if same owners
+  (ASK); picker from `GET /me`. PHASE_C_RUNBOOK §C4.
+- ⬜ **C5 remove email channel** (½ day): delete mailer.py + email.html +
+  briefing SMTP + the email branch of `notify=`; push only. Keep the ops
+  audit email. PHASE_C_RUNBOOK §C5.
+- ⬜ `scripts/onboard_hotel.py` — intake sheet → company/group/hotel/users
+  in one transaction + printed handover sheet (ONBOARDING.md §2).
+- ⬜ Ask the user: Pome + Potidea — same owners (one group) or not? VAT +
+  legal name for each.
 
 **Done this week:**
 - ✅ 2026-07-24: first fully-cloud scheduled briefing VERIFIED (Pome via tunnel,
@@ -324,11 +347,37 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   within the month, shape of the month (best/softest day, days behind LY,
   rate-vs-volume), month pickup/churn, flags resolved/still open, next
   month OTB at close. Real July 2026 mock on the same canvas.
-- ⬜ **MULTIPROPERTY PORTFOLIO PAGE** — mock done (artifact b7bb4191…):
-  Yesterday / MTD / YTD tabs, navy hero (portfolio total, ahead/behind
-  counts, biggest mover), ranked hotel list with variance pills, "across the
-  group" flags lifted from each hotel's briefing. Design-first item stays
-  open; needs group→hotels membership model.
+- 🔄 2026-09-10 **MULTIPROPERTY PORTFOLIO VIEW — SPEC FROZEN (design done,
+  build not started).** Working mock (8 test hotels, app components
+  transcribed from `firstlight-pwa/web/src`): artifact 4e1faa0b…; design
+  suggestions canvas: artifact a34b59d9…. User decisions this session:
+  (a) it is NOT a separate page — it is one more entry in the existing
+  Hotel picker ("<group name>"), same chrome, same bottom nav
+  (Overview · Pickup · Pace · Calendar; NO FL Pulse — no narrative for
+  the portfolio, ever); (b) Overview = the app's Yesterday 2×2 KPI cards
+  (Revenue · Occupancy · ADR · RevPAR, summed/weighted across hotels) +
+  ONE by-hotel table with a Yesterday | MTD | YTD switch, four KPIs as
+  value+pill (OTB cell style), tap header to sort, Portfolio total row;
+  (c) Pickup = the four window boxes as the slicer (Yesterday · 3-Day ·
+  7-Day · 14-Day → needs a `last14d` window in Q3) + Booked/Cancelled/Net
+  per hotel; (d) Pace = the app's BarPace/OccPace with a KPI switch
+  (Revenue · Occupancy · ADR · RevPAR), full-year table in 3 columns
+  (2026 · vs STLY | Final LY · vs final), tap a row → chart that hotel;
+  (e) Calendar = DemandHeat cut to 7 | 14 | 30 days, portfolio occupancy
+  per stay date, tap a date → by-hotel panel sorted worst-first with the
+  red "far behind LY" dot and "N of M hotels behind"; (f) follows the app
+  Settings (Gross/Net with the NET strip, reporting year, language);
+  (g) stale hotel → amber Data-health banner on top + greyed rows +
+  excluded from totals; closed-season hotel → badge, out of occ/ADR
+  denominators for Yesterday/MTD, counted in YTD and Pace; YTD occupancy
+  and RevPAR over the days each hotel was open. Explicitly OUT: smart
+  summary / AI cards, group→company two-level picker, room nights card,
+  pickup trend words per hotel, watchlist buttons on the calendar.
+  BUILD ORDER when started: fetcher `ytd` block + `last14d` (fail-open,
+  schema-tolerant) → `GET /portfolio` (server-side aggregation: sums for
+  rev/rn, occ = Σrn/Σavail, ADR = Σrev/Σrn, freshness + closed rules,
+  hotels via `hotel_access`; until C4 lands, the user's hotel list) →
+  React: picker entry + the five sections above → log + skill note.
 - 🔄 2026-08-24 **AI value push: notifications v2 + follow-up memory**
   (brainstorm → user picked top 3; backend afb644f cards-v1.8-followup,
   React 7bc243b, SQL 2026-08-24_notification_types.sql — USER MUST PASTE).
@@ -594,9 +643,9 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   next-morning (cost policy)
 - ⬜ Notification rules audit: verify what arrives on the phone and when
   (03:30 only, content format per the 3-type design: briefing/alert/momentum)
-- ⬜ MULTIPROPERTY PORTFOLIO PAGE (new feature): dedicated view for owners
-  with 2+ hotels — whole-portfolio performance (per-hotel KPI rows,
-  aggregate revenue/occupancy, alerts across properties); design first
+- 🔄 MULTIPROPERTY PORTFOLIO VIEW: spec frozen 2026-09-10 — see the
+  dated entry in the TO-DO list above (picker entry, five sections,
+  server-side `GET /portfolio`, what is explicitly out)
 
 **USER (updated 2026-08-10):**
 - ✅ 2026-08-10: ALL pending SQL pasted + verified (insight_feedback, hotel_prefs,
@@ -641,9 +690,10 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
   render-from-data; new card anatomy + hero block + Greek/English + text-size
   1-5 + bigger OTB charts + closed-month LY fix + scroll fix + 7-day history UI;
   reads via FastAPI tokens; parallel-run then retire Vercel; drop rendered_html
-- ⬜ **Phase C — Postgres on Railway** (~2-3 days + 2-week rollback window):
-  db/client.py consolidation → pg_dump/restore → env-var flip; LISTEN/NOTIFY
-  queue; verify backups + nightly dump; retire Supabase
+- 🔄 **Phase C — Postgres on Railway** (C1 dual-write OPEN since 2026-09-04;
+  C2 endpoints live): reads flip → LISTEN/NOTIFY queue → app via API →
+  **C3 own login system + C4 Group→Company(VAT)→Hotel tenancy + C5 no email
+  (decided 2026-09-10, see PHASE_C_RUNBOOK)** → retire Supabase entirely
 - ⬜ Phase 4 scale prep before hotel #10: de-globalize config →
   REFRESH_CONCURRENCY=10, load test 20-30 hotels, per-hotel briefing time/tz
 
@@ -694,6 +744,14 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-09-12 | **Opera revenue INCLUDES posting-master (pseudo PM/PI) postings; nights exclude them** | User: "there is big difference we should be the same" — City Hotel Jan 2026 checked day by day against Hotel BI: every differing day = exactly the revenue posted on pseudo rooms (3,585 € in Jan); with it included the month is 275,469 € to the euro and nights are unchanged (posting masters carry no nights). Room revenue moved to a paymaster is real revenue with no physical night |
+| 2026-09-12 | **Opera adapter = one extract + Python pack, not 16 SQL queries** | The BI view is a heavy UNION; per-query scans cost 5–15 s each. One grouped extract costs 1–3 s per property and lets the Protel conventions live in one tested Python module (`compute_pack`). Bounded window, stateless — same rule as the SQL pack. Lesson: NEVER filter `psuedo_room_yn` in the WHERE of that view (27 s vs 2 s — predicate pushdown into the union); keep it in the SELECT CASE |
+| 2026-09-12 | **Shared payload assembly for all adapters (`db/adapters/assemble.py`)** | Adapter #2 would otherwise duplicate 300 lines of derivation (ADR/occ/curves). Protel fetcher moved to it verbatim; behaviour identical, all existing tests pass. Adapter #3 (Pylon/Fidelio) only has to produce the Protel-shaped rows |
+| 2026-09-10 | **Portfolio view = an entry in the Hotel picker, not a new page; zero narrative.** Same chrome, nav and components as the single-hotel view; Overview cards + ONE by-hotel table (Yesterday/MTD/YTD), pickup boxes as slicer, Pace with KPI switch + 3-column year table, Calendar 7/14/30 with by-hotel panel; follows Settings (Gross/Net, reporting year). Aggregation is server-side (`GET /portfolio`): sums for revenue/nights, occupancy = Σnights/Σavailable, ADR = Σrevenue/Σnights — never averaged percentages; stale hotel out of totals + amber banner; closed hotel out of occ/ADR denominators | User: "the layout should be exactly the same … one more option will be portfolio on the drop down … no smart summaries for the multiproperty view"; then "yes to all design changes", content: follow app settings, no two-level reporting, no room nights, no pickup trend words. Server-side aggregation so every screen and any future portfolio push agree on one number |
+| 2026-09-10 | **Supabase goes away COMPLETELY, including Auth** — own login system in our Railway Postgres (`users` / `sessions` / `memberships`, argon2id, opaque session tokens, forced password change on first login, admin-issued passwords). Phase C3 rewritten (was "keep Supabase Auth") | User decision ("own login system"). One dependency fewer, one auth path in the API, and with no email channel Supabase's magic-link/reset value was nil anyway |
+| 2026-09-10 | **Tenancy hierarchy: Group → Company (unique VAT per country) → Hotel.** Users are attached at ANY level via `memberships`; `hotel_access` view resolves access. Merges NEVER delete: same owners → `groups` row; hotel changes hands → `update hotels set org_id`; same VAT twice → move hotels to the survivor, deactivate the other | User: "company unique VAT, hotels, and sometimes we will merge companies and hotels because they are owned by the same people" + "a parent group, yes". History always stays on the hotel id |
+| 2026-09-10 | **No email channel, ever.** Morning briefing = push + app only. `recipient_email`/`recipient_name` deprecated; intake no longer asks for a GM email; initial passwords handed over by phone. Ops audit/drift email to HBIS stays (monitoring, not a client channel) | User decision ("we won't send any emails") |
+| 2026-09-10 | **Onboarding runbook v2** ([ONBOARDING.md](ONBOARDING.md)): intake adds company VAT + legal name, shared-owners question, user list with levels; database step = one admin script (`scripts/onboard_hotel.py`, TO-DO) writing company → group → hotel → users in one transaction; verification logs in at firstlight.hbis.io as a NEW user and expects ONE push, NO email; §4 merges & moves table. Until C3/C4 ship the DB step still runs in Supabase as v1 | Same session; schema in `docs/sql/pg/2026-09-10_tenancy_auth.sql` (+ schema.sql), skill `hotel-onboarding` updated |
 | 2026-08-10 | HERO DRIFT RESOLVED — Option A (keep as is): the hero paragraph stays a morning snapshot; intraday KPI drift (room-revenue value edits after 03:30, e.g. €81,598 vs €81,808) is explained by the "Last refresh" timestamp in the Smart Summary header + the ⓘ hero explainer. NO regeneration on data-only runs | Drift is cents-level and legitimate (both numbers correct for their moment); options B (drift-triggered regen ~$0.005) and C (always regen ~$0.015/day) rejected under the cost policy — zero extra Claude calls |
 | 2026-07-28 | Pricing: FirstLight = **€99/hotel/mo + VAT, flat, unlimited users** — never per room count. Sold as add-on to Hotel BI (€330), standalone, or €399 bundle. Full commercial policy in [COMMERCIAL.md](COMMERCIAL.md) | Value unit is the briefing (one/hotel/day), COGS flat (~€2–3/mo AI); flat matches Hotel BI's per-property model; unlimited users spreads the habit through the hotel. Only size lever: portfolio discount from 2nd property |
 | 2026-07-30 | ONE PICKUP TRUTH (user decision): Q9 pickup_daily + Q14 cancel_daily count ALL stay dates (restriction `date > today` + 1yr cap removed) — bookings for consumed nights (walk-ins/same-day) included, so the butterfly RECONCILES EXACTLY with the Pickup Activity card (Q3, same book-date-axis convention). Butterfly/velocity share calendar-aligned 7/14d windows anchored on newest booking date. Analyst Signal 1 guards `m_end < today` so finished months never become cards. Audit trigger: user found +147rn booked / −7rn cancel gaps; root causes = future-only scope + an 8-day distinct-date cancel window |
@@ -740,6 +798,14 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 | Commit | Date | What |
 |---|---|---|
+| (local, not pushed) | 2026-09-12 | **OPERA 5 / ORACLE ADAPTER v1 — `db/adapters/opera_oracle/` (user: "please follow same logic for cancellations as for protel").** Source = the Tor group's own BI view `OPERA.EUROTEL_TARGIT_WBLKNM` (per reservation × stay night; the view their Power BI reads). Design: ONE bounded extract per property (`Q_GRAIN`: stay × book × cancel date × source × status group, 13 months back → next year end, 42–109k rows, **1–3 s**) → `fetcher.compute_pack()` recomputes every Protel query (Q1–Q16, same column names, same STLY/cancellation/lead-time/consumed rules, `_alive_at` = `reschar<2 OR Canceled>cap`) → NEW shared `db/adapters/assemble.py` builds the payload (extracted verbatim from the Protel fetcher; `protel_mssql/fetcher.py` is now query-only and calls the same assembly — 17+37+53+12 existing tests unchanged). Night-audit gate (`OPERA.BUSINESSDATE.STATE = CLOSED` for yesterday, else raise → retry ladder). `db/connection.connect_oracle` (python-oracledb THIN, `oracledb==26.0.0`, no client libs); `railway_main._fetch_via_tunnel` picks the driver from the adapter's `CONNECTOR` attribute; `sql.database` = Oracle service name; `sql.pms_hotel_id` = RESORT code. **Validated live over VPN (`scripts/validate_opera.py`, ASOF 2026-09-11) on all 3 properties:** contract complete, legacy off, all signal fields populated; yesterday == `RESERVATION_STAT_DAILY` to the euro; pickup daily series reconcile with the card; **full-year revenue == Hotel BI "Quick Insights" EXACTLY for Excelsior (1,488,612 €) and ON Residence (3,283,751 €), City 3,441,756 vs 3,442,682 (bookings since their refresh); nights identical (8,090 / 14,343 / 27,843 vs 27,848); STLY within 0.2%** (their cancelled-night pricing = daily rate, ours = `CLX_ROOM_REVENUE_GROSS`). `test_opera.py` = 28 synthetic-grain checks of the conventions. NOT yet: hotels rows in PG (waiting for VAT/rooms/users), push/deploy |
+| React (pace 3) | 2026-09-10 | Portfolio preview round 5 (user: "now its too tall, make the columns a bit thinner and the letters for var bigger"). Tall plot 262px (was 330), tall bars 10px (was 13); a variance pill narrower than 54px keeps 12.5px text and only trims its box (text used to scale with the box); occupancy chips likewise. Mock updated |
+| React (pace 2) | 2026-09-10 | Portfolio preview round 4 (user: "no i want row only" / "one"). Two-half layout reverted. `BarPace`/`OccPace` gain a `tall` prop (plot 330px vs 172px in the 560 viewBox, ≈1.9× taller); variance pills scale to the month step (`min(54, step−3)`) so twelve never overlap; the portfolio chart bleeds 10px into the card padding for width. Hotel view unchanged. Mock updated |
+| React (pace) | 2026-09-10 | Portfolio preview round 3 (user: "the pace chart should be much bigger in height also and width the content should fit better"). Twelve months across a phone-width card cannot carry readable pills (≈27px per month on screen), so the portfolio Pace chart now draws the year as TWO stacked halves — Jan–Jun and Jul–Dec — each a full-width `BarPace`/`OccPace` on ONE shared y-scale (`BarPace` gained an optional `mx`); pills, chips and month labels back at full size, chart twice as tall; revenue axis formats millions as €x.xM. Hotel view untouched (its >8-month scaling from round 2 stays). Mock updated the same way |
+| React (fixes) | 2026-09-10 | Portfolio preview round 2 (user: "yesterday word is falling to the next slicer, same for revenue/occ slicer; pace chart variances one on top of the other for a full-year hotel; hotel selection on the pace table should be the gradient border"). (1) `Seg` = CSS grid of equal `1fr` columns (every column as wide as the widest label) — the flex `1` version split the width equally and "Yesterday" overflowed into "MTD"; card headers wrap. (2) `BarPace`/`OccPace`: when months > 8 the 54px variance pills, 44px occupancy chips and month labels scale by 0.74 / 0.85 — at a 40px step they overlapped; this also fixes 12-month year-round hotels in the single-hotel view (latent defect). (3) Selected pace row = the pickup boxes' animated gradient ring (`ringStyle`), rows carry a transparent 1.8px border so nothing shifts. Mock artifact updated the same way. `tsc -b && vite build` clean |
+| React 8570efb | 2026-09-10 | **PORTFOLIO PREVIEW LIVE IN THE APP (admin only, fictional data).** User: "can we build it with fictional data, so I can test on the real app? … add for me as admin user an option to switch to portfolio view". `firstlight-pwa` commit 8570efb → Pages auto-build → firstlight.hbis.io. New `fixtures/portfolio.ts` (seeded generator, 8 test hotels, `PORTFOLIO_PREVIEW_EMAILS = ['dk@bi-automations.com']`) + `components/Portfolio.tsx` (Overview cards + ONE by-hotel table with Yesterday/MTD/YTD + header sort; pickup boxes as slicer + by-hotel rows; Pace with KPI switch reusing the real `BarPace`/`OccPace` (now exported) + 3-column year table with tap-to-chart; Calendar 7/14/30 with by-hotel panel worst-first; Data-health banner for the stale hotel; NET strip when Settings = Net). `Shell` gained an optional `tabs` prop (portfolio = 4 tabs, lens width follows). App.tsx: picker gets "Portfolio · preview" after the real hotels for gated emails; `hotelId === 'portfolio'` skips briefing/push/tracking/watchlist fetches; Settings sheet works (Net allowed without a PMS net figure — fixture divides by 1.13). Segmented controls = Settings colours + tab-bar lens morph (user: "slicers should be same style as navigation for the movement but the selected one should be as it is in terms of colours and background"). `tsc -b && vite build` clean; oxlint crashed locally (node error, not a lint finding). NEXT: user tests on Pome/Potidea accounts → feedback → then the real build order (fetcher `ytd` + `last14d` → `GET /portfolio` → swap the fixture for the endpoint) |
+| (design) | 2026-09-10 | MULTIPROPERTY PORTFOLIO VIEW — design session, no code. Started as a proposal discussion (freshness guard, server-side aggregation, across-the-group flags, next-7-days, cancellations beside pickup, closed-season rule, portfolio push, channel mix, share-as-image) → user redirected to "exactly the same layout as the app, Portfolio in the hotel dropdown, no smart summary" → mock rebuilt three times, final one transcribed from the React sources (Shell/Overview/Pickup/Charts.tsx: lockup B, icon cluster, picker, liquid-glass bottom nav, KpiRow, OTB cell grid, pickup ring boxes, BarPace/OccPace, DemandHeat) → `/design` canvas with 3 phone boards of suggested changes → all 7 design changes accepted and folded into the mock (one by-hotel table with Yesterday/MTD/YTD, Data-health banner, short names + header sort, 3-column pace table, worst-first calendar panel, €M fallback on cards, group name in the picker) + Settings sheet Gross/Net driving every figure. Content decisions and the build order are in the TO-DO entry and the decision log. Artifacts: mock 4e1faa0b…, canvas a34b59d9… |
+| (docs) | 2026-09-10 | ONBOARDING v2 + PLATFORM DECISIONS (user: "no Supabase, we will use PostgreSQL; we won't send any emails; users per hotel or company account — company unique VAT, hotels, sometimes merged because owned by the same people; firstlight.hbis.io is the public domain" → follow-ups: "own login system", "a parent group, yes"). Delivered: `docs/sql/pg/2026-09-10_tenancy_auth.sql` (groups; organizations.group_id/vat_number/legal_name/country + unique (country, vat); users/sessions/memberships; `hotel_access` view; deprecation comments; admin recipes) mirrored into schema.sql; ONBOARDING.md rewritten (hierarchy table + rules, intake 0.1–0.10, DB step as one admin script, verify as a NEW user at firstlight.hbis.io with ONE push / NO email, §4 merges & moves); PHASE_C_RUNBOOK C3 rewritten to own auth + new C4 tenancy + C5 remove email, rollback + 14-day rule moved to after C3; skill `hotel-onboarding` updated; 4 decision-log rows; TO-DO block. NOT touched: application code (api.py still Supabase JWT + hotel_users; mailer still present) — that is C3–C5 work |
 | PWA `d614928` | 2026-08-28 | WATCHLIST RANGE STATUS v1.2 (user: "Pome shows Steady for Aug 30–Sep 3 — did we get no nights?"). ROOT CAUSE: range status compared occupancy points vs yesterday with a ±2pt gate = 17 net rooms/day for a 5-night Pome range → a close-in range always read STEADY even with real pickup (the actual net was always on line 2). NEW RULE (`watch.ts rangeLine`): today's net rooms vs what LAST YEAR gained on the same day at the same lead time (`rn_stly` is same-lead-time OTB, so yesterday→today Δrn_stly = LY's net for that day); IMPROVING/GETTING WORSE when the difference ≥ tol = max(2, 0.5% of range room-nights) (Pome 5 nights → 4 rooms). Line 2 now: "+4 rooms since yesterday (last year: +9 on the same day) · lowest date …". Also fixed: range whose end date == report_date showed "Beyond the 90-day window" for one morning (Q10 starts today; report_date = yesterday) → now "Dates have passed". GAP FOUND: spec §5.5 "auto-removed after that day" is not implemented — closed cards persist until Remove (TO-DO). Spec updated (§5.2/5.3/5.5). INCIDENT (self-inflicted, docs only): a `sed` fix for escaped backticks in 586eb1e matched GNU sed's `\`` start-of-buffer anchor and prefixed ~700 log lines with a backtick; repaired in this commit by diffing against ebe1e5f |
 | `586eb1e` + PWA `f813c55` | 2026-08-28 | SMART SUMMARY HEADLINE — cancellation rule fixed (user: "why do both hotels say watch out cancellations every day?"). ROOT CAUSE: rule 1 of the headline ladder fired on an ABSOLUTE ratio (cancelled7 / booked7 >= 15% and >= 10 rn). Both sides count all stay dates, so in late season new bookings dry up while cancellations of months-old bookings keep arriving at a normal rate → ratio always > 15%; 10 rn is < 1% of weekly capacity; rule sat first so it hid "Strong {weekday}". NEW RULE (backend `intraday.headline()` + new `cancel_weeks()`; app `rw()` must mirror — JS diff below): fires only when cancellations are UP vs the hotel's own prior week: `cancelled7 >= 1.5 × prior7` (prior7 = Q14 `cancel_daily` rows dated today-13..today-7; last7 = Q3 `cancellations7d` so it reconciles with the Pickup card) AND `cancelled7 >= max(10, 3% of weekly capacity)` (Pome 35 rn, Potidea 50) AND churn >= 15% (secondary). Moved BELOW "Strong/Soft {weekday}". No Q14 → rule silent. Text: "Cancellations up — 30 rooms out this week, vs 14 the week before." (plain-language rule). test_intraday.py 20 checks incl. the late-season trap (high churn, normal level → silent). APP SIDE — DONE in PWA `f813c55` (SmartSummary.tsx `headlineFor`/`computeFacts`, `npm run build` clean; oxlint binding broken on this machine, pre-existing): add `priorCancelled7` = Σ cancel_daily.cancel_rn where report_date−13 ≤ ref_date ≤ report_date−7 (null if no rows) and `weeklyCap = total_rooms*7`; reorder: ydVar rule first, then `priorCancelled7!=null && cancelled7>=Math.max(10,Math.round(weeklyCap*0.03)) && cancelled7>=1.5*Math.max(priorCancelled7,1) && churnPct>=15` → `Cancellations up — ${cancelled7} rooms out this week, vs ${priorCancelled7} the week before.`; also reword "Booking pace is accelerating/slowing" → "Bookings are speeding up / slowing down" (plain-language rule) |
 | `586eb1e` | 2026-08-24 | PLAIN-LANGUAGE NARRATION (`cards-v1.9-plain`): user rule — write for a hotel owner, not a revenue expert; short sentences, everyday words, never jargon when a simpler phrase means the same. (1) Card system prompt rule 9 → required rewordings glossary (firming→getting stronger, decelerating→slowing down, compression→filling up fast, ADR dilution→average rate is falling, pickup→new bookings, pace→bookings, OTB→booked so far, lead time→how far ahead guests book, close-in→last-minute, inventory→rooms, rate codes/floors→rate plans/minimum rates, materialise→come through); hero prompt gets the same instruction. (2) New `_PLAIN_TERMS` + `_plainify_text/_plainify_card` — ordered regex substitutions applied AFTER validation to narrated cards, hero, and both fallback paths (en only; sentence-start capital preserved, mid-sentence acronyms lowercased; never touches digits; audit `jargon_replaced` + log line when it fires). (3) Every fallback template rewritten (all 5 signals + softening merge): evidence labels too (PACE→BOOKINGS, ADR OTB→AVG RATE BOOKED, REMAINING OTB→STILL TO COME, PROJECTED→EXPECTED FINISH, CLOSE-IN SHARE→LAST-MINUTE SHARE, SOFTEST→LOWEST DATES, z-score→"swing of X vs normal"). (4) Hero driver hints: rate-led→"mostly from higher rates", occupancy-led→"mostly from more rooms sold", softer→lower/fewer. test_hero.py 53 checks (+26 plain-language), test_leadtime 37, test_retry_feedback 10, test_contract 17 all pass. NOTE: test_preview.py legacy path fails with pre-existing `KeyError: month_num` in `_legacy_generate.pace_row` (not touched; legacy path unused by tunnel hotels). Verify next 03:30 run via cards_audit: `jargon_replaced` should be absent/rare; any hit = tune the prompt glossary |
@@ -772,6 +838,319 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 ## 8. Open items (not scheduled)
 
+- **ADVISOR PROPOSALS — verdicts from the 2026-09-10 review** (7 mockup
+  artifacts built in app chrome; discussed 1-by-1 with the user):
+  - §1 three-questions home / 3-card cap: **IGNORED** (user: "ignore it").
+  - §2 **"Since Yesterday" strip — BUILT 2026-09-11** (user: "actually
+    lets build 2 and 3"; React 4d6607d, SinceYesterday.tsx — client-side
+    diff of briefing vs prevB, no backend change). Agreed design: first white card under
+    the Morning Brief, max 3 lines, each line attaches movement to a story
+    (month / flagged window / open concern) — NEVER restates a pickup
+    quantity; quiet fallback line when nothing meaningful moved; pure
+    deterministic diff of two stored briefings, no AI cost.
+    Mockup: artifact b1aa4bac.
+  - §3 **Follow-up engine — BUILT 2026-09-11** (user: "actually lets
+    build 2 and 3"; backend 9d3beb4 briefing/followup.py + railway_main
+    hook + api.py, React 4d6607d; test_followup.py 20/20; DDL applied to
+    Railway PG via tunnel — tunnel fix: id_ed25519 ACL had gone too open,
+    ssh IGNORED the key → "channel open failed: unsupported"; icacls
+    /inheritance:r + user :R restored it. ⬜ USER MUST PASTE
+    docs/sql/2026-09-10_watch_followup.sql in Supabase — feature is OFF
+    (schema-tolerant) until then. Both deploys verified live:
+    /health build=9d3beb4, bundle C7lQyPIP). Final shape after discussion:
+    NO new issues system — the WATCHLIST is the single follow-up engine.
+    Month/date-range insights are auto-added to the existing watchlist
+    with author chip "FirstLight" (vs "added by you"); states
+    Watching · Improving/Worsening derived from the watchlist's existing
+    day-by-day history; 2-consecutive-day confirmation before any
+    state/direction change; FirstLight items auto-remove on recovery
+    (green closing line in FL Pulse) or retire after ~14 stuck days with
+    one final note — re-flag as a NEW episode if materially worse OR when
+    unchanged gap enters the near-term booking window (urgency = gap ×
+    time left); owner items never auto-removed; cap 3–4 FirstLight items;
+    cards in FL Pulse appear only on days with news (new/changed/
+    resolved) — "cards are news, watchlist is memory"; non-date-shaped
+    events (cancel spikes, strong days) stay one-off cards/pushes.
+    Event-driven: intraday refreshes update states/rows immediately;
+    **user approved moving to 5 data-only refreshes/day**
+    (~10:00/13:00/16:00/19:00/22:00 hotel time) — cheap, no AI, thresholds
+    unchanged so push volume doesn't grow. Est. 3–4 days build.
+    Mockup (final "one watchlist, two authors" version): artifact 79a88a33.
+  - BUGFIX same day (React 71dc06e, user: Oct tooltip active after
+    switching to Pomegranate): BarPace tip state now clears when the
+    months array changes — an open tooltip carried over to the next
+    hotel's chart (same class as the DemandHeat sel reset). Verified
+    live (CLcQCwwD).
+- ✅ 2026-09-11 **ADMIN v1 — usage per hotel & user** (user: "lets build
+  the admin, where we also see the usage for each user and hotel";
+  backend 08c316d, React 908b1d1). GET /admin/usage (require_admin =
+  founder emails via ADMIN_EMAILS env; auth_user now caches the verified
+  email; becomes users.is_superadmin under C3) aggregates usage_events
+  30d server-side (service role — RLS keeps events write-only for the
+  app): per hotel → per user: opens, active days, events, last-seen,
+  top-3 event types; emails via GoTrue admin listing. App: "Admin" row
+  in Settings visible only to founder emails → AdminSheet. TRACKING
+  WIDENED TO ALL USERS (TRACKED_EMAILS null — the designed one-liner;
+  history before 11 Sep is demo-only). SCOPE NOTE: client management
+  (create account / temporary password / reset / sign-out-everywhere /
+  view-as) deliberately waits for C3 own-login — the sheet says so.
+  SAME DAY v2 — PORTAL (user: "what is this shit? im speaking for a
+  portal where i will have all the accounts, users, usage and
+  subscription type"; backend 23082de, React 69281ce): the sheet failed
+  in prod (INCIDENT: first-ever browser call to the Railway API — no
+  VITE_API_URL in the Pages build AND no CORS middleware; every prior
+  feature reads Supabase direct, so the path had never been exercised.
+  Fix: hardcoded public API base fallback in api.ts + CORSMiddleware for
+  firstlight.hbis.io/pages.dev/localhost; deploy check now tests the
+  PREFLIGHT, not just the bundle). Replaced with full-screen AdminPortal
+  "Clients": per hotel — plan/status/price/renews pills + INLINE
+  subscription editor (PUT /admin/subscription upsert, validated), users
+  with last-seen (green <3d) + usage; header totals incl. active €/mo.
+  GET /admin/clients = one call. NEW subscriptions table:
+  docs/sql/2026-09-11_subscriptions.sql — applied to Railway PG (8 cols
+  verified), ⬜ USER PASTES in Supabase (portal shows amber note until
+  then). Preflight verified 200 from firstlight.hbis.io.
+- ✅ 2026-09-11 **PHASE C READ-FLIP — STORAGE=pg LIVE** (plan step 0,
+  user approved + flipped the env in the dashboard; wiring a039f57,
+  fix 0f22dc6). Pipeline reads now PG-first with Supabase fail-open
+  fallback: hotels listing, yesterday's data/ai_insights (intraday +
+  reuse), narration language; intraday claim authority moved to PG.
+  Pre-flip verify: 5 tables count-equal, latest briefings MATCH both
+  hotels. INCIDENT during flip: first manual run logged "No hotels
+  configured" — psycopg returns uuid.UUID/date OBJECTS where Supabase
+  REST returned strings, so the hotel-id filter matched nothing; fixed
+  by normalizing scalars in every store read (_norm; jsonb stays dict);
+  re-queued run: SUCCESS in 10s end-to-end on PG reads. Supabase keeps
+  all writes (app + rollback = set STORAGE=dual back). Also: railway CLI
+  env-set blocked by permission classifier → env flips are user-dashboard
+  actions from now on. 07:20 dual-verify keeps guarding equality.
+- ✅ 2026-09-11 **SUPERADMIN PORTAL SHELL** live at
+  firstlight.hbis.io/superadmin-control (React 86117af; ADMIN_PLAN
+  approved with D1-D3, shell-first option taken): left-nav with all 11
+  Phase-1 sections — Overview (platform verdict from /health +
+  ClientsView) and Clients LIVE; others stubbed with their build-step
+  notes. ClientsView extracted from AdminPortal (in-app overlay reuses
+  it + links to the full portal). public/_redirects added (SPA deep
+  links). SAME DAY — C3-INDEPENDENT SECTIONS BUILT (backend ac9ec92,
+  React 65ffc5e; user: "can we build the sections content now?"):
+  §10 Audit log (admin_audit table = migration 001 applied to PG via
+  tunnel; store.audit() written by every portal action; list view),
+  §2 Hotels (per-hotel: PMS/tunnel/credentials-present/token-present,
+  30d ok/degraded/failed + AI cost, expandable last-30-runs table with
+  durations, rows, fallbacks, cost; actions: Refresh now via
+  refresh_commands, Rotate API token — shown once, 60s cache busted,
+  Pause requires a reason), §6 Health (audit_all() verdict reused —
+  empty list = "Nothing wrong right now"; 7d day×type pipeline matrix;
+  per-card fallback rates 14d from cards_audit; infra: db size, storage
+  mode, build), §7 Feedback inbox. PG aggregates in store.py (SQL, not
+  REST loops). Still SOON: Users/Security/impersonation (need C3),
+  Onboarding, Notifications, Kill switches. NEXT: C3 own login.
+  SAME DAY v2 — TABLES (React d838436, user: "no claude cards — excel
+  like tables with a filter for each tab"): shared portal table kit
+  (src/portal/kit.tsx — sortable sticky headers, filter bar with
+  free-text + dropdowns, zebra rows, tabular-nums right-aligned,
+  h-scroll wrap); Hotels + Clients = filterable tables with expandable
+  detail rows (runs+actions / users+subscription editor); Feedback +
+  Audit get per-tab filters; Health verdict = lean strip. LESSON
+  (3 broken pushes): `npm run build | tail` MASKS the exit code — the
+  pipe returns tail's 0; always check build exit explicitly before
+  committing frontend changes.
+  SAME DAY v3 (backend 5b2a064, React 0903544; fixes: 65dbd57
+  rows_fetched-object render crash, 3658e46 keyed flatMap + error
+  boundary + width cap): FINANCE TAB (user: charts for daily Anthropic
+  charges, daily data processed, financial reports) — /admin/finance:
+  30d daily cost/tokens/rows (PG SQL handles jsonb rows_fetched
+  breakdown + legacy numbers); summary strip (cost month/30d, tokens,
+  active clients, MRR/ARR), two daily bar charts (Anthropic USD, PMS
+  rows), revenue-by-plan + per-client lines + CSV export for invoicing.
+  Repeated lesson: the heredoc mixed-quote quirk silently dropped the
+  api.ts half of a patch AND `tsc | head` masked its exit — 4 red
+  builds; rule: scratchpad scripts only + raw exit codes on every gate.
+  SAME DAY v4 — CLIENT REGISTRY (backend 8836f4e, React b26e209/
+  Cg10Wc1F; user: company/VAT/contact/hotels/start/rates via an
+  onboarding form, feeding Finance; = ADMIN_PLAN D2 executed):
+  migration 002 (organizations + legal_name/vat_number w/ per-country
+  unique/contact_name/contact_phone; NEW contracts table per company:
+  status trial/active/suspended/ended, start_date, monthly_eur,
+  annual_eur, billing_anchor, notes — applied to live PG; PG-ONLY, no
+  Supabase paste needed); GET/POST /admin/companies (upsert org both
+  stores' base row + hotels.org_id to both, VAT dup = 409, audited);
+  portal: Onboarding tab = the new-client form, Clients tab = company
+  table (Company|VAT|Contact|Hotels|Status|Start|€/mo|€/yr|Users|
+  activity) w/ expandable users + inline edit; Finance revenue reads
+  contracts (annual/12 for yearly), legacy hotel subscriptions only as
+  fallback → the 2026-09-11_subscriptions.sql Supabase paste is now
+  OBSOLETE (never required). Verified: gate 401, form live.
+  SAME DAY v5 — GROUP LAYER (backend af05355, React 0b885ea/BbyChefq;
+  user: hierarchy = Group e.g. Myconian Collection → 3-4 companies →
+  14 hotels): migration 003 (groups + organizations.group_id, lifted
+  idempotent from the C3 tenancy draft, applied to live PG);
+  GET/POST /admin/groups; onboarding form leads with Group (pick or
+  create inline) → company → hotel assignment; Clients table adds
+  Group column + filter. C3's tenancy apply stays compatible
+  (if-not-exists on the same DDL). Verified live.
+- ✅ 2026-09-11 **PG SECURITY HARDENING — least-privilege roles LIVE**
+  (0fde7a6; user approved the "three keys, no overkill" plan after the
+  external PostgreSQL security guide review). fl_app = worker
+  (data-only, no DDL, statement_timeout 30s / lock 5s / idle-in-tx 60s
+  set server-side), fl_readonly = visitor (default read-only, hotels
+  secret columns invisible via column grants, connlimit 5), postgres =
+  builder (tunnel-only migrations). docs/sql/pg/grants.sql idempotent
+  incl. ALTER DEFAULT PRIVILEGES (future tables covered) — re-apply
+  after every migration. store enforces sslmode=require in the DSN
+  (server handshake verified). USER flipped DATABASE_URL to fl_app in
+  the dashboard (CLI env-set stays classifier-blocked). Verified end to
+  end: 9/9 role checks (incl. must-fail cases), then a full manual
+  refresh ran SUCCESS in 36s on the worker key (health 0fde7a6).
+  Passwords in C:\FirstLightBackups\pg.env. docs/SECURITY_CHECKS.md =
+  quarterly 10-min self-check + deferred controls with triggers
+  (pgaudit/RLS/CI scanners/scrubbed restores/KMS). Superadmin UX
+  unchanged — DB roles are plumbing beneath the API.
+- ✅ 2026-09-11 **CAPS v1.9.2** (604af18, user "go"; live-verified
+  prompt_version cards-v1.9.2-caps): what_happened 28→33, why 42→46,
+  action 32→36, hero 125→132 — sized to the OBSERVED overshoots
+  (cards_audit: 29-32/33 words), which had Pome+Potidea shipping
+  fallback cards near-daily (~30/30d). No-retries policy unchanged.
+  test_hero over-length fixture now cap-relative (was pinned to 125 —
+  it silently passed the new cap; fixed the test, not the pin).
+  ⬜ VERIFY tomorrow's 03:30: both hotels success (not degraded);
+  Health tab fallback rates should fall from 2026-09-12 on.
+- 🔄 2026-09-11 **C2 APP REPOINT — READS SHIPPED** (backend 6753632,
+  React 0b747c3; user: "can we go for c2 repoint"). NEW /app/* data
+  plane: hotels, briefing latest/by-date/prev/dates/history, runs —
+  user JWT + hotel membership, PG-FIRST server-side (new store fns
+  get_briefing_dates / get_recent_briefings / get_prev_briefing) with
+  Supabase fail-open fallback. App fetchers (briefings, dates, history,
+  runs, hotels list, watchlist read/add/remove) now call the API first
+  and keep their Supabase-direct code as AUTOMATIC fallback = the
+  runbook's parallel-run built in; demo mode untouched; prev-briefing
+  composes from dates+by-date so it repoints for free.
+  SAME DAY — (b)+(c) SHIPPED (user: "lets switch everything to
+  postgresql"; backend f3e0c7f, React 8ea119c; perf fix 8cfebcc first:
+  gzip >=2KB + 5-min membership cache after the user felt 1-2s on
+  history): **PG IS NOW AUTHORITY for every app table** — watchlist
+  (insert returns PG id, echoed to Supabase with the SAME id; cap+dup
+  server-side), insight_feedback, hotel_prefs, push_subscriptions
+  (+ NEW GET /push/status replacing the app's direct reads),
+  usage_events (batch) — all endpoints write PG-primary via store with
+  best-effort Supabase echo; app write paths (feedback, language,
+  push subscribe/unsubscribe/prefs, event batches) now call the API
+  first with Supabase-direct as automatic fallback; followup engine
+  watchlist IO moved to store(PG)+echo; admin usage/feedback reads
+  PG-first. REMAINING ON SUPABASE: auth (GoTrue JWT verify) +
+  hotel_users membership — both die with C3. NEXT: a few clean days →
+  drop the echoes + nightly mirror → C3 → 14-day Supabase freeze →
+  account deleted. Dual-verify keeps watching both stores meanwhile.
+- ✅ 2026-09-11 **EXTERNAL SECURITY PROBE + HEADERS** (0b9d59a, user:
+  "check any vulnerability or risk with the url, product, data").
+  PROBED FROM OUTSIDE: all API gates reject unauth (admin/app/watchlist/
+  push/trigger — two return 422-before-401, cosmetic, nothing executes);
+  the Supabase anon key was EXTRACTED FROM THE LIVE BUNDLE and tried
+  against briefings/hotels(api_token!)/watchlist/refresh_runs/
+  usage_events — ALL EMPTY, RLS holds. GAP FOUND: no HSTS/CSP/
+  frame-protection on the app → web/public/_headers added (HSTS 1y,
+  CSP self-only scripts + connect-src limited to our Supabase+API,
+  X-Frame-Options DENY, Permissions-Policy lockdown) — live-verified,
+  bundle still serves. ⬜ user to click through the app once (CSP is a
+  whitelist; human smoke test). YELLOW register: localStorage sessions
+  (CSP-mitigated, C3 fixes), plaintext hotel api_tokens (C3 hashes),
+  /health names stale hotels publicly (trim to count by launch),
+  transition echoes to Supabase (time-boxed). TOP REMAINING RISK is
+  hotel-side `sa` (user's firstlight_ro item).
+- ✅ 2026-09-11 **PER-ENTITY AI TOGGLE** (backend 00a6e0f, React
+  7917acd; user: toggle per company/group/hotel so it won't spend
+  tokens). Migration 004 (ai_enabled nullable on hotels/orgs/groups,
+  applied to PG); effective flag = coalesce(hotel, org, group, true);
+  generate_insights(narrate=False) → deterministic fallback cards +
+  no hero, ZERO tokens, briefing still publishes (cards_audit marks
+  ai_disabled_for_entity); pipeline FAILS OPEN to narrating on lookup
+  error; PUT /admin/ai-toggle (audited; gate verified 401 w/ junk
+  bearer); portal: Hotels AI column + Turn-AI-off/on action, company
+  form 3-way select. Verified live (CNe8rPXC). Suggested first use:
+  demo hotels under an "HBIS Demo" company toggled off.
+- 📌 2026-09-11 **OPERA ON-PREM = PRE-FREEZE TRACK** (user: real
+  multiproperty Opera hotel available, validatable against Hotel BI's
+  own numbers — which also means HBIS already possesses working SQL
+  against that exact Opera DB). Plan: C3 stays primary; I write
+  SEMANTICS.md + opera_oracle adapter skeleton + validation harness
+  (diff vs Hotel BI) meanwhile; USER kicks off now (lead-time items):
+  ① send Hotel BI's Opera queries/views, ② Opera+Oracle versions and
+  which machine can host cloudflared, ③ read-only Oracle account
+  (firstlight_ro from day one), ④ resort/property codes, ⑤ real rooms
+  + season dates per property. Target: first Opera briefings early Oct;
+  multiproperty feeds the portfolio view. Booth line: live Opera group
+  validated against its own BI.
+  - ✅ 2026-09-11 **Opera PRE-FLIGHT DONE (direct over VPN from the dev
+    laptop, `py -3.13` + `oracledb` thin 3.x, before any tunnel):**
+    server `192.168.0.156:1521/opera`, Oracle **19c EE 19.21**, SID
+    `OPERA` (services `OracleServiceOPERA` +
+    `OracleOraDB19Home1TNSListener`; registry home `KEY_OraDB19Home1`,
+    `USE_SHARED_SOCKET` NOT set = default FALSE → listener redirect risk,
+    decide only if the tunnel pre-flight hangs; Opera WebLogic runs on the
+    same box so any restart = front-office downtime). Read-only account
+    provided by the hotel: **`opera_ro`** (CREATE SESSION +
+    `OPERA_RO_ROLE`; no dictionary access — `v$database` 942, fine).
+    Schemas: **`OPERA` = live (2,185 tables, 149,912 reservation_name
+    rows)**, `TRAINING` = copy (7,454) — adapter MUST hard-code owner
+    `OPERA`. Opera objects are VIEWs over `*_E` tables (query the views).
+    **Resorts:** `CITY` City Hotel Thessaloniki (192 rooms in `room`,
+    261 in-house RN yesterday), `EXCEL` The Excelsior (108 / 74),
+    `ONRES` ON Residence (127 / 101); `CRO` + `ORS` = central-res /
+    demo, exclude. Statuses seen: RESERVED, CHECKED IN, CHECKED OUT,
+    CANCELLED, NO SHOW, PROSPECT; history from 2024-02, OTB to 2027-11.
+    Business date lives in view `OPERA.BUSINESSDATE`. All three are city
+    hotels (no season). Tunnel plan: ONE hostname `sql-<group>.hbis.io`
+    → `192.168.0.156:1521`, one token, three `hotels` rows (PG) keyed by
+    resort code. Room counts above are PMS room lists — intake still
+    needs the REAL sellable inventory per property.
+  - ✅ 2026-09-11 **TUNNEL LIVE — `sql-torcity.hbis.io` →
+    `192.168.0.156:1521`** (tunnel + hostname + Service Auth app set up
+    by the user in the dashboard; service token Client ID
+    `0c63dc1b4de87eb79644ab92ba2a6c0f.access`, secret goes ONLY into
+    `pms_config`). Pre-flight from the laptop via `cloudflared access
+    tcp` on 14331: Oracle connect through the tunnel **0.4 s**, query
+    0.1 s, in-house counts identical to the direct-VPN probe →
+    **listener redirect is NOT an issue, `USE_SHARED_SOCKET` stays
+    untouched, no Oracle restart needed.** Browser hit on the hostname
+    without the token → 403 (Access enforcing). Hotel side is DONE.
+    Note: `OPERA.BUSINESSDATE` is a per-day calendar, not "current
+    business date" — adapter needs another source (TO-DO in adapter
+    work). NEXT: three `hotels` rows in PG (CITY/EXCEL/ONRES, shared
+    tunnel block, `pms_type` opera) + oracledb in requirements +
+    `db/adapters/opera_oracle/` from Hotel BI's queries.
+  - ✅ 2026-09-12 **ADAPTER BUILT + VALIDATED** (see release history
+    2026-09-12 + decision log). Hotel BI's queries received (reservations
+    table = the WBLKNM view + RESGENERAL join; room types =
+    `RESORT$_ROOM_CATEGORY.NUMBER_ROOMS`, pseudo flag). Physical rooms
+    from that model: **CITY 125, EXCEL 36, ONRES 60** (room view counts
+    192/108/127 include 51 PM + PI + catering posting masters each).
+    Timing mystery solved: the 90 s extract was the pseudo predicate in
+    WHERE, not server load. REMAINING before first Opera briefing:
+    ① user confirms real sellable rooms + VAT/company + users, ② three
+    `hotels` rows in PG (`pms_type: opera_oracle`, shared tunnel block,
+    `sql.pms_hotel_id` = resort code), ③ push → Railway build with
+    `oracledb`, ④ manual refresh per property → `refresh_runs` with
+    `fetch_path: tunnel`, ⑤ 03:30 watch. Open question for the user:
+    Hotel BI prices cancelled nights at the daily rate, we use Opera's
+    `CLX_ROOM_REVENUE_GROSS` (0.1–0.2% apart on STLY) — keep ours unless
+    told otherwise.
+  - §4–§7 (show-me-why, feedback reasons, quiet day, Greek voice):
+    discussion pending, mockups live (artifacts c2e739de / deca2a7c /
+    36bfdb29 / fd30d282).
+
+- **USER IMPERSONATION ("Log in as user", added 2026-09-10, user request)**:
+  a superadmin (dk@) can open any real client's account and see exactly what
+  that user sees — for support, demos, and debugging ("why does my chart look
+  wrong?"). Standard SaaS feature, a.k.a. impersonation / "view as".
+  Design (build AFTER the own-login tenancy work lands, it makes this easy):
+  `users.is_superadmin` flag → `POST /admin/impersonate {user_id}` (superadmin
+  token required) issues a SHORT-LIVED session for the target user carrying an
+  `impersonated_by` claim → app shows a persistent banner "Viewing as {name} —
+  exit" and blocks destructive actions (sign-out, password change, prefs
+  writes optional). EVERY impersonation start/stop goes to an audit table
+  (who, whom, when, from where) — non-negotiable once real clients are on.
+  Analytics/usage tracking must EXCLUDE impersonated sessions. Effort: small
+  (~half a day) once our own auth is live; do NOT build on Supabase auth.
 - PWA update to render the new card anatomy (BY WHEN box, tappable AT STAKE calc,
   evidence labels) — backend already ships the fields
 - PWA: language toggle — Greek / English (per-user preference; affects briefing
