@@ -61,6 +61,20 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="FirstLight API", version="phase-a", lifespan=lifespan)
 
+# The PWA calls the API from the browser (admin portal, 2026-09-11 — first
+# browser consumer of these endpoints; everything else reads Supabase direct).
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://firstlight.hbis.io",
+        "https://firstlight-pwa.pages.dev",
+        "http://localhost:5173",
+    ],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
 
 # ── Supabase helpers ─────────────────────────────────────────────────────────
 
@@ -448,6 +462,47 @@ def admin_usage(request: Request):
         })
     out.sort(key=lambda h: -h["events_30d"])
     return {"since": since[:10], "hotels": out}
+
+
+@app.get("/admin/clients")
+def admin_clients(request: Request):
+    """The client portal (superadmin): every hotel with its users, 30-day
+    usage, and commercial state (subscriptions table; null until the SQL is
+    pasted). One call = the whole book of business."""
+    require_admin(request)
+    usage = admin_usage.__wrapped__(request) if hasattr(admin_usage, "__wrapped__") \
+        else admin_usage(request)   # same aggregation, same gate (cached auth)
+    subs: dict[str, dict] = {}
+    subs_ready = True
+    try:
+        for s in _sb_get("subscriptions", {
+                "select": "hotel_id,plan,status,price_eur,started_on,renews_on,notes"}):
+            subs[s["hotel_id"]] = s
+    except HTTPException:
+        subs_ready = False   # table not pasted yet
+    for h in usage["hotels"]:
+        h["subscription"] = subs.get(h["hotel_id"])
+    usage["subs_ready"] = subs_ready
+    return usage
+
+
+@app.put("/admin/subscription/{hotel_id}")
+def admin_subscription_put(hotel_id: str, request: Request, body: dict):
+    """Upsert a hotel's commercial state (superadmin only)."""
+    require_admin(request)
+    allowed = {"plan", "status", "price_eur", "started_on", "renews_on", "notes"}
+    row = {k: (v if v not in ("", None) else None)
+           for k, v in body.items() if k in allowed}
+    if row.get("plan") not in (None, "trial", "monthly", "annual"):
+        raise HTTPException(422, "plan must be trial|monthly|annual")
+    if row.get("status") not in (None, "active", "paused", "cancelled"):
+        raise HTTPException(422, "status must be active|paused|cancelled")
+    row["hotel_id"] = hotel_id
+    from datetime import datetime, timezone
+    row["updated_at"] = datetime.now(timezone.utc).isoformat()
+    out = _sb_write("POST", "subscriptions", {"on_conflict": "hotel_id"}, row,
+                    prefer="resolution=merge-duplicates,return=representation")
+    return (out or [row])[0]
 
 
 @app.post("/feedback", status_code=201)
