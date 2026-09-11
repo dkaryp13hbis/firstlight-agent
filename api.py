@@ -486,6 +486,136 @@ def admin_clients(request: Request):
     return usage
 
 
+# ── Superadmin portal sections (ADMIN_PLAN §2/§6/§7/§10; /admin prefix
+# until C3 brings is_platform_admin + TOTP — gate contract unchanged) ────────
+
+def _audit_admin(request: Request, action: str, target_type: str | None = None,
+                 target_id: str | None = None, before=None, after=None,
+                 reason: str | None = None) -> None:
+    from db import store
+    uid = auth_user(request)
+    store.audit(_USER_EMAILS.get(uid, uid), action, target_type, target_id,
+                before, after, reason)
+
+
+@app.get("/admin/audit")
+def admin_audit_list(request: Request, action: str = Query(None),
+                     target_id: str = Query(None), limit: int = Query(100, le=500)):
+    require_admin(request)
+    from db import store
+    return {"rows": store.audit_list(limit=limit, action=action, target_id=target_id)}
+
+
+@app.get("/admin/hotels")
+def admin_hotels(request: Request):
+    require_admin(request)
+    from db import store
+    hotels = _sb_get("hotels", {
+        "select": "id,name,active,total_rooms,pms_type,pms_config,api_token"})
+    runs = {r["hotel_id"]: r for r in store.hotels_run_summary(30)}
+    briefs = {}
+    for b in _sb_get("briefings", {"select": "hotel_id,report_date",
+                                   "order": "report_date.desc", "limit": "50"}):
+        briefs.setdefault(b["hotel_id"], b["report_date"])
+    out = []
+    for h in hotels:
+        cfg = h.get("pms_config") or {}
+        r = runs.get(h["id"], {})
+        out.append({
+            "id": h["id"], "name": h["name"], "active": h["active"],
+            "total_rooms": h.get("total_rooms"),
+            "pms_type": h.get("pms_type") or "protel_mssql",
+            "fetch_mode": cfg.get("fetch_mode"),
+            "tunnel_hostname": cfg.get("tunnel_hostname"),
+            "credentials_present": bool((cfg.get("sql") or {}).get("password")),
+            "token_present": bool(h.get("api_token")),
+            "last_briefing": briefs.get(h["id"]),
+            "runs_30d": r.get("runs", 0), "ok_30d": r.get("ok", 0),
+            "degraded_30d": r.get("degraded", 0), "failed_30d": r.get("failed", 0),
+            "cost_30d_usd": float(r.get("cost_usd") or 0),
+            "last_run_at": r.get("last_run_at"), "last_status": r.get("last_status"),
+        })
+    return {"hotels": out}
+
+
+@app.get("/admin/hotels/{hotel_id}/runs")
+def admin_hotel_runs(hotel_id: str, request: Request):
+    require_admin(request)
+    from db import store
+    return {"runs": store.hotel_runs(hotel_id, 30)}
+
+
+@app.post("/admin/hotels/{hotel_id}/refresh", status_code=202)
+def admin_hotel_refresh(hotel_id: str, request: Request):
+    """Manual refresh through the SAME fail-open pipeline (refresh_commands)."""
+    require_admin(request)
+    _sb_write("POST", "refresh_commands", None,
+              {"hotel_id": hotel_id, "type": "manual", "status": "pending"})
+    _audit_admin(request, "hotel.refresh", "hotel", hotel_id)
+    return {"queued": True}
+
+
+@app.post("/admin/hotels/{hotel_id}/token/rotate")
+def admin_hotel_token(hotel_id: str, request: Request):
+    require_admin(request)
+    from db import store
+    new_token = "flh_" + secrets.token_urlsafe(24)
+    _sb_write("PATCH", "hotels", {"id": f"eq.{hotel_id}"}, {"api_token": new_token})
+    store.update_hotel_fields(hotel_id, {"api_token": new_token})
+    with _TOKENS_LOCK:
+        _TOKENS["at"] = 0.0          # bust the 60s token cache
+    _audit_admin(request, "hotel.token_rotate", "hotel", hotel_id)
+    return {"api_token": new_token}   # shown ONCE in the portal
+
+
+@app.post("/admin/hotels/{hotel_id}/active")
+def admin_hotel_active(hotel_id: str, request: Request, body: dict):
+    require_admin(request)
+    from db import store
+    active = bool(body.get("active"))
+    reason = (body.get("reason") or "").strip()
+    if not active and not reason:
+        raise HTTPException(422, "pausing needs a reason")
+    _sb_write("PATCH", "hotels", {"id": f"eq.{hotel_id}"}, {"active": active})
+    store.update_hotel_fields(hotel_id, {"active": active})
+    _audit_admin(request, "hotel.activate" if active else "hotel.pause",
+                 "hotel", hotel_id, reason=reason or None)
+    return {"active": active}
+
+
+@app.get("/admin/health")
+def admin_health(request: Request):
+    require_admin(request)
+    from db import store
+    from briefing.audit import audit_all
+    try:
+        verdict = audit_all()
+    except Exception as exc:
+        verdict = {"error": str(exc)[:200]}
+    return {
+        "verdict": verdict,
+        "matrix": store.runs_matrix(7),
+        "ai": store.ai_stats(14),
+        "infra": {
+            "db_size_mb": store.db_size_mb(),
+            "storage_mode": os.getenv("STORAGE", "supabase"),
+            "build": os.getenv("RAILWAY_GIT_COMMIT_SHA", "")[:7],
+        },
+    }
+
+
+@app.get("/admin/feedback")
+def admin_feedback(request: Request, limit: int = Query(200, le=500)):
+    require_admin(request)
+    rows = _sb_get("insight_feedback", {
+        "select": "hotel_id,report_date,card_id,verdict,note,created_at",
+        "order": "created_at.desc", "limit": str(limit)})
+    hotels = {h["id"]: h["name"] for h in _sb_get("hotels", {"select": "id,name"})}
+    for r in rows:
+        r["hotel"] = hotels.get(r.get("hotel_id"), "?")
+    return {"rows": rows}
+
+
 @app.put("/admin/subscription/{hotel_id}")
 def admin_subscription_put(hotel_id: str, request: Request, body: dict):
     """Upsert a hotel's commercial state (superadmin only)."""

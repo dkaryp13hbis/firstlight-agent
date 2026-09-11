@@ -265,3 +265,114 @@ def get_pref_language(hotel_id: str) -> str | None:
 def ping() -> bool:
     """Health probe for /health once PG participates."""
     return _safe("ping", lambda: _exec("select 1", fetch=True) is not None) or False
+
+# ── superadmin portal (PG canonical, STORAGE=pg era) ─────────────────────────
+
+def audit(admin_email: str, action: str, target_type: str | None = None,
+          target_id: str | None = None, before=None, after=None,
+          reason: str | None = None) -> None:
+    """Append-only admin action log (ADMIN_PLAN §10). Fail-open."""
+    def go():
+        _exec(
+            "insert into admin_audit (admin_email, action, target_type, "
+            "target_id, before, after, reason) values (%s,%s,%s,%s,%s,%s,%s)",
+            (admin_email, action, target_type, target_id,
+             _jsonb(before), _jsonb(after), reason))
+    _safe("audit", go)
+
+
+_AUDIT_COLS = ["id", "at", "admin_email", "action", "target_type",
+               "target_id", "before", "after", "reason"]
+
+
+def audit_list(limit: int = 100, action: str | None = None,
+               target_id: str | None = None) -> list[dict]:
+    def go():
+        q = f"select {', '.join(_AUDIT_COLS)} from admin_audit"
+        conds, params = [], []
+        if action:
+            conds.append("action = %s"); params.append(action)
+        if target_id:
+            conds.append("target_id = %s"); params.append(target_id)
+        if conds:
+            q += " where " + " and ".join(conds)
+        q += " order by at desc limit %s"; params.append(limit)
+        return [_row(_AUDIT_COLS, r) for r in _exec(q, tuple(params), fetch=True)]
+    return _safe("audit_list", go) or []
+
+
+def hotel_runs(hotel_id: str, limit: int = 30) -> list[dict]:
+    cols = ["started_at", "completed_at", "run_type", "status", "error_type",
+            "attempt", "rows_fetched", "estimated_cost_usd", "fetch_path", "fallbacks"]
+    def go():
+        rows = _exec(
+            "select started_at, completed_at, run_type, status, error_type, "
+            "attempt, rows_fetched, estimated_cost_usd, fetch_path, "
+            "(select count(*) from jsonb_array_elements(coalesce(cards_audit, '[]'::jsonb)) e "
+            " where (e->>'fallback_used')::boolean) as fallbacks "
+            "from refresh_runs where hotel_id = %s "
+            "order by started_at desc limit %s", (hotel_id, limit), fetch=True)
+        return [_row(cols, r) for r in rows]
+    return _safe("hotel_runs", go) or []
+
+
+def hotels_run_summary(days: int = 30) -> list[dict]:
+    """Per hotel: run counts by status, cost, last run — one query."""
+    cols = ["hotel_id", "runs", "ok", "degraded", "failed",
+            "cost_usd", "last_run_at", "last_status"]
+    def go():
+        rows = _exec(
+            "select hotel_id::text, count(*), "
+            "count(*) filter (where status = 'success'), "
+            "count(*) filter (where status = 'degraded'), "
+            "count(*) filter (where status = 'failed'), "
+            "coalesce(sum(estimated_cost_usd), 0), "
+            "max(started_at), "
+            "(array_agg(status order by started_at desc))[1] "
+            "from refresh_runs where started_at > now() - make_interval(days => %s) "
+            "group by hotel_id", (days,), fetch=True)
+        return [_row(cols, r) for r in rows]
+    return _safe("hotels_run_summary", go) or []
+
+
+def runs_matrix(days: int = 7) -> list[dict]:
+    """Day × run_type × status counts for the pipeline health view."""
+    cols = ["day", "run_type", "status", "n"]
+    def go():
+        rows = _exec(
+            "select to_char(started_at, 'YYYY-MM-DD'), run_type, status, count(*) "
+            "from refresh_runs where started_at > now() - make_interval(days => %s) "
+            "group by 1, 2, 3 order by 1 desc", (days,), fetch=True)
+        return [_row(cols, r) for r in rows]
+    return _safe("runs_matrix", go) or []
+
+
+def ai_stats(days: int = 14) -> list[dict]:
+    """Per card id: shipped count, fallback count — validator health."""
+    cols = ["card_id", "n", "fallbacks"]
+    def go():
+        rows = _exec(
+            "select e->>'card_id', count(*), "
+            "count(*) filter (where (e->>'fallback_used')::boolean) "
+            "from refresh_runs r, jsonb_array_elements(coalesce(r.cards_audit, '[]'::jsonb)) e "
+            "where r.started_at > now() - make_interval(days => %s) "
+            "and r.run_type = 'full' "
+            "group by 1 order by 2 desc limit 20", (days,), fetch=True)
+        return [_row(cols, r) for r in rows]
+    return _safe("ai_stats", go) or []
+
+
+def db_size_mb() -> float | None:
+    def go():
+        return round(_exec("select pg_database_size(current_database())",
+                           fetch=True)[0][0] / 1e6, 1)
+    return _safe("db_size", go)
+
+
+def update_hotel_fields(hotel_id: str, fields: dict) -> None:
+    """PG twin for hotel edits (pipeline reads hotels from PG now)."""
+    def go():
+        sets = ", ".join(f"{c} = %s" for c in fields)
+        _exec(f"update hotels set {sets} where id = %s",
+              tuple(_jsonb(v) for v in fields.values()) + (hotel_id,))
+    _safe("update_hotel_fields", go)
