@@ -80,6 +80,14 @@ def _get_hotels() -> list[dict]:
     """Load active hotel configs from Supabase. Tries the tunnel-era columns
     (pms_type/pms_config) first and falls back to the legacy column set if the
     migration SQL hasn't run yet — briefings must never stop over a schema gap."""
+    # C1 step 5 (read-flip): PG first when STORAGE=pg; empty/error falls
+    # through to the Supabase path below — fail-open in both directions.
+    from db import store as _store
+    if _store.read_from_pg():
+        rows = _store.get_active_hotels(_HOTEL_COLS_V2.split(","))
+        if rows:
+            return rows
+        log.warning("[hotels] STORAGE=pg but PG returned no hotels — falling back to Supabase")
     import requests as _req
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
     supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
@@ -176,6 +184,13 @@ def _briefing_exists_today(hotel_id: str) -> bool:
 def _get_existing_data(hotel_id: str) -> dict | None:
     """The currently-published snapshot (today's report_date), for intraday
     before/after comparisons. Fail-open: None on any error."""
+    from db import store as _store
+    if _store.read_from_pg():
+        from datetime import date as _d, timedelta as _td
+        row = _store.get_briefing_on(hotel_id, str(_d.today() - _td(days=1)), ["data"])
+        if row and row.get("data") is not None:
+            return row["data"]
+        # fall through to Supabase — fail-open
     import requests as _req
     from datetime import date, timedelta
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
@@ -197,6 +212,13 @@ def _get_existing_data(hotel_id: str) -> dict | None:
 
 def _get_existing_ai_insights(hotel_id: str) -> dict | None:
     """Fetch the AI insights saved by this morning's full briefing run."""
+    from db import store as _store
+    if _store.read_from_pg():
+        from datetime import date as _d, timedelta as _td
+        row = _store.get_briefing_on(hotel_id, str(_d.today() - _td(days=1)), ["ai_insights"])
+        if row and row.get("ai_insights") is not None:
+            return row["ai_insights"]
+        # fall through to Supabase — fail-open
     import requests as _req
     from datetime import date, timedelta
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
@@ -219,6 +241,12 @@ def _get_existing_ai_insights(hotel_id: str) -> dict | None:
 def _get_hotel_lang(hotel: dict) -> str:
     """Narration language: app-set preference (hotel_prefs) wins, then
     pms_config.language, then English. Fail-open to 'en'."""
+    from db import store as _store
+    if _store.read_from_pg():
+        lang = _store.get_pref_language(hotel["id"])
+        if lang in ("en", "el"):
+            return lang
+        # fall through — pref may be newer in Supabase until C2
     import requests as _req
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
     supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")

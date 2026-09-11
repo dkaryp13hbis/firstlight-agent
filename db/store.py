@@ -222,6 +222,26 @@ def get_active_hotels(columns: list[str]) -> list[dict]:
     return _safe("get_active_hotels", go) or []
 
 
+def get_briefing_on(hotel_id: str, report_date: str,
+                    columns: list[str]) -> dict | None:
+    """One briefing by exact report_date (pipeline's yesterday-reads)."""
+    def go():
+        rows = _exec(
+            f"select {', '.join(columns)} from briefings where hotel_id = %s "
+            f"and report_date = %s order by generated_at desc limit 1",
+            (hotel_id, report_date), fetch=True)
+        return dict(zip(columns, rows[0])) if rows else None
+    return _safe("get_briefing_on", go)
+
+
+def get_pref_language(hotel_id: str) -> str | None:
+    def go():
+        rows = _exec("select language from hotel_prefs where hotel_id = %s",
+                     (hotel_id,), fetch=True)
+        return rows[0][0] if rows else None
+    return _safe("get_pref_language", go)
+
+
 def ping() -> bool:
     """Health probe for /health once PG participates."""
     return _safe("ping", lambda: _exec("select 1", fetch=True) is not None) or False
