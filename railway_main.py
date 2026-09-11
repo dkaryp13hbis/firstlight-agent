@@ -524,12 +524,18 @@ def _mark_cmd_done(cmd_id: str) -> None:
 
 def run_all_hotels(hotel_id_filter: str | None = None, cmd_id: str | None = None,
                    force: bool = False, data_only: bool = False,
-                   manual: bool = False) -> None:
+                   manual: bool = False, slot: str | None = None) -> None:
     hotels = _get_hotels()
     if hotel_id_filter:
         hotels = [h for h in hotels if h["id"] == hotel_id_filter]
+    if slot:
+        # Slot runs (e.g. 05:00 Athens "early") only touch hotels that opted in
+        # via pms_config.briefing_slot; everyone else keeps the global schedule.
+        hotels = [h for h in hotels
+                  if (h.get("pms_config") or {}).get("briefing_slot") == slot]
     if not hotels:
-        log.warning("[scheduler] No hotels configured.")
+        if not slot:
+            log.warning("[scheduler] No hotels configured.")
         return
     for hotel in hotels:
         status = process_hotel(hotel, force=force, data_only=data_only, manual=manual)
@@ -582,6 +588,14 @@ if __name__ == "__main__":
     import sys, traceback
     try:
         scheduler = BackgroundScheduler()
+        # 05:00 Europe/Athens (DST-proof) — early full briefing for hotels with
+        # pms_config.briefing_slot = "early" (Tor city group asked for 5 am).
+        # Always fires BEFORE the 03:30 UTC global run (02:00/03:00 UTC).  If it
+        # fails (e.g. Opera night audit not closed yet), the retry ladder and
+        # the global runs below pick the hotel up — and when it succeeded,
+        # _briefing_exists_today() skips it there at zero token cost.
+        scheduler.add_job(lambda: run_all_hotels(slot="early"), "cron",
+                          hour=5, minute=0, timezone="Europe/Athens")
         # 03:30 UTC = 06:30 Greece — full briefing (replaces the hotel Task
         # Scheduler triggers so hotel servers can be decommissioned)
         scheduler.add_job(run_all_hotels, "cron", hour=3, minute=30)
@@ -592,7 +606,8 @@ if __name__ == "__main__":
         # 17:00 UTC = 20:00 Greece — data refresh, reuse morning AI insights
         scheduler.add_job(lambda: run_all_hotels(data_only=True), "cron", hour=17, minute=0)
         scheduler.start()
-        log.info("[railway] Scheduler — 03:30 full | 06:00 catch-up | 11:00 + 17:00 UTC data-only")
+        log.info("[railway] Scheduler — 05:00 Athens early-slot | 03:30 full | "
+                 "06:00 catch-up | 11:00 + 17:00 UTC data-only")
         log.info(f"[railway] Hotels configured: {[h['name'] for h in _get_hotels()]}")
 
         # Cloud-side refresh-command poller (hotel daemons no longer needed)

@@ -1170,6 +1170,19 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
     all 3 via `hotel_users`. Real multi-property numbers: SHIPPED the same
     night — see release row 2026-09-12 "MULTI-PROPERTY PORTFOLIO". NEXT: 03:30 UTC watch (3 pushes, no
     email), VAT/legal name into `organizations.tor`, real rooms confirmed.
+  - ✅ 2026-09-12 **TOR EARLY BRIEFING SLOT — 05:00 Athens** (user: "the
+    paid run for Tor should be at 5 in the morning"). New scheduler job
+    `run_all_hotels(slot="early")` cron 05:00 `Europe/Athens` (DST-proof,
+    always fires before the 03:30 UTC global run); hotels opt in via
+    `pms_config.briefing_slot = "early"` — applied to the 3 Tor rows in
+    live PG via the CLI tunnel (`docs/sql/pg/2026-09-12_tor_early_slot.sql`,
+    3 rows, Pome/Potidea verified untouched). Failure path unchanged: night
+    audit not closed → failed run → 5/15/45 retry ladder → 03:30/06:00
+    global runs catch up; when the early run succeeded the global runs
+    skip via `_briefing_exists_today` at zero token cost. Slot filter is
+    a no-op for every hotel without the flag. VERIFY next morning:
+    `refresh_runs` for the 3 Tor hotels started ~02:00 UTC, one paid run
+    each, 03:30 rows `skipped`.
   - §4–§7 (show-me-why, feedback reasons, quiet day, Greek voice):
     discussion pending, mockups live (artifacts c2e739de / deca2a7c /
     36bfdb29 / fd30d282).
