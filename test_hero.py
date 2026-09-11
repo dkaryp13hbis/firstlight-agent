@@ -83,8 +83,9 @@ check("rejects imperative sentence start",
           "Good morning. Raise the August rates.")))
 check("rejects exclamation", any("exclamation" in v for v in _hero_violations(
     "Good morning. Great day!")))
+from briefing.analyst import _HERO_WORD_CAP
 check("rejects over-length", any("words" in v for v in _hero_violations(
-    "Good morning. " + "word " * 125)))
+    "Good morning. " + "word " * (_HERO_WORD_CAP + 5))))   # cap-relative, never rots
 check("accepts clean paragraph", _hero_violations(
     "Good morning. Yesterday finished at €61,400, +6.4% vs last year, rate-led. "
     "July MTD stands at €1,200,000. August looks strong.") == [])

@@ -34,7 +34,7 @@ import config
 
 _client = None
 _MODEL = "claude-sonnet-4-6"
-_PROMPT_VERSION = "cards-v1.9.1-plain-caps"
+_PROMPT_VERSION = "cards-v1.9.2-caps"
 
 # Cost policy (user decision 2026-07-27): every Claude call costs money, so
 # narration gets ONE attempt — a validation miss goes straight to the free
@@ -1547,13 +1547,14 @@ _BANNED_IMPERATIVES = {"change", "remove", "increase", "decrease", "cut",
 #   2. validators reject over-cap narration → deterministic fallback ships
 #   3. fallback templates are test-enforced within caps (test_leadtime etc.)
 #   4. _enforce_caps() is the last-resort runtime clamp — nothing ever ships over
-# Caps relaxed 2026-09-05: the v1.9 plain-language vocabulary is ~20% wordier
-# than the jargon it replaced ("channel shift" -> "bookings coming from
-# different sources"), so 4/6 cards + the hero fell back on 09-05. Policy
-# 2026-07-27: relax caps rather than pay for retries.
-_WORD_CAPS = {"headline": 12, "what_happened": 28, "why_it_matters": 42,
-              "recommended_action": 32, "by_when": 10}
-_HERO_WORD_CAP = 125
+# Caps relaxed 2026-09-05 (+~20% for plain-language vocabulary) and again
+# 2026-09-11 (user "go"): Pome/Potidea were degrading near-DAILY on 1-5
+# word overshoots (observed misses: what_happened 29-32 vs 28, action 33
+# vs 32 — refresh_runs cards_audit). Sized to cover the observed max +1.
+# Policy 2026-07-27 unchanged: relax caps rather than pay for retries.
+_WORD_CAPS = {"headline": 12, "what_happened": 33, "why_it_matters": 46,
+              "recommended_action": 36, "by_when": 10}
+_HERO_WORD_CAP = 132
 
 
 def _clamp_words(text: str, cap: int) -> str:
