@@ -193,12 +193,32 @@ def counts() -> dict[str, int]:
 
 # ── reads (used only when STORAGE=pg — C1 step 5) ────────────────────────────
 
+def _norm(v):
+    """psycopg returns uuid.UUID / date / datetime OBJECTS where Supabase REST
+    returned strings — callers compare ids and dates as strings, so normalize
+    every scalar (2026-09-11 incident: manual run matched no hotels because
+    UUID != str). jsonb stays dict/list — identical to Supabase's parse."""
+    import uuid as _uuid
+    from datetime import date as _date, datetime as _dt
+    if isinstance(v, _uuid.UUID):
+        return str(v)
+    if isinstance(v, _dt):
+        return v.isoformat()
+    if isinstance(v, _date):
+        return str(v)
+    return v
+
+
+def _row(columns: list[str], row: tuple) -> dict:
+    return {c: _norm(v) for c, v in zip(columns, row)}
+
+
 def get_latest_briefing(hotel_id: str, columns: list[str]) -> dict | None:
     def go():
         rows = _exec(
             f"select {', '.join(columns)} from briefings where hotel_id = %s "
             f"order by report_date desc limit 1", (hotel_id,), fetch=True)
-        return dict(zip(columns, rows[0])) if rows else None
+        return _row(columns, rows[0]) if rows else None
     return _safe("get_latest_briefing", go)
 
 
@@ -209,7 +229,7 @@ def get_briefings_since(hotel_id: str, since: str, before: str,
             f"select {', '.join(columns)} from briefings where hotel_id = %s "
             f"and report_date >= %s and report_date < %s order by report_date",
             (hotel_id, since, before), fetch=True)
-        return [dict(zip(columns, r)) for r in rows]
+        return [_row(columns, r) for r in rows]
     return _safe("get_briefings_since", go) or []
 
 
@@ -218,7 +238,7 @@ def get_active_hotels(columns: list[str]) -> list[dict]:
         rows = _exec(
             f"select {', '.join(columns)} from hotels where active order by name",
             fetch=True)
-        return [dict(zip(columns, r)) for r in rows]
+        return [_row(columns, r) for r in rows]
     return _safe("get_active_hotels", go) or []
 
 
@@ -230,7 +250,7 @@ def get_briefing_on(hotel_id: str, report_date: str,
             f"select {', '.join(columns)} from briefings where hotel_id = %s "
             f"and report_date = %s order by generated_at desc limit 1",
             (hotel_id, report_date), fetch=True)
-        return dict(zip(columns, rows[0])) if rows else None
+        return _row(columns, rows[0]) if rows else None
     return _safe("get_briefing_on", go)
 
 
