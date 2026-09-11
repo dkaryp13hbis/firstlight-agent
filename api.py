@@ -790,6 +790,131 @@ def admin_finance(request: Request):
     }
 
 
+# ── C2 app data plane (2026-09-11): the phone app reads THROUGH the API —
+# user JWT + membership, PG-first (read_from_pg) with Supabase fail-open
+# fallback. Authority for app-written tables stays Supabase until the
+# dual-write window closes. ──────────────────────────────────────────────
+
+_B_COLS = ["report_date", "generated_at", "data", "ai_insights"]
+
+
+def _pg_or_sb_briefing(pg_fn, sb_params) -> dict | list | None:
+    """PG when flipped, Supabase otherwise or on any PG miss."""
+    from db import store
+    if store.read_from_pg():
+        out = pg_fn()
+        if out:
+            return out
+    return _sb_get("briefings", sb_params)
+
+
+@app.get("/app/hotels")
+def app_hotels(request: Request):
+    uid = auth_user(request)
+    links = _sb_get("hotel_users", {"user_id": f"eq.{uid}", "select": "hotel_id"})
+    ids = [l["hotel_id"] for l in links]
+    if not ids:
+        return {"hotels": []}
+    rows = _sb_get("hotels", {"id": f"in.({','.join(ids)})",
+                              "select": "id,name", "order": "name"})
+    return {"hotels": rows}
+
+
+@app.get("/app/briefing/latest")
+def app_briefing_latest(request: Request, hotel_id: str = Query(...)):
+    uid = auth_user(request)
+    require_member(uid, hotel_id)
+    from db import store
+    out = _pg_or_sb_briefing(
+        lambda: store.get_latest_briefing(hotel_id, _B_COLS),
+        {"hotel_id": f"eq.{hotel_id}", "select": ",".join(_B_COLS),
+         "order": "report_date.desc", "limit": "1"})
+    row = out[0] if isinstance(out, list) and out else out
+    if not row:
+        raise HTTPException(404, "no briefing yet")
+    return row
+
+
+@app.get("/app/briefing/by-date")
+def app_briefing_by_date(request: Request, hotel_id: str = Query(...),
+                         date: str = Query(...)):
+    uid = auth_user(request)
+    require_member(uid, hotel_id)
+    from db import store
+    out = _pg_or_sb_briefing(
+        lambda: store.get_briefing_on(hotel_id, date, _B_COLS),
+        {"hotel_id": f"eq.{hotel_id}", "report_date": f"eq.{date}",
+         "select": ",".join(_B_COLS), "order": "generated_at.desc", "limit": "1"})
+    row = out[0] if isinstance(out, list) and out else out
+    if not row:
+        raise HTTPException(404, "no briefing for that date")
+    return row
+
+
+@app.get("/app/briefing/prev")
+def app_briefing_prev(request: Request, hotel_id: str = Query(...),
+                      before: str = Query(...)):
+    uid = auth_user(request)
+    require_member(uid, hotel_id)
+    from db import store
+    out = _pg_or_sb_briefing(
+        lambda: store.get_prev_briefing(hotel_id, before, _B_COLS),
+        {"hotel_id": f"eq.{hotel_id}", "report_date": f"lt.{before}",
+         "select": ",".join(_B_COLS), "order": "report_date.desc", "limit": "1"})
+    row = out[0] if isinstance(out, list) and out else out
+    if not row:
+        raise HTTPException(404, "no previous briefing")
+    return row
+
+
+@app.get("/app/briefing/dates")
+def app_briefing_dates(request: Request, hotel_id: str = Query(...),
+                       limit: int = Query(7, ge=1, le=30)):
+    uid = auth_user(request)
+    require_member(uid, hotel_id)
+    from db import store
+    if store.read_from_pg():
+        dates = store.get_briefing_dates(hotel_id, limit)
+        if dates:
+            return {"dates": dates}
+    rows = _sb_get("briefings", {
+        "hotel_id": f"eq.{hotel_id}", "select": "report_date",
+        "order": "report_date.desc", "limit": str(limit)})
+    return {"dates": [r["report_date"] for r in rows]}
+
+
+@app.get("/app/briefing/history")
+def app_briefing_history(request: Request, hotel_id: str = Query(...),
+                         limit: int = Query(7, ge=1, le=14)):
+    """Full recent briefings (watch trends). Heavy payload — same as the
+    direct read it replaces."""
+    uid = auth_user(request)
+    require_member(uid, hotel_id)
+    from db import store
+    if store.read_from_pg():
+        rows = store.get_recent_briefings(hotel_id, limit, _B_COLS)
+        if rows:
+            return {"rows": rows}
+    rows = _sb_get("briefings", {
+        "hotel_id": f"eq.{hotel_id}", "select": ",".join(_B_COLS),
+        "order": "report_date.desc", "limit": str(limit)})
+    return {"rows": rows}
+
+
+@app.get("/app/runs")
+def app_runs(request: Request, hotel_id: str = Query(...),
+             days: int = Query(3, ge=1, le=14)):
+    uid = auth_user(request)
+    require_member(uid, hotel_id)
+    from datetime import datetime, timedelta, timezone
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    rows = _sb_get("refresh_runs", {
+        "hotel_id": f"eq.{hotel_id}", "started_at": f"gte.{since}",
+        "select": "started_at,completed_at,run_type,status,error_type,attempt",
+        "order": "started_at.desc", "limit": "50"})
+    return {"runs": rows}
+
+
 @app.post("/feedback", status_code=201)
 def feedback_post(request: Request, body: dict):
     uid = auth_user(request)

@@ -237,6 +237,36 @@ def get_briefings_since(hotel_id: str, since: str, before: str,
     return _safe("get_briefings_since", go) or []
 
 
+def get_briefing_dates(hotel_id: str, limit: int = 7) -> list[str]:
+    def go():
+        rows = _exec(
+            "select report_date from briefings where hotel_id = %s "
+            "order by report_date desc limit %s", (hotel_id, limit), fetch=True)
+        return [str(r[0]) for r in rows]
+    return _safe("get_briefing_dates", go) or []
+
+
+def get_recent_briefings(hotel_id: str, limit: int,
+                         columns: list[str]) -> list[dict]:
+    def go():
+        rows = _exec(
+            f"select {', '.join(columns)} from briefings where hotel_id = %s "
+            f"order by report_date desc limit %s", (hotel_id, limit), fetch=True)
+        return [_row(columns, r) for r in rows]
+    return _safe("get_recent_briefings", go) or []
+
+
+def get_prev_briefing(hotel_id: str, before: str,
+                      columns: list[str]) -> dict | None:
+    def go():
+        rows = _exec(
+            f"select {', '.join(columns)} from briefings where hotel_id = %s "
+            f"and report_date < %s order by report_date desc limit 1",
+            (hotel_id, before), fetch=True)
+        return _row(columns, rows[0]) if rows else None
+    return _safe("get_prev_briefing", go)
+
+
 def get_active_hotels(columns: list[str]) -> list[dict]:
     def go():
         rows = _exec(
