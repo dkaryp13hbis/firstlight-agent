@@ -740,3 +740,41 @@ def set_ai_enabled(scope: str, entity_id: str, value: bool | None) -> bool:
               (value, entity_id))
         return True
     return bool(_safe("set_ai_enabled", go))
+
+
+# ── Multi-property portfolio (2026-09-12) ────────────────────────────────────
+
+def portfolio_groups(hotel_ids: list[str]) -> list[dict]:
+    """Groups the caller can see through the hotels they belong to — one
+    picker entry per group with >= 2 active hotels. PG-only (groups live here)."""
+    cols = ["id", "name", "hotels"]
+    def go():
+        if not hotel_ids:
+            return []
+        rows = _exec(
+            "select g.id, g.name, count(h.id) from groups g "
+            "join organizations o on o.group_id = g.id "
+            "join hotels h on h.org_id = o.id "
+            "where g.active and h.active and h.id = any(%s::uuid[]) "
+            "group by g.id, g.name having count(h.id) >= 2 order by g.name",
+            (hotel_ids,), fetch=True)
+        return [_row(cols, r) for r in rows]
+    return _safe("portfolio_groups", go) or []
+
+
+def portfolio_group_hotels(group_id: str, hotel_ids: list[str]) -> tuple[str | None, list[dict]]:
+    """(group name, the caller's active hotels in that group, with the columns
+    the portfolio builder needs)."""
+    cols = ["id", "name", "total_rooms", "season_settings", "pms_config"]
+    def go():
+        g = _exec("select name from groups where id = %s and active", (group_id,), fetch=True)
+        if not g:
+            return (None, [])
+        rows = _exec(
+            "select h.id, h.name, h.total_rooms, h.season_settings, h.pms_config "
+            "from hotels h join organizations o on o.id = h.org_id "
+            "where o.group_id = %s and h.active and h.id = any(%s::uuid[]) order by h.name",
+            (group_id, hotel_ids), fetch=True)
+        return (g[0][0], [_row(cols, r) for r in rows])
+    return _safe("portfolio_group_hotels", go) or (None, [])
+

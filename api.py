@@ -886,6 +886,43 @@ def app_hotels(request: Request):
     return {"hotels": rows}
 
 
+def _app_hotel_ids(uid: str) -> list[str]:
+    links = _sb_get("hotel_users", {"user_id": f"eq.{uid}", "select": "hotel_id"})
+    return [l["hotel_id"] for l in links]
+
+
+@app.get("/app/portfolios")
+def app_portfolios(request: Request):
+    """Groups the caller can open as a multi-property view (>= 2 of their
+    hotels under one group). Empty list = no portfolio entry in the picker."""
+    uid = auth_user(request)
+    from db import store
+    return {"groups": store.portfolio_groups(_app_hotel_ids(uid))}
+
+
+@app.get("/app/portfolio")
+def app_portfolio(request: Request, group_id: str = Query(...)):
+    """The multi-property view of one group, built from every member hotel's
+    LATEST stored briefing (briefing/portfolio.py). Membership-filtered: a
+    viewer on one hotel of the group sees only that hotel's row."""
+    uid = auth_user(request)
+    from db import store
+    from briefing.portfolio import build_portfolio
+    ids = _app_hotel_ids(uid)
+    name, hotels = store.portfolio_group_hotels(group_id, ids)
+    if not name or not hotels:
+        raise HTTPException(404, "no portfolio for this group")
+    briefings: dict[str, dict | None] = {}
+    for h in hotels:
+        out = _pg_or_sb_briefing(
+            lambda hid=str(h["id"]): store.get_latest_briefing(hid, ["report_date", "data"]),
+            {"hotel_id": f"eq.{h['id']}", "select": "report_date,data",
+             "order": "report_date.desc", "limit": "1"})
+        row = out[0] if isinstance(out, list) and out else out
+        briefings[str(h["id"])] = row if isinstance(row, dict) else None
+    return build_portfolio(name, hotels, briefings)
+
+
 @app.get("/app/briefing/latest")
 def app_briefing_latest(request: Request, hotel_id: str = Query(...)):
     uid = auth_user(request)
