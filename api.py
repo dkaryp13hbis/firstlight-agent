@@ -136,8 +136,25 @@ def auth_user(request: Request) -> str:
     uid = r.json()["id"]
     with _USERS_LOCK:
         _USERS[jwt] = (uid, now + 300)
+        _USER_EMAILS[uid] = (r.json().get("email") or "").lower()
         if len(_USERS) > 500:
             _USERS.clear()
+            _USER_EMAILS.clear()
+    return uid
+
+
+_USER_EMAILS: dict[str, str] = {}   # uid -> email, filled by auth_user
+
+# Admin gate (v1, pre-C3): superadmin = the founder's emails. Under C3 this
+# becomes users.is_superadmin; the endpoint contract stays the same.
+ADMIN_EMAILS = {e.strip().lower() for e in os.getenv(
+    "ADMIN_EMAILS", "dk@bi-automations.com,d.karypidis@hbis.io").split(",") if e.strip()}
+
+
+def require_admin(request: Request) -> str:
+    uid = auth_user(request)
+    if _USER_EMAILS.get(uid, "") not in ADMIN_EMAILS:
+        raise HTTPException(403, "admin only")
     return uid
 
 
@@ -357,6 +374,80 @@ def watchlist_remove(item_id: str, request: Request):
     _sb_write("DELETE", "watchlist",
               {"id": f"eq.{item_id}", "user_id": f"eq.{uid}"}, None)
     return {"removed": item_id}
+
+
+@app.get("/admin/usage")
+def admin_usage(request: Request):
+    """Usage per hotel and per user, last 30 days (superadmin only).
+    Reads usage_events with the service role — the app itself can only
+    WRITE events (RLS), so this endpoint is the sole read path."""
+    require_admin(request)
+    from datetime import datetime, timedelta, timezone
+    since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+
+    hotels = {h["id"]: h["name"] for h in _sb_get(
+        "hotels", {"select": "id,name"})}
+    members = _sb_get("hotel_users", {"select": "user_id,hotel_id"})
+    events = _sb_get("usage_events", {
+        "select": "user_id,hotel_id,event,created_at",
+        "created_at": f"gte.{since}",
+        "order": "created_at.desc", "limit": "10000",
+    })
+
+    # emails via GoTrue admin (service key); fail-open to short ids
+    emails: dict[str, str] = {}
+    try:
+        url, key = _sb()
+        r = _req.get(f"{url}/auth/v1/admin/users", params={"per_page": "200"},
+                     headers={"apikey": key, "Authorization": f"Bearer {key}"},
+                     timeout=10)
+        if r.ok:
+            for u in (r.json().get("users") or []):
+                emails[u["id"]] = u.get("email") or u["id"][:8]
+    except Exception:
+        pass
+
+    per: dict[tuple, dict] = {}   # (hotel_id, user_id) -> stats
+    for m in members:
+        per[(m["hotel_id"], m["user_id"])] = {
+            "events_30d": 0, "opens_30d": 0, "days": set(), "last_seen": None,
+            "top": {},
+        }
+    for e in events:
+        k = (e.get("hotel_id"), e["user_id"])
+        if k not in per:
+            per[k] = {"events_30d": 0, "opens_30d": 0, "days": set(),
+                      "last_seen": None, "top": {}}
+        s = per[k]
+        s["events_30d"] += 1
+        if e["event"] == "app_open":
+            s["opens_30d"] += 1
+        s["days"].add(e["created_at"][:10])
+        s["top"][e["event"]] = s["top"].get(e["event"], 0) + 1
+        if s["last_seen"] is None or e["created_at"] > s["last_seen"]:
+            s["last_seen"] = e["created_at"]
+
+    out = []
+    for hid, name in hotels.items():
+        users = []
+        for (h, u), s in per.items():
+            if h != hid:
+                continue
+            users.append({
+                "user_id": u, "email": emails.get(u, u[:8]),
+                "events_30d": s["events_30d"], "opens_30d": s["opens_30d"],
+                "days_active": len(s["days"]),
+                "last_seen": s["last_seen"],
+                "top": sorted(s["top"].items(), key=lambda x: -x[1])[:3],
+            })
+        users.sort(key=lambda x: x["last_seen"] or "", reverse=True)
+        out.append({
+            "hotel_id": hid, "name": name,
+            "events_30d": sum(x["events_30d"] for x in users),
+            "users": users,
+        })
+    out.sort(key=lambda h: -h["events_30d"])
+    return {"since": since[:10], "hotels": out}
 
 
 @app.post("/feedback", status_code=201)
