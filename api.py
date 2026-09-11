@@ -364,6 +364,10 @@ def watchlist_get(request: Request, hotel_id: str = Query(...)):
     # The user's own rows PLUS hotel-level FirstLight rows (follow-up engine,
     # 2026-09-10). Schema-tolerant: until the source columns are pasted the
     # or/select 400s and we fall back to the legacy per-user query.
+    from db import store
+    pg = store.watch_list(uid, hotel_id)
+    if pg is not None:
+        return {"items": pg}
     try:
         rows = _sb_get("watchlist", {
             "hotel_id": f"eq.{hotel_id}",
@@ -386,10 +390,27 @@ def watchlist_add(request: Request, body: dict):
     require_member(uid, hotel_id)
     if body.get("kind") not in ("month", "range") or not body.get("key"):
         raise HTTPException(422, "kind must be month|range with a key")
-    existing = _sb_get("watchlist", {"user_id": f"eq.{uid}",
-                                     "hotel_id": f"eq.{hotel_id}", "select": "id"})
-    if len(existing) >= 5:
+    from db import store
+    n = store.watch_count(uid, hotel_id)
+    if n is None:
+        existing = _sb_get("watchlist", {"user_id": f"eq.{uid}",
+                                         "hotel_id": f"eq.{hotel_id}", "select": "id"})
+        n = len(existing)
+    if n >= 5:
         raise HTTPException(409, "watchlist is full (5)")
+    created = store.watch_insert(uid, hotel_id, body["kind"], str(body["key"]),
+                                 body.get("label"))
+    if created is not None:                       # PG is authority
+        if created.get("error") == "duplicate":
+            raise HTTPException(409, "duplicate")
+        try:
+            _sb_write("POST", "watchlist", None,
+                      {"id": created["id"], "user_id": uid, "hotel_id": hotel_id,
+                       "kind": body["kind"], "key": str(body["key"]),
+                       "label": body.get("label")})
+        except HTTPException:
+            pass   # Supabase echo is best-effort
+        return created
     row = {"user_id": uid, "hotel_id": hotel_id, "kind": body["kind"],
            "key": str(body["key"]), "label": body.get("label")}
     out = _sb_write("POST", "watchlist", None, row, prefer="return=representation")
@@ -399,6 +420,9 @@ def watchlist_add(request: Request, body: dict):
 @app.delete("/watchlist/{item_id}")
 def watchlist_remove(item_id: str, request: Request):
     uid = auth_user(request)
+    from db import store
+    store.watch_delete(item_id, uid)
+    # Supabase delete runs regardless: echo while PG is up, sole path if down
     _sb_write("DELETE", "watchlist",
               {"id": f"eq.{item_id}", "user_id": f"eq.{uid}"}, None)
     return {"removed": item_id}
@@ -410,17 +434,20 @@ def admin_usage(request: Request):
     Reads usage_events with the service role — the app itself can only
     WRITE events (RLS), so this endpoint is the sole read path."""
     require_admin(request)
+    from db import store
     from datetime import datetime, timedelta, timezone
     since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
 
     hotels = {h["id"]: h["name"] for h in _sb_get(
         "hotels", {"select": "id,name"})}
     members = _sb_get("hotel_users", {"select": "user_id,hotel_id"})
-    events = _sb_get("usage_events", {
-        "select": "user_id,hotel_id,event,created_at",
-        "created_at": f"gte.{since}",
-        "order": "created_at.desc", "limit": "10000",
-    })
+    events = store.usage_events_since(since)
+    if events is None:
+        events = _sb_get("usage_events", {
+            "select": "user_id,hotel_id,event,created_at",
+            "created_at": f"gte.{since}",
+            "order": "created_at.desc", "limit": "10000",
+        })
 
     # emails via GoTrue admin (service key); fail-open to short ids
     emails: dict[str, str] = {}
@@ -621,9 +648,12 @@ def admin_health(request: Request):
 @app.get("/admin/feedback")
 def admin_feedback(request: Request, limit: int = Query(200, le=500)):
     require_admin(request)
-    rows = _sb_get("insight_feedback", {
-        "select": "hotel_id,report_date,card_id,verdict,note,created_at",
-        "order": "created_at.desc", "limit": str(limit)})
+    from db import store
+    rows = store.feedback_recent(limit)
+    if rows is None:
+        rows = _sb_get("insight_feedback", {
+            "select": "hotel_id,report_date,card_id,verdict,note,created_at",
+            "order": "created_at.desc", "limit": str(limit)})
     hotels = {h["id"]: h["name"] for h in _sb_get("hotels", {"select": "id,name"})}
     for r in rows:
         r["hotel"] = hotels.get(r.get("hotel_id"), "?")
@@ -940,9 +970,12 @@ def feedback_post(request: Request, body: dict):
            "card_id": body["card_id"], "verdict": body["verdict"],
            "reason": body.get("reason"), "card_content": body.get("card_content"),
            "user_id": uid}
-    _sb_write("POST", "insight_feedback",
-              {"on_conflict": "hotel_id,report_date,card_id,user_id"}, row,
-              prefer="resolution=merge-duplicates,return=minimal")
+    from db import store
+    store.feedback_upsert(row)
+    try:
+        _sb_write("POST", "insight_feedback", {"on_conflict": "hotel_id,report_date,card_id,user_id"}, row, prefer="resolution=merge-duplicates,return=minimal")
+    except HTTPException:
+        pass   # Supabase echo is best-effort — PG is authority
     return {"ok": True}
 
 
@@ -950,6 +983,10 @@ def feedback_post(request: Request, body: dict):
 def prefs_get(request: Request, hotel_id: str = Query(...)):
     uid = auth_user(request)
     require_member(uid, hotel_id)
+    from db import store
+    pg = store.pref_get(hotel_id)
+    if pg is not None:
+        return pg
     rows = _sb_get("hotel_prefs", {"hotel_id": f"eq.{hotel_id}", "select": "language,updated_at"})
     return rows[0] if rows else {"language": "en"}
 
@@ -962,10 +999,13 @@ def prefs_put(request: Request, body: dict):
     if body.get("language") not in ("en", "el"):
         raise HTTPException(422, "language must be en|el")
     from datetime import datetime, timezone
-    _sb_write("POST", "hotel_prefs", {"on_conflict": "hotel_id"},
-              {"hotel_id": hotel_id, "language": body["language"],
-               "updated_at": datetime.now(timezone.utc).isoformat()},
-              prefer="resolution=merge-duplicates,return=minimal")
+    from db import store
+    now = datetime.now(timezone.utc).isoformat()
+    store.pref_upsert(hotel_id, body["language"], now)
+    try:
+        _sb_write("POST", "hotel_prefs", {"on_conflict": "hotel_id"}, {"hotel_id": hotel_id, "language": body["language"], "updated_at": now}, prefer="resolution=merge-duplicates,return=minimal")
+    except HTTPException:
+        pass   # Supabase echo is best-effort — PG is authority
     return {"ok": True}
 
 
@@ -976,10 +1016,12 @@ def push_subscribe(request: Request, body: dict):
     require_member(uid, hotel_id)
     if not isinstance(body.get("subscription"), dict):
         raise HTTPException(422, "subscription object required")
-    _sb_write("DELETE", "push_subscriptions",
-              {"user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}"}, None)
-    _sb_write("POST", "push_subscriptions", None,
-              {"hotel_id": hotel_id, "user_id": uid, "subscription": body["subscription"]})
+    from db import store
+    store.push_replace(uid, hotel_id, body["subscription"])
+    try:
+        _sb_write("DELETE", "push_subscriptions", {"user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}"}, None); _sb_write("POST", "push_subscriptions", None, {"hotel_id": hotel_id, "user_id": uid, "subscription": body["subscription"]})
+    except HTTPException:
+        pass   # Supabase echo is best-effort — PG is authority
     return {"ok": True}
 
 
@@ -987,8 +1029,12 @@ def push_subscribe(request: Request, body: dict):
 def push_unsubscribe(request: Request, body: dict):
     uid = auth_user(request)
     hotel_id = str(body.get("hotel_id", ""))
-    _sb_write("DELETE", "push_subscriptions",
-              {"user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}"}, None)
+    from db import store
+    store.push_delete(uid, hotel_id)
+    try:
+        _sb_write("DELETE", "push_subscriptions", {"user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}"}, None)
+    except HTTPException:
+        pass   # Supabase echo is best-effort — PG is authority
     return {"ok": True}
 
 
@@ -999,10 +1045,29 @@ def push_prefs(request: Request, body: dict):
     prefs = body.get("notification_prefs")
     if not isinstance(prefs, dict):
         raise HTTPException(422, "notification_prefs object required")
-    _sb_write("PATCH", "push_subscriptions",
-              {"user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}"},
-              {"notification_prefs": prefs})
+    from db import store
+    store.push_set_prefs(uid, hotel_id, prefs)
+    try:
+        _sb_write("PATCH", "push_subscriptions", {"user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}"}, {"notification_prefs": prefs})
+    except HTTPException:
+        pass   # Supabase echo is best-effort — PG is authority
     return {"ok": True}
+
+
+@app.get("/push/status")
+def push_status(request: Request, hotel_id: str = Query(...)):
+    """Is this user subscribed for this hotel + their prefs (C2: replaces
+    the app's direct push_subscriptions reads)."""
+    uid = auth_user(request)
+    from db import store
+    pg = store.push_status(uid, hotel_id)
+    if pg is not None:
+        return pg
+    rows = _sb_get("push_subscriptions", {
+        "user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}",
+        "select": "notification_prefs"})
+    return ({"subscribed": True, "notification_prefs": rows[0].get("notification_prefs")}
+            if rows else {"subscribed": False, "notification_prefs": None})
 
 
 @app.post("/events", status_code=202)
@@ -1021,7 +1086,13 @@ def events(request: Request, body: dict):
                      "session_id": str(e.get("session_id", ""))[:64],
                      "event": str(e["event"])[:64], "props": e.get("props")})
     if rows:
-        _sb_write("POST", "usage_events", None, rows)
+        from db import store
+        store.events_insert(rows)
+        try:
+            _sb_write("POST", "usage_events", None, rows)
+        except HTTPException:
+            pass   # Supabase echo is best-effort — PG is authority
+
     return {"accepted": len(rows)}
 
 

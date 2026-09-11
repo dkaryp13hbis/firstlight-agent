@@ -530,3 +530,185 @@ def upsert_contract(org_id: str, f: dict) -> None:
 def set_hotel_org(hotel_id: str, org_id: str) -> None:
     _safe("set_hotel_org", lambda: _exec(
         "update hotels set org_id = %s where id = %s", (org_id, hotel_id)))
+
+# ── app-table authority (C2 step c, 2026-09-11: "switch everything to
+# postgresql") — PG is primary for watchlist/feedback/prefs/push/events;
+# endpoints echo Supabase best-effort during the transition ─────────────────
+
+_WL_COLS = ["id", "hotel_id", "kind", "key", "label", "note", "created_at",
+            "source", "flagged_date", "first_gap", "last_gap"]
+
+
+def watch_list(user_id: str, hotel_id: str) -> list[dict] | None:
+    def go():
+        rows = _exec(
+            f"select {', '.join(_WL_COLS)} from watchlist "
+            "where hotel_id = %s and (user_id = %s or source = 'firstlight') "
+            "order by created_at", (hotel_id, user_id), fetch=True)
+        return [_row(_WL_COLS, r) for r in rows]
+    return _safe("watch_list", go)
+
+
+def watch_insert(user_id: str, hotel_id: str, kind: str, key: str,
+                 label: str | None) -> dict | None:
+    """Returns the created row, or {'error': 'duplicate'} on conflict."""
+    def go():
+        rows = _exec(
+            "insert into watchlist (user_id, hotel_id, kind, key, label) "
+            "values (%s,%s,%s,%s,%s) on conflict do nothing "
+            f"returning {', '.join(_WL_COLS)}",
+            (user_id, hotel_id, kind, key, label), fetch=True)
+        return _row(_WL_COLS, rows[0]) if rows else {"error": "duplicate"}
+    return _safe("watch_insert", go)
+
+
+def watch_count(user_id: str, hotel_id: str) -> int | None:
+    def go():
+        return _exec("select count(*) from watchlist where user_id = %s "
+                     "and hotel_id = %s", (user_id, hotel_id), fetch=True)[0][0]
+    return _safe("watch_count", go)
+
+
+def watch_delete(item_id: str, user_id: str) -> bool | None:
+    def go():
+        rows = _exec("delete from watchlist where id = %s and user_id = %s "
+                     "returning id", (item_id, user_id), fetch=True)
+        return bool(rows)
+    return _safe("watch_delete", go)
+
+
+def feedback_upsert(row: dict) -> None:
+    def go():
+        cols = list(row.keys())
+        sets = ", ".join(f"{c} = excluded.{c}" for c in cols)
+        _exec(
+            f"insert into insight_feedback ({', '.join(cols)}) "
+            f"values ({', '.join(['%s'] * len(cols))}) "
+            "on conflict (hotel_id, report_date, card_id, user_id) "
+            f"do update set {sets}",
+            tuple(_jsonb(row[c]) for c in cols))
+    _safe("feedback_upsert", go)
+
+
+def pref_get(hotel_id: str) -> dict | None:
+    def go():
+        rows = _exec("select language, updated_at from hotel_prefs "
+                     "where hotel_id = %s", (hotel_id,), fetch=True)
+        return _row(["language", "updated_at"], rows[0]) if rows else None
+    return _safe("pref_get", go)
+
+
+def pref_upsert(hotel_id: str, language: str, updated_at: str) -> None:
+    _safe("pref_upsert", lambda: _exec(
+        "insert into hotel_prefs (hotel_id, language, updated_at) "
+        "values (%s,%s,%s) on conflict (hotel_id) do update set "
+        "language = excluded.language, updated_at = excluded.updated_at",
+        (hotel_id, language, updated_at)))
+
+
+def push_replace(user_id: str, hotel_id: str, subscription: dict) -> None:
+    def go():
+        _exec("delete from push_subscriptions where user_id = %s and hotel_id = %s",
+              (user_id, hotel_id))
+        _exec("insert into push_subscriptions (user_id, hotel_id, subscription) "
+              "values (%s,%s,%s)", (user_id, hotel_id, _jsonb(subscription)))
+    _safe("push_replace", go)
+
+
+def push_delete(user_id: str, hotel_id: str) -> None:
+    _safe("push_delete", lambda: _exec(
+        "delete from push_subscriptions where user_id = %s and hotel_id = %s",
+        (user_id, hotel_id)))
+
+
+def push_set_prefs(user_id: str, hotel_id: str, prefs: dict) -> None:
+    _safe("push_set_prefs", lambda: _exec(
+        "update push_subscriptions set notification_prefs = %s "
+        "where user_id = %s and hotel_id = %s",
+        (_jsonb(prefs), user_id, hotel_id)))
+
+
+def push_status(user_id: str, hotel_id: str) -> dict | None:
+    def go():
+        rows = _exec("select notification_prefs from push_subscriptions "
+                     "where user_id = %s and hotel_id = %s",
+                     (user_id, hotel_id), fetch=True)
+        if not rows:
+            return {"subscribed": False, "notification_prefs": None}
+        return {"subscribed": True, "notification_prefs": rows[0][0]}
+    return _safe("push_status", go)
+
+
+def events_insert(rows: list[dict]) -> None:
+    def go():
+        for r in rows:
+            cols = list(r.keys())
+            _exec(f"insert into usage_events ({', '.join(cols)}) "
+                  f"values ({', '.join(['%s'] * len(cols))})",
+                  tuple(_jsonb(r[c]) for c in cols))
+    _safe("events_insert", go)
+
+
+def usage_events_since(since: str, limit: int = 10000) -> list[dict] | None:
+    cols = ["user_id", "hotel_id", "event", "created_at"]
+    def go():
+        rows = _exec(
+            "select user_id, hotel_id, event, created_at from usage_events "
+            "where created_at >= %s order by created_at desc limit %s",
+            (since, limit), fetch=True)
+        return [_row(cols, r) for r in rows]
+    return _safe("usage_events_since", go)
+
+
+def feedback_recent(limit: int = 200) -> list[dict] | None:
+    cols = ["hotel_id", "report_date", "card_id", "verdict", "note", "created_at"]
+    def go():
+        rows = _exec(
+            "select hotel_id, report_date, card_id, verdict, note, created_at "
+            "from insight_feedback order by created_at desc limit %s",
+            (limit,), fetch=True)
+        return [_row(cols, r) for r in rows]
+    return _safe("feedback_recent", go)
+
+
+# firstlight watch rows for the follow-up engine (PG authority)
+def fl_watch_rows(hotel_id: str) -> list[dict] | None:
+    cols = ["id", "kind", "key", "label", "source", "flagged_date",
+            "first_gap", "last_gap", "last_gap_date", "resolve_streak"]
+    def go():
+        rows = _exec(
+            f"select {', '.join(cols)} from watchlist "
+            "where hotel_id = %s and source = 'firstlight'",
+            (hotel_id,), fetch=True)
+        return [_row(cols, r) for r in rows]
+    return _safe("fl_watch_rows", go)
+
+
+def fl_watch_keys(hotel_id: str) -> list[dict] | None:
+    def go():
+        rows = _exec("select key, source from watchlist where hotel_id = %s "
+                     "and kind = 'month'", (hotel_id,), fetch=True)
+        return [{"key": r[0], "source": r[1]} for r in rows]
+    return _safe("fl_watch_keys", go)
+
+
+def fl_watch_update(item_id: str, patch: dict) -> None:
+    def go():
+        sets = ", ".join(f"{c} = %s" for c in patch)
+        _exec(f"update watchlist set {sets} where id = %s",
+              tuple(_jsonb(v) for v in patch.values()) + (item_id,))
+    _safe("fl_watch_update", go)
+
+
+def fl_watch_delete(item_id: str) -> None:
+    _safe("fl_watch_delete", lambda: _exec(
+        "delete from watchlist where id = %s", (item_id,)))
+
+
+def fl_watch_insert(row: dict) -> None:
+    def go():
+        cols = list(row.keys())
+        _exec(f"insert into watchlist ({', '.join(cols)}) "
+              f"values ({', '.join(['%s'] * len(cols))}) on conflict do nothing",
+              tuple(_jsonb(row[c]) for c in cols))
+    _safe("fl_watch_insert", go)

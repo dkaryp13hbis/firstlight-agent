@@ -134,14 +134,17 @@ def update_followups(hotel_id: str, data: dict, ai: dict,
     """Mutates ai in place (watch_closures + per-card follow_up) and keeps the
     hotel's FirstLight watchlist rows current.  Never raises."""
     today = date.today() - timedelta(days=0)   # run day; report_date is D-1
-    try:
-        rows = _sb("GET", "watchlist", {
-            "hotel_id": f"eq.{hotel_id}", "source": "eq.firstlight",
-            "select": _FL_SELECT,
-        })
-    except Exception as e:                      # schema not pasted yet → off
-        log.info(f"[followup] off (watchlist columns missing?): {e}")
-        return
+    from db import store as _store
+    rows = _store.fl_watch_rows(hotel_id)
+    if rows is None:
+        try:
+            rows = _sb("GET", "watchlist", {
+                "hotel_id": f"eq.{hotel_id}", "source": "eq.firstlight",
+                "select": _FL_SELECT,
+            })
+        except Exception as e:                  # both stores unreachable → off
+            log.info(f"[followup] off: {e}")
+            return
 
     closures: list[dict] = []
     open_by_key: dict[str, dict] = {}
@@ -154,7 +157,11 @@ def update_followups(hotel_id: str, data: dict, ai: dict,
         action, patch = decide(row, gap, today)
         try:
             if action in ("resolve", "retire"):
-                _sb("DELETE", "watchlist", {"id": f"eq.{row['id']}"})
+                _store.fl_watch_delete(row["id"])
+                try:
+                    _sb("DELETE", "watchlist", {"id": f"eq.{row['id']}"})
+                except Exception:
+                    pass   # echo
                 closures.append({
                     "key": row.get("key"), "kind": action,
                     "title": month_title(row.get("key") or "").upper(),
@@ -162,7 +169,11 @@ def update_followups(hotel_id: str, data: dict, ai: dict,
                 })
                 log.info(f"[followup] {action}: {row.get('key')} gap={gap}")
             elif action == "update":
-                _sb("PATCH", "watchlist", {"id": f"eq.{row['id']}"}, patch)
+                _store.fl_watch_update(row["id"], patch)
+                try:
+                    _sb("PATCH", "watchlist", {"id": f"eq.{row['id']}"}, patch)
+                except Exception:
+                    pass   # echo
                 open_by_key[row["key"]] = {**row, **patch}
             else:
                 open_by_key[row["key"]] = row
@@ -173,10 +184,12 @@ def update_followups(hotel_id: str, data: dict, ai: dict,
     # 2 ── auto-add: month cards from THIS morning's analyst run
     if is_morning:
         try:
-            existing = _sb("GET", "watchlist", {
-                "hotel_id": f"eq.{hotel_id}", "kind": "eq.month",
-                "select": "key,source",
-            })
+            existing = _store.fl_watch_keys(hotel_id)
+            if existing is None:
+                existing = _sb("GET", "watchlist", {
+                    "hotel_id": f"eq.{hotel_id}", "kind": "eq.month",
+                    "select": "key,source",
+                })
             taken = {r.get("key") for r in existing}
             fl_count = sum(1 for r in existing if r.get("source") == "firstlight")
             for ins in (ai.get("insights") or []):
@@ -186,13 +199,18 @@ def update_followups(hotel_id: str, data: dict, ai: dict,
                 gap = month_gap(data, key)
                 if gap is None or gap > ADD_GAP:
                     continue
-                _sb("POST", "watchlist", None, {
+                new_row = {
                     "hotel_id": hotel_id, "user_id": None,
                     "kind": "month", "key": key, "label": None,
                     "source": "firstlight", "flagged_date": str(today),
                     "first_gap": round(gap, 1), "last_gap": round(gap, 1),
                     "last_gap_date": str(today), "resolve_streak": 0,
-                })
+                }
+                _store.fl_watch_insert(new_row)
+                try:
+                    _sb("POST", "watchlist", None, new_row)
+                except Exception:
+                    pass   # echo
                 taken.add(key)
                 fl_count += 1
                 open_by_key[key] = {"flagged_date": str(today),
