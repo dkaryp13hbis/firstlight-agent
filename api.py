@@ -64,6 +64,8 @@ app = FastAPI(title="FirstLight API", version="phase-a", lifespan=lifespan)
 # The PWA calls the API from the browser (admin portal, 2026-09-11 — first
 # browser consumer of these endpoints; everything else reads Supabase direct).
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=2048)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -172,11 +174,23 @@ def require_admin(request: Request) -> str:
     return uid
 
 
+_MEMBERS: dict[tuple[str, str], float] = {}   # (uid, hotel) -> expiry
+_MEMBERS_LOCK = threading.Lock()
+
+
 def require_member(user_id: str, hotel_id: str) -> None:
+    now = _time.time()
+    with _MEMBERS_LOCK:
+        if _MEMBERS.get((user_id, hotel_id), 0) > now:
+            return
     rows = _sb_get("hotel_users", {"user_id": f"eq.{user_id}",
                                    "hotel_id": f"eq.{hotel_id}", "select": "id"})
     if not rows:
         raise HTTPException(403, "not a member of this hotel")
+    with _MEMBERS_LOCK:
+        _MEMBERS[(user_id, hotel_id)] = now + 300
+        if len(_MEMBERS) > 1000:
+            _MEMBERS.clear()
 
 
 # ── Per-hotel token auth (hotels.api_token) ──────────────────────────────────
