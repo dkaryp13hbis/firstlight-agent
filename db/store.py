@@ -400,22 +400,48 @@ def finance_daily(days: int = 30) -> list[dict]:
 # ── company registry (portal §3/§4; PG canonical, migration 002) ─────────────
 
 _ORG_COLS = ["id", "name", "legal_name", "vat_number", "country",
-             "contact_name", "contact_phone"]
+             "contact_name", "contact_phone", "group_id"]
 _CON_COLS = ["status", "start_date", "monthly_eur", "annual_eur",
              "billing_anchor", "notes"]
 
 
 def companies_list() -> list[dict]:
-    cols = _ORG_COLS + _CON_COLS
+    cols = _ORG_COLS + ["group_name"] + _CON_COLS
     def go():
         rows = _exec(
             "select o.id, o.name, o.legal_name, o.vat_number, o.country, "
-            "o.contact_name, o.contact_phone, c.status, c.start_date, "
+            "o.contact_name, o.contact_phone, o.group_id, g.name, "
+            "c.status, c.start_date, "
             "c.monthly_eur, c.annual_eur, c.billing_anchor, c.notes "
-            "from organizations o left join contracts c on c.org_id = o.id "
-            "order by o.name", fetch=True)
+            "from organizations o "
+            "left join groups g on g.id = o.group_id "
+            "left join contracts c on c.org_id = o.id "
+            "order by g.name nulls last, o.name", fetch=True)
         return [_row(cols, r) for r in rows]
     return _safe("companies_list", go) or []
+
+
+def groups_list() -> list[dict]:
+    cols = ["id", "name", "companies"]
+    def go():
+        rows = _exec(
+            "select g.id, g.name, count(o.id) from groups g "
+            "left join organizations o on o.group_id = g.id "
+            "where g.active group by g.id, g.name order by g.name", fetch=True)
+        return [_row(cols, r) for r in rows]
+    return _safe("groups_list", go) or []
+
+
+def upsert_group(name: str, slug: str, group_id: str | None = None) -> str | None:
+    def go():
+        if group_id:
+            _exec("update groups set name = %s where id = %s", (name, group_id))
+            return group_id
+        rows = _exec("insert into groups (name, slug) values (%s, %s) "
+                     "on conflict (slug) do update set name = excluded.name "
+                     "returning id", (name, slug), fetch=True)
+        return str(rows[0][0])
+    return _safe("upsert_group", go)
 
 
 def org_hotel_map() -> dict[str, str]:
@@ -436,11 +462,12 @@ def upsert_company(org: dict) -> str | None:
             return org["id"]
         rows = _exec(
             "insert into organizations (name, legal_name, vat_number, country, "
-            "contact_name, contact_phone, slug) values (%s,%s,%s,%s,%s,%s,%s) "
-            "returning id",
+            "contact_name, contact_phone, group_id, slug) "
+            "values (%s,%s,%s,%s,%s,%s,%s,%s) returning id",
             (org.get("name"), org.get("legal_name"), org.get("vat_number"),
              org.get("country") or "GR", org.get("contact_name"),
-             org.get("contact_phone"), org.get("slug")), fetch=True)
+             org.get("contact_phone"), org.get("group_id"),
+             org.get("slug")), fetch=True)
         return str(rows[0][0])
     try:
         if not enabled():

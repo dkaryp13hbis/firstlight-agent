@@ -635,6 +635,31 @@ def admin_subscription_put(hotel_id: str, request: Request, body: dict):
     return (out or [row])[0]
 
 
+@app.get("/admin/groups")
+def admin_groups(request: Request):
+    require_admin(request)
+    from db import store
+    return {"groups": store.groups_list()}
+
+
+@app.post("/admin/groups")
+def admin_groups_post(request: Request, body: dict):
+    """Create (or rename) a hotel GROUP — the owner umbrella above
+    companies, e.g. 'Myconian Collection'."""
+    require_admin(request)
+    from db import store
+    import re as _re
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(422, "group name is required")
+    slug = _re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:40] or "group"
+    gid = store.upsert_group(name, slug, body.get("id"))
+    if not gid:
+        raise HTTPException(503, "registry storage unavailable")
+    _audit_admin(request, "group.upsert", "group", gid, after={"name": name})
+    return {"id": gid, "name": name}
+
+
 @app.get("/admin/companies")
 def admin_companies(request: Request):
     """The client registry: company + VAT + contact + contract + its hotels
@@ -677,6 +702,7 @@ def admin_companies_post(request: Request, body: dict):
         raise HTTPException(422, "company name is required")
     org = {
         "id": body.get("id") or None,
+        "group_id": body.get("group_id") or None,
         "name": name,
         "legal_name": (body.get("legal_name") or "").strip() or None,
         "vat_number": (body.get("vat_number") or "").strip() or None,
