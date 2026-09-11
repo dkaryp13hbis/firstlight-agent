@@ -396,3 +396,76 @@ def finance_daily(days: int = 30) -> list[dict]:
             "group by 1 order by 1", (days,), fetch=True)
         return [_row(cols, r) for r in rows]
     return _safe("finance_daily", go) or []
+
+# ── company registry (portal §3/§4; PG canonical, migration 002) ─────────────
+
+_ORG_COLS = ["id", "name", "legal_name", "vat_number", "country",
+             "contact_name", "contact_phone"]
+_CON_COLS = ["status", "start_date", "monthly_eur", "annual_eur",
+             "billing_anchor", "notes"]
+
+
+def companies_list() -> list[dict]:
+    cols = _ORG_COLS + _CON_COLS
+    def go():
+        rows = _exec(
+            "select o.id, o.name, o.legal_name, o.vat_number, o.country, "
+            "o.contact_name, o.contact_phone, c.status, c.start_date, "
+            "c.monthly_eur, c.annual_eur, c.billing_anchor, c.notes "
+            "from organizations o left join contracts c on c.org_id = o.id "
+            "order by o.name", fetch=True)
+        return [_row(cols, r) for r in rows]
+    return _safe("companies_list", go) or []
+
+
+def org_hotel_map() -> dict[str, str]:
+    """hotel_id -> org_id."""
+    def go():
+        rows = _exec("select id, org_id from hotels", fetch=True)
+        return {str(r[0]): (str(r[1]) if r[1] else "") for r in rows}
+    return _safe("org_hotel_map", go) or {}
+
+
+def upsert_company(org: dict) -> str | None:
+    """Insert or update an organization; returns its id."""
+    def go():
+        if org.get("id"):
+            sets = ", ".join(f"{c} = %s" for c in _ORG_COLS if c != "id")
+            _exec(f"update organizations set {sets} where id = %s",
+                  tuple(org.get(c) for c in _ORG_COLS if c != "id") + (org["id"],))
+            return org["id"]
+        rows = _exec(
+            "insert into organizations (name, legal_name, vat_number, country, "
+            "contact_name, contact_phone, slug) values (%s,%s,%s,%s,%s,%s,%s) "
+            "returning id",
+            (org.get("name"), org.get("legal_name"), org.get("vat_number"),
+             org.get("country") or "GR", org.get("contact_name"),
+             org.get("contact_phone"), org.get("slug")), fetch=True)
+        return str(rows[0][0])
+    try:
+        if not enabled():
+            return None
+        return go()
+    except Exception as exc:  # surface VAT-unique etc. to the endpoint
+        raise RuntimeError(str(exc)) from exc
+
+
+def upsert_contract(org_id: str, f: dict) -> None:
+    def go():
+        _exec(
+            "insert into contracts (org_id, status, start_date, monthly_eur, "
+            "annual_eur, billing_anchor, notes, updated_at) "
+            "values (%s,%s,%s,%s,%s,%s,%s, now()) "
+            "on conflict (org_id) do update set status = excluded.status, "
+            "start_date = excluded.start_date, monthly_eur = excluded.monthly_eur, "
+            "annual_eur = excluded.annual_eur, billing_anchor = excluded.billing_anchor, "
+            "notes = excluded.notes, updated_at = now()",
+            (org_id, f.get("status") or "trial", f.get("start_date"),
+             f.get("monthly_eur"), f.get("annual_eur"),
+             f.get("billing_anchor"), f.get("notes")))
+    _safe("upsert_contract", go)
+
+
+def set_hotel_org(hotel_id: str, org_id: str) -> None:
+    _safe("set_hotel_org", lambda: _exec(
+        "update hotels set org_id = %s where id = %s", (org_id, hotel_id)))

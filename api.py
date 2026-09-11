@@ -635,6 +635,84 @@ def admin_subscription_put(hotel_id: str, request: Request, body: dict):
     return (out or [row])[0]
 
 
+@app.get("/admin/companies")
+def admin_companies(request: Request):
+    """The client registry: company + VAT + contact + contract + its hotels
+    (with per-hotel usage from the same aggregation as /admin/clients)."""
+    require_admin(request)
+    from db import store
+    usage = admin_clients(request)              # per-hotel users/usage/sub
+    by_hotel = {h["hotel_id"]: h for h in usage["hotels"]}
+    hmap = store.org_hotel_map()                # hotel -> org
+    out = []
+    for org in store.companies_list():
+        hotel_ids = [hid for hid, oid in hmap.items() if oid == org["id"]]
+        hs = [by_hotel[h] for h in hotel_ids if h in by_hotel]
+        users = {u["user_id"]: u for h in hs for u in h["users"]}
+        last_seen = max((u["last_seen"] for u in users.values() if u["last_seen"]),
+                        default=None)
+        contract = {c: org.pop(c) for c in
+                    ["status", "start_date", "monthly_eur", "annual_eur",
+                     "billing_anchor", "notes"]}
+        out.append({
+            **org,
+            "contract": contract,
+            "hotels": hs,
+            "users_n": len(users),
+            "events_30d": sum(h["events_30d"] for h in hs),
+            "last_seen": last_seen,
+        })
+    return {"companies": out, "since": usage["since"]}
+
+
+@app.post("/admin/companies")
+def admin_companies_post(request: Request, body: dict):
+    """Create or update a client: company identity + contract + hotel links.
+    The onboarding form posts here."""
+    require_admin(request)
+    from db import store
+    import re as _re
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(422, "company name is required")
+    org = {
+        "id": body.get("id") or None,
+        "name": name,
+        "legal_name": (body.get("legal_name") or "").strip() or None,
+        "vat_number": (body.get("vat_number") or "").strip() or None,
+        "country": (body.get("country") or "GR").strip().upper()[:2],
+        "contact_name": (body.get("contact_name") or "").strip() or None,
+        "contact_phone": (body.get("contact_phone") or "").strip() or None,
+        "slug": _re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:40] or "client",
+    }
+    try:
+        org_id = store.upsert_company(org)
+    except RuntimeError as exc:
+        if "organizations_vat_unique" in str(exc):
+            raise HTTPException(409, "a company with this VAT already exists")
+        raise HTTPException(502, f"registry write failed: {str(exc)[:120]}")
+    if not org_id:
+        raise HTTPException(503, "registry storage unavailable")
+    # Supabase keeps a base org row (id+name+slug) so the nightly mirror
+    # never resurrects a deleted org or diverges on identity.
+    try:
+        _sb_write("POST", "organizations", {"on_conflict": "id"},
+                  {"id": org_id, "name": org["name"], "slug": org["slug"]},
+                  prefer="resolution=merge-duplicates")
+    except HTTPException:
+        pass
+    store.upsert_contract(org_id, body.get("contract") or {})
+    for hid in (body.get("hotel_ids") or []):
+        store.set_hotel_org(hid, org_id)
+        try:
+            _sb_write("PATCH", "hotels", {"id": f"eq.{hid}"}, {"org_id": org_id})
+        except HTTPException:
+            pass
+    _audit_admin(request, "company.upsert", "org", org_id,
+                 after={k: v for k, v in body.items() if k != "id"})
+    return {"id": org_id}
+
+
 @app.get("/admin/finance")
 def admin_finance(request: Request):
     """Costs & revenue (ADMIN_PLAN follow-on, user 2026-09-11): daily AI
@@ -647,15 +725,30 @@ def admin_finance(request: Request):
     this_m = date.today().strftime("%Y-%m")
     cost_this = sum(float(d["cost_usd"] or 0) for d in daily if d["day"].startswith(this_m))
     cost_30d = sum(float(d["cost_usd"] or 0) for d in daily)
-    hotels = {h["id"]: h["name"] for h in _sb_get("hotels", {"select": "id,name"})}
-    subs = []
-    try:
-        subs = _sb_get("subscriptions", {
-            "select": "hotel_id,plan,status,price_eur,started_on,renews_on"})
-    except HTTPException:
-        pass                                     # table not pasted yet
-    lines = [{**s2, "name": hotels.get(s2["hotel_id"], "?")} for s2 in subs]
-    active = [l for l in lines if l.get("status") == "active"]
+    # revenue source of truth: company contracts (migration 002); the old
+    # hotel-level subscriptions remain a fallback until every client has one
+    comps = store.companies_list()
+    lines, active = [], []
+    for c in comps:
+        monthly = float(c.get("monthly_eur") or 0)
+        annual = float(c.get("annual_eur") or 0)
+        plan = "annual" if annual and not monthly else ("monthly" if monthly else "unset")
+        line = {"hotel_id": c["id"], "name": c["name"], "plan": plan,
+                "status": c.get("status"),
+                "price_eur": monthly or (round(annual / 12, 2) if annual else None),
+                "started_on": c.get("start_date"), "renews_on": c.get("billing_anchor")}
+        lines.append(line)
+        if c.get("status") == "active":
+            active.append(line)
+    if not lines:
+        hotels = {h["id"]: h["name"] for h in _sb_get("hotels", {"select": "id,name"})}
+        try:
+            subs = _sb_get("subscriptions", {
+                "select": "hotel_id,plan,status,price_eur,started_on,renews_on"})
+        except HTTPException:
+            subs = []
+        lines = [{**s2, "name": hotels.get(s2["hotel_id"], "?")} for s2 in subs]
+        active = [l for l in lines if l.get("status") == "active"]
     by_plan: dict[str, dict] = {}
     for l in active:
         p = by_plan.setdefault(l.get("plan") or "unset", {"clients": 0, "mrr": 0.0})
