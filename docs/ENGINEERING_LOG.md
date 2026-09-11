@@ -1149,6 +1149,26 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
     `git push` from the session) → Railway build with oracledb → flip
     `hotels.active = true` in PG → manual refresh per property → check
     `refresh_runs.fetch_path = tunnel` + `data_quality.complete`.
+  - ✅ 2026-09-12 **FIRST OPERA BRIEFINGS IN PRODUCTION.** main pushed
+    (8308d56, Railway env `cloudflare` web RUNNING at 21:37Z with
+    `oracledb`); `hotels.active = true` for the 3 rows in PG (Supabase
+    rows + `hotel_users` for dk@ already present from the user's SQL
+    paste); one `refresh_commands` per property (queued via
+    `railway run -s web` + PowerShell, keys never on disk). Results
+    (`refresh_runs`, report_date 2026-09-10): **City success, Excelsior
+    success, ON Residence degraded — all `fetch_path: tunnel`,
+    `complete: true`, `legacy: false`, every signal field populated;
+    fetch 6–16 s, AI ~42 s, ~$0.06 each.** Published yesterday figures
+    identical to the VPN validation (93 rn / 13,281 € · 28 / 6,673 · 39 /
+    10,201). ON Residence degraded = two cards (`pickup_sep_2026`,
+    `leadtime_sep_2026`) fell back on `by_when` 12–13 words vs cap 10 —
+    the known near-miss pattern, data untouched. Group: `groups` row
+    renamed **"Tor Hotel Group"** (`tor-hotel-group`), `organizations.tor`
+    linked via `group_id`; group-level membership for dk@ waits for C3
+    (`users`/`memberships` not applied on live PG yet) — today dk@ sees
+    all 3 via `hotel_users`. Real multi-property numbers still need the
+    portfolio build (fixture today). NEXT: 03:30 UTC watch (3 pushes, no
+    email), VAT/legal name into `organizations.tor`, real rooms confirmed.
   - §4–§7 (show-me-why, feedback reasons, quiet day, Greek voice):
     discussion pending, mockups live (artifacts c2e739de / deca2a7c /
     36bfdb29 / fd30d282).
