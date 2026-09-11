@@ -376,3 +376,23 @@ def update_hotel_fields(hotel_id: str, fields: dict) -> None:
         _exec(f"update hotels set {sets} where id = %s",
               tuple(_jsonb(v) for v in fields.values()) + (hotel_id,))
     _safe("update_hotel_fields", go)
+
+def finance_daily(days: int = 30) -> list[dict]:
+    """Per day: AI cost, tokens, rows processed (rows_fetched is jsonb —
+    object of per-query counts on newer runs, bare number on legacy)."""
+    cols = ["day", "cost_usd", "input_tokens", "output_tokens", "rows"]
+    def go():
+        rows = _exec(
+            "select to_char(started_at, 'YYYY-MM-DD') as day, "
+            "round(coalesce(sum(estimated_cost_usd), 0), 4), "
+            "coalesce(sum(input_tokens), 0), coalesce(sum(output_tokens), 0), "
+            "coalesce(sum(case "
+            "  when jsonb_typeof(rows_fetched) = 'object' then "
+            "    (select sum(v::numeric) from jsonb_each_text(rows_fetched) as e(k, v)) "
+            "  when jsonb_typeof(rows_fetched) = 'number' then rows_fetched::text::numeric "
+            "  else 0 end), 0) "
+            "from refresh_runs "
+            "where started_at > now() - make_interval(days => %s) "
+            "group by 1 order by 1", (days,), fetch=True)
+        return [_row(cols, r) for r in rows]
+    return _safe("finance_daily", go) or []

@@ -635,6 +635,42 @@ def admin_subscription_put(hotel_id: str, request: Request, body: dict):
     return (out or [row])[0]
 
 
+@app.get("/admin/finance")
+def admin_finance(request: Request):
+    """Costs & revenue (ADMIN_PLAN follow-on, user 2026-09-11): daily AI
+    cost + tokens + rows processed, and the commercial picture — active
+    clients by plan, monthly revenue, per-client lines for invoicing."""
+    require_admin(request)
+    from db import store
+    from datetime import date
+    daily = store.finance_daily(30)
+    this_m = date.today().strftime("%Y-%m")
+    cost_this = sum(float(d["cost_usd"] or 0) for d in daily if d["day"].startswith(this_m))
+    cost_30d = sum(float(d["cost_usd"] or 0) for d in daily)
+    hotels = {h["id"]: h["name"] for h in _sb_get("hotels", {"select": "id,name"})}
+    subs = []
+    try:
+        subs = _sb_get("subscriptions", {
+            "select": "hotel_id,plan,status,price_eur,started_on,renews_on"})
+    except HTTPException:
+        pass                                     # table not pasted yet
+    lines = [{**s2, "name": hotels.get(s2["hotel_id"], "?")} for s2 in subs]
+    active = [l for l in lines if l.get("status") == "active"]
+    by_plan: dict[str, dict] = {}
+    for l in active:
+        p = by_plan.setdefault(l.get("plan") or "unset", {"clients": 0, "mrr": 0.0})
+        p["clients"] += 1
+        p["mrr"] += float(l.get("price_eur") or 0)
+    mrr = sum(p["mrr"] for p in by_plan.values())
+    return {
+        "daily": daily,
+        "cost": {"this_month_usd": round(cost_this, 2), "last_30d_usd": round(cost_30d, 2)},
+        "revenue": {"mrr_eur": round(mrr, 2), "arr_eur": round(mrr * 12, 2),
+                    "by_plan": by_plan, "active_clients": len(active),
+                    "lines": lines},
+    }
+
+
 @app.post("/feedback", status_code=201)
 def feedback_post(request: Request, body: dict):
     uid = auth_user(request)
