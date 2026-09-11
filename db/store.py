@@ -47,8 +47,12 @@ def _pool():
         with _POOL_LOCK:
             if _POOL is None:
                 from psycopg_pool import ConnectionPool
-                _POOL = ConnectionPool(os.environ["DATABASE_URL"],
-                                       min_size=1, max_size=5,
+                url = os.environ["DATABASE_URL"]
+                # topology is not encryption (security review 2026-09-11):
+                # require TLS even on the private network
+                if "sslmode=" not in url:
+                    url += ("&" if "?" in url else "?") + "sslmode=require"
+                _POOL = ConnectionPool(url, min_size=1, max_size=5,
                                        kwargs={"autocommit": True})
     return _POOL
 
