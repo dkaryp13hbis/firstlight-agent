@@ -170,15 +170,6 @@ def _build_curve_months_by_bookmonth(rows: list[dict], stly_cap_month: int) -> d
     }
 
 
-def _as_date(v: Any) -> Any:
-    """Normalise a query date value (date / datetime / 'YYYY-MM-DD') to date."""
-    if isinstance(v, datetime):
-        return v.date()
-    if isinstance(v, str):
-        return datetime.strptime(v[:10], "%Y-%m-%d").date()
-    return v
-
-
 # ------------------------------------------------------------------
 # Assembly
 # ------------------------------------------------------------------
@@ -208,7 +199,7 @@ def assemble_snapshot(rows: dict[str, Any], hotel_ctx: dict[str, Any],
     rn_stly_by_month = {m: float(kpi.get(f"rn_stly_{m}") or 0) for m in range(1, 13)}
 
     # ── Q7: Inventory ─────────────────────────────────────────────
-    inv_rows = {_as_date(r["ref_date"]): r["total_rooms"] for r in (rows.get("inventory") or [])}
+    inv_rows = {r["ref_date"]: r["total_rooms"] for r in (rows.get("inventory") or [])}
 
     inv_yday    = inv_rows.get(yesterday, total_rooms)
     inv_yday_ly = inv_rows.get(yesterday - timedelta(days=365), total_rooms)
@@ -306,7 +297,9 @@ def assemble_snapshot(rows: dict[str, Any], hotel_ctx: dict[str, Any],
     # ── Q6: Next 7 days ───────────────────────────────────────────
     next7 = []
     for r in rows.get("next7") or []:
-        d_date = _as_date(r["stay_date"])
+        d_date = r["stay_date"]
+        if isinstance(d_date, str):
+            d_date = datetime.strptime(d_date, "%Y-%m-%d").date()
         inv_day = inv_rows.get(d_date, total_rooms)
         rn  = float(r["room_nights"] or 0)
         rev = float(r["revenue"]     or 0)
