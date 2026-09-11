@@ -366,9 +366,19 @@ def _process_hotel_locked(hotel: dict, run, force: bool, data_only: bool, result
                 log.info(f"[processor] Manual refresh but no AI exists yet today — generating fresh.")
         if ai is None:
             from briefing.analyst import generate_insights
+            # per-entity AI toggle (hotel > company > group > ON); a lookup
+            # failure fails OPEN to narrating — never silently degrade a
+            # paying client's briefing over a settings read
+            from db import store as _store
+            _ai_map = _store.ai_enabled_map() or {}
+            _ai_on = _ai_map.get(hotel["id"], True)
+            if not _ai_on:
+                log.info(f"[processor] {hotel['name']} — AI narration disabled "
+                         f"(entity toggle); deterministic cards only.")
             with run.stage("ai"):
                 _lang = _get_hotel_lang(hotel)
-                ai = generate_insights(data, hotel_id=hotel["id"], lang=_lang)
+                ai = generate_insights(data, hotel_id=hotel["id"], lang=_lang,
+                                       narrate=_ai_on)
             meta = ai.pop("_meta", None)
             if meta:
                 usage = meta.get("usage", {})

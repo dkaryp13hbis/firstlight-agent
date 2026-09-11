@@ -2154,7 +2154,10 @@ _STUB = {"executive_summary": "", "insights": []}
 # ─── Layer B: entry point ────────────────────────────────────────────────────
 
 def generate_insights(data: dict[str, Any], hotel_id: str | None = None,
-                      lang: str = "en") -> dict[str, Any]:
+                      lang: str = "en", narrate: bool = True) -> dict[str, Any]:
+    """narrate=False (per-entity AI toggle, 2026-09-11): every card ships its
+    deterministic fallback and the hero is skipped — ZERO Claude tokens; the
+    briefing still publishes with full data and computed signals."""
     if not config.ANTHROPIC_API_KEY:
         print("[analyst] No ANTHROPIC_API_KEY — skipping AI insights.")
         return _STUB
@@ -2192,6 +2195,15 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None,
                                 "model": _MODEL, "prompt_version": _PROMPT_VERSION}
         cards: list[dict] = []
         for cand in ranked[:5]:
+            if not narrate:
+                card = dict(cand["fallback_card"])
+                meta["cards_audit"].append({
+                    "card_id": card.get("id") or f"card_{len(cards) + 1}",
+                    "fallback_used": True, "attempts": 0,
+                    "validation_problems": ["ai_disabled_for_entity"],
+                })
+                cards.append(card)
+                continue
             wrapper = {
                 "property":       hotel_name,
                 "briefing_date":  briefing_date,
@@ -2202,7 +2214,11 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None,
             cards.append(card)
             print(f"[analyst] Card {len(cards)}: [{card['tag']}] {card['headline'][:60]}")
 
-        summary = _narrate_hero(hotel_name, _build_hero_slots(data), cards, meta=meta, lang=lang)
+        summary = "" if not narrate else \
+            _narrate_hero(hotel_name, _build_hero_slots(data), cards, meta=meta, lang=lang)
+        if not narrate:
+            print(f"[analyst] AI narration OFF for this hotel — "
+                  f"{len(cards)} deterministic cards, zero tokens")
         meta["fallback_cards"] = sum(1 for a in meta["cards_audit"] if a["fallback_used"])
         meta["estimated_cost_usd"] = _estimate_cost_usd(meta["usage"])
         from datetime import datetime as _dtnow

@@ -553,6 +553,7 @@ def admin_hotels(request: Request):
     from db import store
     hotels = _sb_get("hotels", {
         "select": "id,name,active,total_rooms,pms_type,pms_config,api_token"})
+    ai_map = store.ai_enabled_map() or {}
     runs = {r["hotel_id"]: r for r in store.hotels_run_summary(30)}
     briefs = {}
     for b in _sb_get("briefings", {"select": "hotel_id,report_date",
@@ -575,6 +576,7 @@ def admin_hotels(request: Request):
             "degraded_30d": r.get("degraded", 0), "failed_30d": r.get("failed", 0),
             "cost_30d_usd": float(r.get("cost_usd") or 0),
             "last_run_at": r.get("last_run_at"), "last_status": r.get("last_status"),
+            "ai_enabled": ai_map.get(h["id"], True),
         })
     return {"hotels": out}
 
@@ -622,6 +624,26 @@ def admin_hotel_active(hotel_id: str, request: Request, body: dict):
     _audit_admin(request, "hotel.activate" if active else "hotel.pause",
                  "hotel", hotel_id, reason=reason or None)
     return {"active": active}
+
+
+@app.put("/admin/ai-toggle")
+def admin_ai_toggle(request: Request, body: dict):
+    """AI narration on/off/inherit per hotel, company, or group — token
+    cost control. null = inherit from the level above; default ON."""
+    require_admin(request)
+    from db import store
+    scope = body.get("scope")
+    entity_id = str(body.get("id", ""))
+    value = body.get("enabled")   # true | false | None (inherit)
+    if scope not in ("hotel", "org", "group") or not entity_id:
+        raise HTTPException(422, "scope hotel|org|group and id required")
+    if value not in (True, False, None):
+        raise HTTPException(422, "enabled must be true, false or null")
+    if not store.set_ai_enabled(scope, entity_id, value):
+        raise HTTPException(503, "registry storage unavailable")
+    _audit_admin(request, "ai_toggle", scope, entity_id,
+                 after={"enabled": value})
+    return {"scope": scope, "id": entity_id, "enabled": value}
 
 
 @app.get("/admin/health")

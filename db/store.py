@@ -712,3 +712,31 @@ def fl_watch_insert(row: dict) -> None:
               f"values ({', '.join(['%s'] * len(cols))}) on conflict do nothing",
               tuple(_jsonb(row[c]) for c in cols))
     _safe("fl_watch_insert", go)
+
+# ── per-entity AI-narration toggle (migration 004) ───────────────────────────
+
+def ai_enabled_map() -> dict[str, bool] | None:
+    """hotel_id -> effective AI flag: hotel overrides company overrides
+    group; default ON. None = PG unavailable (caller fails open to ON)."""
+    def go():
+        rows = _exec(
+            "select h.id, coalesce(h.ai_enabled, o.ai_enabled, g.ai_enabled, true) "
+            "from hotels h "
+            "left join organizations o on o.id = h.org_id "
+            "left join groups g on g.id = o.group_id", fetch=True)
+        return {str(r[0]): bool(r[1]) for r in rows}
+    return _safe("ai_enabled_map", go)
+
+
+_AI_SCOPE_TABLE = {"hotel": "hotels", "org": "organizations", "group": "groups"}
+
+
+def set_ai_enabled(scope: str, entity_id: str, value: bool | None) -> bool:
+    table = _AI_SCOPE_TABLE.get(scope)
+    if not table:
+        return False
+    def go():
+        _exec(f"update {table} set ai_enabled = %s where id = %s",
+              (value, entity_id))
+        return True
+    return bool(_safe("set_ai_enabled", go))
