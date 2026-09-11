@@ -1134,6 +1134,21 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
     Hotel BI prices cancelled nights at the daily rate, we use Opera's
     `CLX_ROOM_REVENUE_GROSS` (0.1–0.2% apart on STLY) — keep ours unless
     told otherwise.
+  - ✅ 2026-09-12 **ROWS CREATED IN RAILWAY POSTGRES (authority) — INACTIVE
+    until the adapter deploy lands** (user: "add also the 3 hotels and give
+    me access dk@bi-automations.com"). Company `organizations` `tor`
+    "Tor Hotels" id `a80a2f08-5f29-4c81-80c1-59bea97a1cc0` (VAT/legal name
+    still pending from intake). Hotels (`pms_type: opera_oracle`, shared
+    tunnel block, `sql.pms_hotel_id` = resort, api_token issued):
+    CITY `7a1c9d2e-…5d01` City Hotel Thessaloniki 125 rooms ·
+    EXCEL `7a1c9d2e-…5d02` The Excelsior Hotel 36 · ONRES `7a1c9d2e-…5d03`
+    ON Residence 60 (rooms = non-pseudo categories; confirm at intake).
+    `hotel_users` mirror rows for uid `0dff022f…` (dk@). Supabase side
+    (app picker + membership until C3) = SQL handed to the user for the
+    SQL editor, same ids. Sequence: user pushes main (classifier blocked
+    `git push` from the session) → Railway build with oracledb → flip
+    `hotels.active = true` in PG → manual refresh per property → check
+    `refresh_runs.fetch_path = tunnel` + `data_quality.complete`.
   - §4–§7 (show-me-why, feedback reasons, quiet day, Greek voice):
     discussion pending, mockups live (artifacts c2e739de / deca2a7c /
     36bfdb29 / fd30d282).
