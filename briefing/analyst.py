@@ -1005,7 +1005,10 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                     "trigger_if_monitor": f"cancellations run above the recent normal on any remaining {month_name} date",
                 }
                 fb = {
-                    "headline": f"{month_name} on track to finish around {f_vs_band} vs {ref_label}",
+                    # 11 words with a 3-word band + "final last year" (cap 12). The
+                    # earlier "on track to finish around …" was 13 → _enforce_caps
+                    # clamped it to "… vs final last…" (ON Residence, 2026-09-13).
+                    "headline": f"{month_name} on track for {f_vs_band} vs {ref_label}",
                     "evidence": [
                         {"label": "EXPECTED FINISH", "value": f_vs_band, "sub": f"vs {ref_label}"},
                         {"label": "STILL TO COME", "value": f_rem_otb, "sub": "booked, not yet earned"},

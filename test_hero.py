@@ -153,5 +153,48 @@ check("verbatim numbers pass",
 check("invented numbers fail",
       _bad_numbers({"h": "Revenue was €99,999"}, hay) != [])
 
+print("— Projection fallback templates within word caps (regression 2026-09-13) —")
+# ON Residence 2026-09-13: the current-month MONITOR headline template was 13
+# words ("September on track to finish around +8% to +13% vs final last year"),
+# one over the 12-word cap, so _enforce_caps shipped "… vs final last…" in the
+# app. Every projection branch (current month ahead/behind, future month
+# ahead/behind) must produce fallback text inside the caps WITHOUT clamping.
+from datetime import date as _date
+from briefing.analyst import _compute_signals, _WORD_CAPS
+_today = _date.today()
+_fut = [m for m in range(_today.month + 1, 13)]          # future months this year
+def _proj_data(ahead: bool) -> dict:
+    # current month: proj = mtd + remaining OTB + max(0, rem_final_ly − rem_stly)
+    # ahead: 200k + 230k + 10k = 440k vs final LY 380k → +15.8% (MONITOR)
+    # behind: 100k + 120k + 10k = 230k vs 380k → −39% (ALERT)
+    mtd = {"revenue": 200_000 if ahead else 100_000}
+    cm = {"rn_remaining_otb_ty": 100, "rev_remaining_otb_ty": 230_000 if ahead else 120_000,
+          "rev_remaining_final_ly": 100_000, "rev_remaining_stly": 90_000}
+    # rn/rn_stly equal → the pace signal (Signal 2) stays silent; only projection fires
+    pace = [{"month": "Cur", "month_num": _today.month, "rn": 1500, "rn_stly": 1500, "rn_final_ly": 2400,
+             "rev": 250_000, "rev_stly": 200_000, "rev_final": 380_000,
+             "adr": 166.0, "adr_stly": 133.0, "adr_final_ly": 150.0, "occ": 0.6, "stly": 0.5, "final": 0.8}]
+    for m in _fut[:2]:
+        # future month: proj = rev + max(0, final_ly − stly); ahead +33%, behind −17%
+        pace.append({"month": "Fut", "month_num": m, "rn": 1200, "rn_stly": 1200, "rn_final_ly": 1900,
+                     "rev": 300_000 if ahead else 150_000, "rev_stly": 200_000, "rev_final": 300_000,
+                     "adr": 170.0, "adr_stly": 165.0, "adr_final_ly": 160.0,
+                     "occ": 0.55, "stly": 0.45, "final": 0.85})
+    return {"mtd": mtd, "current_month_remaining": cm, "pace": pace}
+_seen = 0
+for _ahead in (True, False):
+    _ranked = _compute_signals(_proj_data(_ahead))["ranked"]
+    _proj = [c for c in _ranked if c["signal"] == "projection"]
+    check(f"projection candidates fire ({'ahead' if _ahead else 'behind'})", len(_proj) >= 1,
+          str([c["title_hint"] for c in _ranked]))
+    for c in _proj:
+        _seen += 1
+        fb = c["fallback_card"]
+        for field, cap in _WORD_CAPS.items():
+            txt = str(fb.get(field, ""))
+            n = len(txt.split())
+            check(f"{fb['id']} {field} {n}<={cap}", n <= cap and not txt.endswith("…"), txt)
+check("all four projection branches covered", _seen >= (4 if _fut else 2), str(_seen))
+
 print(f"\n{PASS} passed, {FAIL} failed")
 raise SystemExit(1 if FAIL else 0)
