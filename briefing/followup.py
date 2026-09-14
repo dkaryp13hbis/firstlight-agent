@@ -229,9 +229,13 @@ def update_followups(hotel_id: str, data: dict, ai: dict,
         day = (today - date.fromisoformat(row["flagged_date"])).days + 1
         if day <= 1:
             continue                            # first day needs no meta line
+        # gaps must be plain floats: this dict is published through json.dumps
+        # and PG numeric columns arrive as Decimal (2026-09-14 incident)
+        fg, lg = row.get("first_gap"), row.get("last_gap")
         ins["follow_up"] = {
             "flagged": row["flagged_date"], "day": day,
-            "first_gap": row.get("first_gap"), "last_gap": row.get("last_gap"),
+            "first_gap": None if fg is None else float(fg),
+            "last_gap": None if lg is None else float(lg),
         }
     if closures:
         ai["watch_closures"] = (ai.get("watch_closures") or []) + closures

@@ -198,14 +198,20 @@ def counts() -> dict[str, int]:
 # ── reads (used only when STORAGE=pg — C1 step 5) ────────────────────────────
 
 def _norm(v):
-    """psycopg returns uuid.UUID / date / datetime OBJECTS where Supabase REST
-    returned strings — callers compare ids and dates as strings, so normalize
-    every scalar (2026-09-11 incident: manual run matched no hotels because
-    UUID != str). jsonb stays dict/list — identical to Supabase's parse."""
+    """psycopg returns uuid.UUID / date / datetime / Decimal OBJECTS where
+    Supabase REST returned strings and floats — callers compare ids and dates
+    as strings, and rows flow into json.dumps payloads (2026-09-11 incident:
+    manual run matched no hotels because UUID != str; 2026-09-14 incident:
+    watchlist numeric first_gap reached cloud_push as Decimal and blocked two
+    hotels' briefings all day). jsonb stays dict/list — identical to
+    Supabase's parse."""
     import uuid as _uuid
     from datetime import date as _date, datetime as _dt
+    from decimal import Decimal as _dec
     if isinstance(v, _uuid.UUID):
         return str(v)
+    if isinstance(v, _dec):
+        return float(v)
     if isinstance(v, _dt):
         return v.isoformat()
     if isinstance(v, _date):

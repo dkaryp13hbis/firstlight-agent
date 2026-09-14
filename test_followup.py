@@ -80,5 +80,43 @@ check("resolve text", "October has recovered" in t and "1%" in t)
 t = closure_text({"key": "2026-10", "first_gap": -18.2}, -15.0, "retire")
 check("retire text", "still 15% behind" in t and "flag it again" in t)
 
+# ── Decimal never reaches the published payload (regression 2026-09-14) ─
+# PG numeric columns arrive as Decimal via psycopg; the follow_up meta dict is
+# published through json.dumps (cloud_push) — Decimal there blocked Pome and
+# City Hotel briefings for a full day.
+import json
+from datetime import timedelta
+from decimal import Decimal
+
+from db import store
+from briefing import followup
+
+check("_norm Decimal → float",
+      store._norm(Decimal("-53.6")) == -53.6
+      and isinstance(store._norm(Decimal("-53.6")), float))
+
+_today = date.today()
+_dec_row = {"id": "w1", "kind": "month", "key": "2026-10", "label": None,
+            "source": "firstlight", "flagged_date": str(_today - timedelta(days=3)),
+            "first_gap": Decimal("-53.6"), "last_gap": Decimal("-10.0"),
+            "last_gap_date": None, "resolve_streak": 0}
+_orig = (store.fl_watch_rows, store.fl_watch_update)
+store.fl_watch_rows = lambda h: [dict(_dec_row)]
+store.fl_watch_update = lambda i, p: True
+try:
+    ai = {"insights": [{"id": "pace_oct_2026"}]}
+    followup.update_followups("hotel-x", PACE, ai, is_morning=False)
+finally:
+    store.fl_watch_rows, store.fl_watch_update = _orig
+fu = ai["insights"][0].get("follow_up")
+check("follow_up attached", fu is not None and fu["day"] == 4)
+check("follow_up gaps are plain floats",
+      isinstance(fu["first_gap"], float) and isinstance(fu["last_gap"], float))
+try:
+    json.dumps(ai)
+    check("ai payload json-serializable", True)
+except TypeError:
+    check("ai payload json-serializable", False)
+
 print(f"\n{P} passed, {F} failed")
 raise SystemExit(1 if F else 0)
