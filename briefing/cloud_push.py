@@ -163,8 +163,11 @@ def send_typed_push(hotel_id: str, hotel_name: str, title: str, body: str,
     if not title_is_full:
         title = f"{hotel_name} · {title}"[:80]
     pwa_url = os.getenv("PWA_URL", "https://firstlight.hbis.io")
+    # hotelId: the SW deep-links the click to THIS hotel (multi-hotel users
+    # otherwise land on whatever hotel they browsed last, 2026-09-20)
     push_payload = json.dumps({"title": title, "body": body[:180],
-                               "sectionId": section_id, "url": pwa_url})
+                               "sectionId": section_id, "url": pwa_url,
+                               "hotelId": supabase_hotel_id})
 
     # Fetch subscriptions (+ per-type prefs; column may not exist yet)
     try:
