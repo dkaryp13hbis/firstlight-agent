@@ -887,3 +887,59 @@ FROM (
 GROUP BY book_month, period
 ORDER BY period, book_month;
 """.format(fake_rt=_FAKE_RT_EXCLUDE)
+
+
+# ------------------------------------------------------------------
+# Q17: OTB by stay month × SOURCE — TY vs STLY (source attribution).
+# Same conventions as Q4 (pace) so the per-source room-night deltas add
+# up to the pace card's gap: TY = all active stays this year by month;
+# STLY = last year's stays booked by the same date last year, cancelled-
+# later rows restored via the Occupancy CASE. Source = Hitia.Sourcen
+# (blank → 'Direct'), same as Q5. Optional / fail-open — powers the
+# "which source explains the gap" fact on pace cards (2026-09-23).
+# ------------------------------------------------------------------
+
+Q_SOURCES_BY_MONTH = """
+DECLARE @today    DATE = CAST(GETDATE() AS DATE);
+DECLARE @stly_cap DATE = DATEADD(YEAR, -1, @today);
+
+SELECT stay_month, source,
+       SUM(rn_ty)    AS rn_ty,
+       SUM(rev_ty)   AS rev_ty,
+       SUM(rn_stly)  AS rn_stly,
+       SUM(rev_stly) AS rev_stly
+FROM (
+    -- OTB TY: all active stays this year (past months = final, future = OTB)
+    SELECT MONTH(h.date) AS stay_month,
+           ISNULL(NULLIF(LTRIM(RTRIM(h.Sourcen)), ''), 'Direct') AS source,
+           h.Occupancy AS rn_ty,
+           h.logis     AS rev_ty,
+           0           AS rn_stly,
+           0.0         AS rev_stly
+    FROM bidata.proteluser.Hitia h
+    WHERE h.mpehotel = ?
+      AND h.reschar < 2
+      AND {fake_rt}
+      AND YEAR(h.date) = YEAR(@today)
+
+    UNION ALL
+
+    -- STLY: last year's stays booked by the same date last year
+    SELECT MONTH(h.date),
+           ISNULL(NULLIF(LTRIM(RTRIM(h.Sourcen)), ''), 'Direct'),
+           0,
+           0.0,
+           CASE WHEN h.reschar < 2 THEN h.Occupancy
+                WHEN CAST(h.datumbis AS DATE) = CAST(h.date AS DATE) THEN 0
+                ELSE 1 END,
+           h.logis
+    FROM bidata.proteluser.Hitia h
+    WHERE h.mpehotel = ?
+      AND (h.reschar < 2 OR (h.reschar = 2 AND CAST(h.Canceled AS DATE) > @stly_cap))
+      AND {fake_rt}
+      AND YEAR(h.date) = YEAR(@stly_cap)
+      AND CAST(h.SystemDate AS DATE) <= @stly_cap
+) t
+GROUP BY stay_month, source
+ORDER BY stay_month, SUM(rn_ty) DESC;
+""".format(fake_rt=_FAKE_RT_EXCLUDE)

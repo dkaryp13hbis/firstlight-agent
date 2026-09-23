@@ -41,9 +41,9 @@ Hotel servers run ONLY cloudflared — all code, queries, and keys live here.
 |---|---|
 | `railway_main.py` | Scheduler (03:30 full, 06:00 catch-up, 11:00/17:00 data-only UTC), refresh_commands poller (30s), per-hotel pipeline: fetch → gate → AI → render → publish → notify. Stdlib `http.server`, not FastAPI. |
 | `db/contract.py` | HotelDataSnapshot contract + `data_quality` + `is_publishable` gate. Signal fields optional via `_SIGNAL_PREFIXES`. |
-| `db/adapters/` | One folder per PMS (`get_adapter(pms_type)`). `protel_mssql/queries.py` = Q1–Q13, `fetcher.py` = snapshot builder. |
+| `db/adapters/` | One folder per PMS (`get_adapter(pms_type)`). `protel_mssql/queries.py` = Q1–Q17, `fetcher.py` = snapshot builder. |
 | `db/tunnel.py` | On-demand `cloudflared access tcp` clients (port pool, caps). |
-| `briefing/analyst.py` | Two layers: deterministic compute (signals 1–5, gates, scoring, merges, novelty, hero slots) + Claude narration (per card + hero, validators, fallbacks). |
+| `briefing/analyst.py` | Two layers: deterministic compute (signals 1–6, source/cancellation attribution, gates, scoring, merges, novelty, hero slots) + Claude narration (per card + hero, validators, fallbacks). |
 | `briefing/run_log.py` | Fail-open RunLogger → `refresh_runs`. |
 | `briefing/cloud_push.py` | Publish to Supabase (`notify=` controls push). |
 | `templates/` | Jinja2 report + email HTML. |

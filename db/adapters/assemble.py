@@ -27,6 +27,7 @@ optional keys → empty, exactly like a fail-open query):
     cancel_daily  list      (Q14 Q_CANCEL_DAILY)       optional
     consumed      list      (Q15 Q_CONSUMED_BY_SOURCE) optional
     pace_next     list      (Q16 Q_PACE_NEXT)          optional
+    sources_month list      (Q17 Q_SOURCES_BY_MONTH)   optional
 
 All derived values (ADR, occupancy %, variance) are calculated here.
 """
@@ -426,6 +427,19 @@ def assemble_snapshot(rows: dict[str, Any], hotel_ctx: dict[str, Any],
             "rev":    round(float(r["revenue"] or 0), 2),
         })
 
+    # ── Q17: Sources by stay month (OTB TY vs STLY) ───────────────
+    sources_by_month = []
+    for r in rows.get("sources_month") or []:
+        sources_by_month.append({
+            "stay_month": int(r["stay_month"]),
+            "stay_year":  today.year,
+            "source":     r["source"],
+            "rn_ty":      float(r["rn_ty"] or 0),
+            "rev_ty":     round(float(r["rev_ty"] or 0), 0),
+            "rn_stly":    float(r["rn_stly"] or 0),
+            "rev_stly":   round(float(r["rev_stly"] or 0), 0),
+        })
+
     # ── Q16: Next-year OTB by month ───────────────────────────────
     pace_next_year = []
     for r in rows.get("pace_next") or []:
@@ -515,6 +529,7 @@ def assemble_snapshot(rows: dict[str, Any], hotel_ctx: dict[str, Any],
         "lead_time":   lead_time,
         "cancel_daily": cancel_daily,
         "consumed_by_source": consumed_by_source,
+        "sources_by_month": sources_by_month,
         "pace_next_year": pace_next_year,
         "hotel_type":  hotel_ctx.get("hotel_type", "resort"),
         "otb_by_date": otb_by_date,

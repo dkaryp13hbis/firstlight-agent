@@ -5,7 +5,7 @@ description: Writing or changing PMS SQL queries (Protel/SQL Server today, Opera
 
 # PMS queries
 
-All Protel queries: `db/adapters/protel_mssql/queries.py` (Q1–Q13), executed by
+All Protel queries: `db/adapters/protel_mssql/queries.py` (Q1–Q17), executed by
 `fetcher.py` in the same folder. Queries are versioned per PMS adapter — the
 analyst never sees SQL, only the HotelDataSnapshot contract.
 

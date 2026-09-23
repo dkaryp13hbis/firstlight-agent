@@ -18,6 +18,21 @@ Two layers, strictly separated:
 - Pickup fires only at |z| ≥ 2 (7-day trailing). Other signals need ≥ 10%
   deviation. Everything needs stake ≥ `_STAKE_FLOOR_EUR` (€1,000).
 - Lead time also needs ≥ 15 rn in BOTH periods; max 2 lead-time cards/day.
+- Cancellation spike (Signal 6, Q14 `cancel_daily`): yesterday's cancels for a
+  stay month vs the prior 7 days ZERO-FILLED (Q14 only ships days with
+  cancels), z ≥ 2, ≥ 3 rn, stake = REAL revenue of the cancelled stays
+  ≥ €1,000; max 2/day; folds into a same-month pickup ALERT
+  (`_merge_cancel_into_pickup`) — never two cards for one story.
+- ATTRIBUTION (2026-09-23): cards answer the question they used to ask.
+  Pickup ALERT carries `cancellations_yday` / `cancellations_avg` and says
+  "mostly cancellations" (extra cancels ≥ ½ the swing) or "new bookings
+  slowed" (Medium). Pace cards carry `biggest_source_move` /
+  `biggest_source_share` / `direct_bookings_move` from Q17
+  `sources_by_month` (`_source_attribution`): concentrated ≥ 60% in one
+  source → source-specific (Medium); broad < 40% across 3+ → weaker demand
+  overall (Medium); ONLY when the source deltas reconcile with the pace gap
+  (±20%) — otherwise say nothing. Both are fail-open: no Q14/Q17 → the
+  original Low hypotheses ship unchanged.
 - Scoring `_score_candidate(R,U,M,N,C)` = (0.35R + 0.25U + 0.25M + 0.15N)·C;
   ranked = score ≥ 0.08, top 6, narrate top 5.
 - Merges before ranking: same-month pace+projection; pickup ALERT + soft dates.

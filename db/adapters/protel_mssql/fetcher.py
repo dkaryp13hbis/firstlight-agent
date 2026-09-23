@@ -90,6 +90,7 @@ def fetch_snapshot(conn: pyodbc.Connection, hotel_ctx: dict[str, Any]) -> dict[s
         ("cancel_daily", Q.Q_CANCEL_DAILY,    (hotel_id,)),
         ("consumed", Q.Q_CONSUMED_BY_SOURCE,  (hotel_id, hotel_id)),
         ("pace_next", Q.Q_PACE_NEXT,          (hotel_id, hotel_id, hotel_id)),
+        ("sources_month", Q.Q_SOURCES_BY_MONTH, (hotel_id, hotel_id)),
     )
     for key, sql, params in optional:
         try:

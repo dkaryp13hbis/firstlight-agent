@@ -51,6 +51,9 @@ Signal fields (power the v1.2 analyst; absent → legacy_mode):
   current_month_remaining {rn_remaining_otb_ty, rev_remaining_otb_ty,
                            rn_remaining_stly, rev_remaining_stly,
                            rn_remaining_final_ly, rev_remaining_final_ly}
+  sources_by_month        [ {stay_month, stay_year, source, rn_ty, rev_ty,
+                             rn_stly, rev_stly} ]   (optional; Q4 conventions,
+                          so per-source deltas add up to the pace gap)
 
 Query windows (adapters MUST stay bounded — stateless aggregates, no full
 history reloads): MTD; next 90 days by date; last 14 days pickup; 12 months
@@ -84,7 +87,8 @@ _SIGNAL_FIELDS = ("pickup_daily", "otb_by_date", "current_month_remaining")
 # signal-mode payloads: absence never blocks, never triggers legacy_mode.
 _SIGNAL_PREFIXES = _SIGNAL_FIELDS + ("pace[].rn_stly", "pace[].rn_final_ly",
                                      "lead_time", "cancel_daily",
-                                     "consumed_by_source", "pace_next_year")
+                                     "consumed_by_source", "pace_next_year",
+                                     "sources_by_month")
 
 _REQUIRED_YESTERDAY = ("revenue", "revenueLY", "roomNights", "roomNightsLY",
                        "adr", "adrLY", "occupancy", "occupancyLY")
@@ -155,13 +159,15 @@ def build_data_quality(data: dict[str, Any], total_rooms: int | None = None) -> 
         missing.append("cancel_daily")
     if not data.get("consumed_by_source"):
         missing.append("consumed_by_source")
+    if not data.get("sources_by_month"):
+        missing.append("sources_by_month")
 
     # ── Row counts ────────────────────────────────────────────────────────
     rows_fetched = {
         field: len(data.get(field) or [])
         for field in ("pace", "pickup_daily", "otb_by_date", "topChannels",
                       "next7days", "lead_time", "cancel_daily",
-                      "consumed_by_source")
+                      "consumed_by_source", "sources_by_month")
     }
 
     # ── Sanity checks ─────────────────────────────────────────────────────

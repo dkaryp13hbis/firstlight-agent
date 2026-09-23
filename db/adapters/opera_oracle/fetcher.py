@@ -253,6 +253,19 @@ def compute_pack(rows: list[Row], today: date) -> dict[str, Any]:
     out["sources"] = sorted((_full(v, _SOURCE_KEYS, source=s) for s, v in src.items()),
                             key=lambda x: -x["rev_ty"])
 
+    # ── Q17: Sources by stay month — OTB TY vs STLY (attribution) ─
+    srcm: dict[tuple, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for r in rows:
+        if r.sg in ACTIVE and r.sd.year == ty_year:
+            k = (r.sd.month, r.src)
+            srcm[k]["rev_ty"] += r.gross; srcm[k]["rn_ty"] += r.rn
+        if r.sd.year == ly_year and _alive_at(r, stly_cap) and r.bd is not None and r.bd <= stly_cap:
+            k = (r.sd.month, r.src)
+            srcm[k]["rev_stly"] += _rev_of(r); srcm[k]["rn_stly"] += _rn_of(r)
+    out["sources_month"] = [_full(v, _SOURCE_KEYS, stay_month=k[0], source=k[1])
+                            for k, v in sorted(srcm.items(),
+                                               key=lambda kv: (kv[0][0], -kv[1]["rn_ty"]))]
+
     # ── Q6: Next 7 days ───────────────────────────────────────────
     n7: dict[date, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     for r in rows:

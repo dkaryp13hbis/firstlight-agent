@@ -171,6 +171,65 @@ def _parse_eur(s: str) -> float:
     return float(digits) if digits else 0.0
 
 
+# ─── Attribution helpers (Layer A) ───────────────────────────────────────────
+
+def _cancel_series(cancel_daily: list[dict], sm: int, sy: int,
+                   yesterday: _date) -> tuple[int, float, list[int]]:
+    """Yesterday's cancellations for one stay month + the zero-filled prior
+    7-day series. Q14 only ships rows for days WITH cancellations, so a
+    missing day is a real zero, not a gap. Returns (rn, revenue, prior[7])."""
+    by_day: dict[str, tuple[int, float]] = {}
+    for r in cancel_daily:
+        if int(r.get("stay_month", 0)) == sm and int(r.get("stay_year", 0)) == sy:
+            rn, rev = by_day.get(str(r.get("ref_date")), (0, 0.0))
+            by_day[str(r.get("ref_date"))] = (rn + int(r.get("cancel_rn", 0) or 0),
+                                              rev + float(r.get("cancel_rev", 0) or 0))
+    yday_rn, yday_rev = by_day.get(yesterday.isoformat(), (0, 0.0))
+    prior = [by_day.get((yesterday - timedelta(days=i)).isoformat(), (0, 0.0))[0]
+             for i in range(7, 0, -1)]
+    return yday_rn, yday_rev, prior
+
+
+def _source_attribution(sources_by_month: list[dict], sm: int, rn_gap: float) -> dict | None:
+    """Which source explains a month's room-night gap vs same time last year.
+    Returns None when the data is absent, too thin, or does not reconcile
+    with the pace gap — safety-first: say nothing rather than mis-attribute.
+    share = top mover's delta / total gap; spread = concentrated (>= 60% in
+    one source) | broad (< 40% and 3+ sources moving the same way) | mixed."""
+    rows = [r for r in sources_by_month if int(r.get("stay_month", 0)) == sm]
+    if not rows or not rn_gap:
+        return None
+    deltas: dict[str, float] = {}
+    for r in rows:
+        name = str(r.get("source") or "Unknown").strip() or "Unknown"
+        deltas[name] = deltas.get(name, 0.0) + float(r.get("rn_ty", 0) or 0) - float(r.get("rn_stly", 0) or 0)
+    total = sum(deltas.values())
+    # Reconcile: the source deltas must add up to the pace gap (±20%, min 3 rn),
+    # otherwise the two queries disagree and any attribution would mislead.
+    if abs(total - rn_gap) > max(0.20 * abs(rn_gap), 3.0):
+        return None
+    sign = 1 if rn_gap > 0 else -1
+    movers = sorted(((n, d) for n, d in deltas.items() if d * sign > 0), key=lambda x: -abs(x[1]))
+    if not movers or abs(movers[0][1]) < 5:
+        return None
+    top_name, top_delta = movers[0]
+    share = abs(top_delta) / abs(rn_gap)
+    if share >= 0.60:
+        spread = "concentrated"
+    elif share < 0.40 and len(movers) >= 3:
+        spread = "broad"
+    else:
+        spread = "mixed"
+    if share >= 0.95:
+        share_txt = "nearly all of the gap" if sign < 0 else "nearly all of the lead"
+    else:
+        pct5 = int(round(share * 100 / 5.0) * 5)
+        share_txt = f"about {pct5}% of the {'gap' if sign < 0 else 'lead'}"
+    direct = next(((n, d) for n, d in deltas.items() if n.lower() == "direct"), None)
+    return {"top_name": top_name, "top_delta": top_delta, "share": share,
+            "share_txt": share_txt, "spread": spread, "movers": movers, "direct": direct}
+
+
 # ─── Layer A: main compute function ──────────────────────────────────────────
 
 def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
@@ -185,6 +244,9 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
     pace = data.get("pace", [])
     cm   = data.get("current_month_remaining", {})
     mtd  = data.get("mtd", {})
+    cancel_daily     = data.get("cancel_daily") or []       # Q14, optional
+    sources_by_month = data.get("sources_by_month") or []   # Q17, optional
+    yesterday_str    = yesterday.isoformat()
     rev_final_ly_total = sum(p.get("rev_final", 0) for p in pace)
     daily_rev_baseline = max(rev_final_ly_total / 365.0, 1.0)
 
@@ -293,13 +355,47 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 fb_action = f"There may be room for a higher rate on open {month_label} nights."
                 fb_by_when = "Within 2 days, while demand is strong."
 
+            ev2 = {"label": "REVENUE IMPACT", "value": f_yday_rev,
+                   "sub": f"swing of {f_z} vs normal (above 2 is unusual)"}
+            # Attribution (2026-09-23): the card used to ASK whether the swing
+            # was cancellations or a slowdown — Q14 answers it. Extra cancels
+            # (vs the prior-7-day normal) covering >= half the swing = mostly
+            # cancellations; otherwise new bookings slowed and cancels were normal.
+            if negative and cancel_daily:
+                c_y, _c_rev, c_prior = _cancel_series(cancel_daily, sm, sy, yesterday)
+                c_avg   = statistics.mean(c_prior) if c_prior else 0.0
+                f_c_y   = f"{c_y} rn"
+                f_c_avg = f"{c_avg:.1f} rn/day"
+                gross_new = max(0, yday_rn + c_y)
+                p_canc  = f"cancelled yesterday, {month_label} stays"
+                facts["cancellations_yday"] = _fact(f_c_y, p_canc)
+                facts["cancellations_avg"]  = _fact(f_c_avg, f"cancellations per day, prior 7 days, {month_label} stays")
+                facts["new_bookings_before_cancellations"] = _fact(f"{gross_new} rn", p_yday)
+                extra_cancels = c_y - c_avg
+                if c_y >= 3 and gap_per_day > 0 and extra_cancels >= 0.5 * gap_per_day:
+                    hypo = [{"text": f"Mostly cancellations: {f_c_y} for {month_label} were cancelled yesterday against a normal {f_c_avg} — one source, rate plan or group may explain it", "confidence": "Medium"}]
+                    directive["target"] = f"yesterday's {month_label} cancellations by source, rate plan and group"
+                    fb_why = f"Cancellations explain most of the swing: {f_c_y} cancelled yesterday against a normal {f_c_avg}; one source, rate plan or group may be behind it (confidence: Medium)."
+                    fb_action = f"It may be worth checking yesterday's {month_label} cancellations for a common source, rate plan or group."
+                    ev2 = {"label": "CANCELLED", "value": f_c_y, "sub": f"yesterday, vs {f_c_avg} prior 7 days"}
+                else:
+                    hypo = [{"text": f"New bookings slowed rather than cancellations rising — {f_c_y} cancelled yesterday is in line with the normal {f_c_avg}", "confidence": "Medium"}]
+                    directive = {
+                        "type": "investigate_demand",
+                        "target": f"what changed for {month_label} — rates, availability or a source pausing bookings",
+                        "deadline": "today",
+                        "trigger_if_monitor": None,
+                    }
+                    fb_why = f"New bookings slowed rather than cancellations rising: {f_c_y} cancelled yesterday is in line with the normal {f_c_avg} (confidence: Medium)."
+                    fb_action = f"It may be worth checking what changed for {month_label} — rates, availability or a source pausing bookings."
+
             fallback_card = {
                 "id": f"pickup_{m_name.lower()}_{sy}",
                 "tag": tag,
                 "headline": fb_headline,
                 "evidence": [
                     {"label": "NET NEW BOOKINGS", "value": f_yday_net, "sub": f"yesterday, vs {f_avg} prior 7 days"},
-                    {"label": "REVENUE IMPACT", "value": f_yday_rev, "sub": f"swing of {f_z} vs normal (above 2 is unusual)"},
+                    ev2,
                 ],
                 "what_happened": f"Net new bookings for {month_label} were {f_yday_net} yesterday, against a 7-day average of {f_avg}.",
                 "why_it_matters": fb_why,
@@ -493,6 +589,44 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 "by_when": "Within 7 days.",
                 "at_stake": {"value": f_stake, "calc": f_calc},
             }
+
+        # Attribution (2026-09-23): Q17 says WHICH source moved. The card used
+        # to suggest "a source-by-source comparison would show which" — now it
+        # shows it. Only when the source deltas reconcile with the pace gap.
+        attr = _source_attribution(sources_by_month, sm, rn_gap)
+        if attr:
+            top_name  = attr["top_name"]
+            f_top_rn  = _rn_signed(attr["top_delta"])
+            f_top     = f"{top_name} {f_top_rn}"
+            n_movers  = len(attr["movers"])
+            facts["biggest_source_move"]  = _fact(f_top, p_vs_stly)
+            facts["biggest_source_share"] = _fact(attr["share_txt"], p_vs_stly)
+            facts["sources_moving_same_way"] = _fact(f"{n_movers} sources", p_vs_stly)
+            if attr["direct"]:
+                facts["direct_bookings_move"] = _fact(f"Direct {_rn_signed(attr['direct'][1])}", p_vs_stly)
+            if not ahead:
+                fb["evidence"][1] = {"label": "BIGGEST MOVER", "value": f_top,
+                                     "sub": f"{attr['share_txt']} vs same time last year"}
+                if attr["spread"] == "concentrated":
+                    hypo = [{"text": f"Most of the gap sits with {top_name} ({f_top_rn} vs same time last year) — a source-specific issue rather than weaker demand overall", "confidence": "Medium"}]
+                    directive = {
+                        "type": "investigate_source",
+                        "target": f"what changed with {top_name} for {m_name} — availability, rates or a paused connection",
+                        "deadline": "within 7 days",
+                        "trigger_if_monitor": None,
+                    }
+                    fb["why_it_matters"] = f"Most of the gap sits with {top_name}, {f_top_rn} vs same time last year, so this looks like a source-specific issue rather than weaker demand overall (confidence: Medium)."
+                    fb["recommended_action"] = f"It may be worth checking what changed with {top_name} for {m_name} — availability, rates or a paused connection."
+                elif attr["spread"] == "broad":
+                    hypo = [{"text": f"The gap is spread across {n_movers} sources ({top_name} the largest at {f_top_rn}) — weaker demand overall rather than one source", "confidence": "Medium"}]
+                    fb["why_it_matters"] = f"The gap is spread across {n_movers} sources, with {top_name} the largest at {f_top_rn}; this points to weaker demand overall rather than one source (confidence: Medium)."
+                else:
+                    hypo = [{"text": f"{top_name} is the biggest mover ({f_top_rn} vs same time last year), but other sources are also behind", "confidence": "Low"}]
+                    fb["why_it_matters"] = f"{top_name} is the biggest mover at {f_top_rn} vs same time last year, but other sources are also behind (confidence: Low)."
+            elif attr["spread"] == "concentrated":
+                hypo.insert(0, {"text": f"{top_name} is driving most of the lead ({f_top_rn} vs same time last year)", "confidence": "Medium"})
+                if not adr_dilution:
+                    fb["why_it_matters"] = f"{top_name} is driving most of the lead, {f_top_rn} vs same time last year; the remaining rooms may be priced too low for this level of demand (confidence: Medium)."
 
         fb["id"]  = f"pace_{m_name.lower()}_{today.year}"
         fb["tag"] = tag
@@ -1169,7 +1303,118 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             "fallback_card": fb,
         })
 
+    # ── Signal 6: Cancellation spike by stay month (hard gate: z >= 2) ───────
+    # Q14 ships the cancel side of Q9's net pickup as its own series, so a
+    # quiet net number can no longer hide a burst of cancellations. Gates:
+    # z >= 2 vs the prior 7 days (zero-filled), >= 3 rn cancelled (one or two
+    # are noise), stake floor on the REAL revenue of the cancelled stays.
+    if cancel_daily:
+        cx_cands: list[dict] = []
+        months_y = sorted({(int(r["stay_month"]), int(r["stay_year"]))
+                           for r in cancel_daily if str(r.get("ref_date")) == yesterday_str})
+        for sm, sy in months_y:
+            m_start, m_end = _month_bounds(sy, sm)
+            if m_end < today:
+                continue  # a finished month is never a card
+            c_y, c_rev, c_prior = _cancel_series(cancel_daily, sm, sy, yesterday)
+            if c_y < 3:
+                continue  # volume floor
+            mean_c = statistics.mean(c_prior)
+            std_c  = statistics.stdev(c_prior) if len(c_prior) > 1 else 0.0
+            if std_c > 0:
+                z = (c_y - mean_c) / std_c
+            else:
+                z = (c_y - mean_c) / max(mean_c * 0.20, 1.0)
+            if z < 2.0:
+                continue  # same hard gate as pickup — only a real outlier
+            if c_rev < _STAKE_FLOOR_EUR:
+                continue  # spec C2.2 significance floor
+
+            m_name        = _cal.month_abbr[sm]
+            month_label   = f"{m_name} {sy}"
+            days_to_start = max(0, (m_start - today).days)
+            window_left   = max(0, (m_end - today).days)
+            net_y = next((int(r.get("net_rn", 0) or 0) for r in pickup_daily
+                          if str(r.get("ref_date")) == yesterday_str
+                          and int(r.get("stay_month", 0)) == sm
+                          and int(r.get("stay_year", 0)) == sy), 0)
+            gross_new = max(0, net_y + c_y)
+
+            R = min(c_rev / daily_rev_baseline, 1.0)
+            U = _urgency(days_to_start)
+            M = _magnitude_z(z)
+            C = _confidence(c_y)
+            score = _score_candidate(R, U, M, C=C)
+
+            f_c     = f"{c_y} rn"
+            f_avg   = f"{mean_c:.1f} rn/day"
+            f_z     = f"+{z:.1f}"
+            f_rev   = _eur(c_rev)
+            f_gross = f"{gross_new} rn"
+            f_calc  = f"revenue of {month_label} stays cancelled yesterday = {f_rev}"
+            p_yday  = f"cancelled yesterday, {month_label} stays"
+            p_prior = f"cancellations per day, prior 7 days, {month_label} stays"
+
+            facts = {
+                "month_label":        month_label,
+                "cancelled_yday":     _fact(f_c, p_yday),
+                "cancel_avg_prior":   _fact(f_avg, p_prior),
+                "cancel_swing":       _fact(f_z, "vs prior 7 days (above 2 is unusual)"),
+                "cancelled_rev_yday": _fact(f_rev, p_yday),
+                "new_bookings_yday":  _fact(f_gross, f"booked yesterday for {month_label}, before cancellations"),
+                "value_at_stake":      f_rev,
+                "value_at_stake_calc": f_calc,
+            }
+            hypo = [{"text": f"A group or one source cancelling {month_label} stays in one go, or guests moving to other dates", "confidence": "Low"}]
+            directive = {
+                "type": "investigate_cancellations",
+                "target": f"yesterday's {month_label} cancellations by source, rate plan and group",
+                "deadline": "today",
+                "trigger_if_monitor": None,
+            }
+            fb_headline = f"{month_label} cancellations jumped yesterday, well above recent normal"
+            fallback_card = {
+                "id": f"cancel_{m_name.lower()}_{sy}",
+                "tag": "ALERT",
+                "headline": fb_headline,
+                "evidence": [
+                    {"label": "CANCELLED", "value": f_c, "sub": f"yesterday, vs {f_avg} prior 7 days"},
+                    {"label": "REVENUE CANCELLED", "value": f_rev, "sub": f"{f_gross} newly booked the same day"},
+                ],
+                "what_happened": f"{c_y} room nights for {month_label} were cancelled yesterday, against a 7-day average of {f_avg}.",
+                "why_it_matters": "A group or one source may be cancelling in one go, or guests may be moving to other dates (confidence: Low).",
+                "recommended_action": f"It may be worth checking yesterday's {month_label} cancellations for a common source, rate plan or group.",
+                "by_when": "Today — before the next briefing.",
+                "at_stake": {"value": f_rev, "calc": f_calc},
+            }
+            cx_cands.append({
+                "signal":     "cancellation",
+                "tag":        "ALERT",
+                "score":      round(score, 4),
+                "title_hint": fb_headline,
+                "month_num":  sm,
+                "stake_eur":  c_rev,
+                "insight": {
+                    "id": f"cancel_{m_name.lower()}_{sy}",
+                    "tag": "ALERT",
+                    "score": round(score, 4),
+                    "signal": "cancellation",
+                    "stay_period": {"from": max(m_start, today).isoformat(), "to": m_end.isoformat(), "label": month_label},
+                    "days_to_nearest_arrival": days_to_start,
+                    "booking_window_days_left": window_left,
+                    "facts": facts,
+                    "cause_hypotheses": hypo,
+                    "action_directives": directive,
+                    "history": {"first_raised": None, "previously_advised": None},
+                },
+                "fallback_card": fallback_card,
+            })
+        # At most 2 cancellation cards per day — keep the sharpest stories
+        cx_cands.sort(key=lambda c: c["score"], reverse=True)
+        candidates.extend(cx_cands[:2])
+
     # ── Merge gates (spec C1/C2.4): same story or same dates → one card ──────
+    candidates = _merge_cancel_into_pickup(candidates)
     candidates = _merge_same_month_story(candidates)
     candidates = _merge_pickup_soft(candidates)
 
@@ -1231,6 +1476,33 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
         "watchlist": watchlist,
         "headline":  headline,
     }
+
+
+def _merge_cancel_into_pickup(candidates: list[dict]) -> list[dict]:
+    """A cancellation spike and a pickup ALERT for the same stay month are one
+    story — the pickup card already carries the cancellation facts (Signal 1
+    attribution), so the spike folds into it instead of shipping twice.
+    Matched on the month+year suffix of the card ids."""
+    def _suffix(c: dict) -> str:
+        return c["insight"]["id"].split("_", 1)[-1]
+    pickup_alerts = {_suffix(c): c for c in candidates
+                     if c["signal"] == "pickup" and c["tag"] == "ALERT"}
+    if not pickup_alerts:
+        return candidates
+    out: list[dict] = []
+    for c in candidates:
+        if c["signal"] == "cancellation" and _suffix(c) in pickup_alerts:
+            keep = pickup_alerts[_suffix(c)]
+            for k, v in c["insight"]["facts"].items():
+                if k == "month_label" or k.startswith("value_at_stake"):
+                    continue
+                keep["insight"]["facts"].setdefault(f"cancel_{k}", v)
+            if c["score"] > keep["score"]:
+                keep["score"] = keep["insight"]["score"] = c["score"]
+            print(f"[analyst] Cancel spike {c['insight']['id']} folded into {keep['insight']['id']}")
+            continue
+        out.append(c)
+    return out
 
 
 def _merge_same_month_story(candidates: list[dict]) -> list[dict]:
