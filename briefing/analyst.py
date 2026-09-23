@@ -1613,30 +1613,43 @@ def _novelty_gate(candidates: list[dict], hotel_id: str) -> tuple[list[dict], li
     Fails open on any error."""
     import os
     import requests as _req
+    # Day-over-day novelty ONLY: compare against briefings for PRIOR report
+    # dates, never the current one — otherwise a same-day manual refresh
+    # suppresses its own cards as "repeats" (incident 2026-07-23).
+    current_report = str(_date.today() - timedelta(days=1))
+    since = str(_date.today() - timedelta(days=8))   # 7-day memory window
+    rows: list[dict] = []
+    # Phase C (STORAGE=pg, 2026-09-11): Postgres is the read store — same
+    # PG-first / Supabase-fallback pattern as railway_main (2026-09-23).
+    try:
+        from db import store as _store
+        if _store.read_from_pg():
+            rows = _store.get_briefings_since(hotel_id, since, current_report,
+                                              ["ai_insights", "report_date"]) or []
+    except Exception as exc:
+        print(f"[analyst] Novelty gate: PG read failed, trying Supabase: {exc}")
+        rows = []
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
     supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
-    if not supabase_url or not supabase_key:
+    if not rows and not (supabase_url and supabase_key):
         return candidates, []
     try:
-        # Day-over-day novelty ONLY: compare against briefings for PRIOR report
-        # dates, never the current one — otherwise a same-day manual refresh
-        # suppresses its own cards as "repeats" (incident 2026-07-23).
-        current_report = str(_date.today() - timedelta(days=1))
-        since = str(_date.today() - timedelta(days=8))   # 7-day memory window
-        r = _req.get(
-            f"{supabase_url}/rest/v1/briefings",
-            params={"hotel_id": f"eq.{hotel_id}",
-                    "and": f"(report_date.gte.{since},report_date.lt.{current_report})",
-                    "select": "ai_insights,report_date"},
-            headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
-            timeout=10,
-        )
-        r.raise_for_status()
+        if not rows:
+            r = _req.get(
+                f"{supabase_url}/rest/v1/briefings",
+                params={"hotel_id": f"eq.{hotel_id}",
+                        "and": f"(report_date.gte.{since},report_date.lt.{current_report})",
+                        "select": "ai_insights,report_date"},
+                headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
+                timeout=10,
+            )
+            r.raise_for_status()
+            rows = r.json()
         # per card id: max stake (novelty compare), earliest sighting + its stake
         prev_stakes: dict[str, float] = {}
         first_seen: dict[str, tuple[str, float]] = {}
-        for row in sorted(r.json(), key=lambda x: x.get("report_date", "")):
-            rdate = row.get("report_date", "")
+        for row in sorted(rows, key=lambda x: str(x.get("report_date", ""))):
+            rdate = str(row.get("report_date", ""))
             for ins in (row.get("ai_insights") or {}).get("insights", []):
                 cid = ins.get("id")
                 if not cid:
