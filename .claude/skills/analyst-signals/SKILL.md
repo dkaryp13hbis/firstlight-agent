@@ -36,8 +36,21 @@ Two layers, strictly separated:
 - Scoring `_score_candidate(R,U,M,N,C)` = (0.35R + 0.25U + 0.25M + 0.15N)·C;
   ranked = score ≥ 0.08, top 6, narrate top 5.
 - Merges before ranking: same-month pace+projection; pickup ALERT + soft dates.
-- Novelty gate: day-over-day repeat without worsening → demoted (3-card floor
-  backfills). Compares against PREVIOUS report_date only, never same-day.
+- NOVELTY v2 (2026-09-24, "cards are news, the watchlist is memory"): every
+  candidate carries a FINGERPRINT (`_fingerprint`: metric = rn_gap / vs_ref
+  / lead_shift / stake; key = date set for hot & soft dates, event day for
+  pickup/cancellation/softening; days_out) stored on the insight as
+  `_novelty`. `_novelty_decide` (pure, test_novelty.py): a card seen in the
+  prior 7 days ships again ONLY when a key token is new, its metric moved
+  ≥ 10% vs the LAST sighting (worse or better), or it entered the last 30
+  days. NO 3-card floor, NO 'still open' resurfacing: a quiet day ships
+  0-2 cards + hero (hero-only, never the legacy prompt) with a pulse note
+  (`slots["pulse"]` → "Nothing new in the Pulse today; 3 items still open").
+  Payload gains `open_items` + `quiet_day`. Compares against PREVIOUS
+  report_date only, never same-day. New card types MUST get a fingerprint
+  branch (or they fall back to stake, and stake-less ones read as repeats).
+- Narration rule 15: booking SOURCE codes are copied verbatim, never
+  expanded (Claude once turned "BK" into "Booking.com").
 
 ## Facts contract (validator enforces)
 

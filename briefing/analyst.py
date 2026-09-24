@@ -34,7 +34,7 @@ import config
 
 _client = None
 _MODEL = "claude-sonnet-4-6"
-_PROMPT_VERSION = "cards-v1.9.2-caps"
+_PROMPT_VERSION = "cards-v1.10-novelty"
 
 # Cost policy (user decision 2026-07-27): every Claude call costs money, so
 # narration gets ONE attempt — a validation miss goes straight to the free
@@ -1418,7 +1418,12 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
     candidates = _merge_same_month_story(candidates)
     candidates = _merge_pickup_soft(candidates)
 
-    # ── Novelty gate (spec C2.3): raised recently without worsening → demote ─
+    # ── Fingerprints (2026-09-24): every card carries its state so the gate
+    # can tell "same story" from "moved" — with or without a euro stake.
+    for c in candidates:
+        c["novelty"] = _fingerprint(c, yesterday_str)
+
+    # ── Novelty gate: a repeat without news → watchlist (cards are news) ─────
     demoted: list[dict] = []
     if hotel_id:
         candidates, demoted = _novelty_gate(candidates, hotel_id)
@@ -1427,16 +1432,9 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
     candidates.sort(key=lambda c: c["score"], reverse=True)
     ranked = [c for c in candidates if c["score"] >= 0.08][:6]
 
-    # Novelty must not thin the briefing below 3 cards — promote the strongest
-    # demoted candidates back until the floor is met.
-    if len(ranked) < 3 and demoted:
-        demoted.sort(key=lambda c: c["score"], reverse=True)
-        while len(ranked) < 3 and demoted and demoted[0]["score"] >= 0.08:
-            promoted = demoted.pop(0)
-            print(f"[analyst] Novelty backfill: {promoted['insight']['id']} promoted to meet 3-card floor")
-            ranked.append(promoted)
-        ranked.sort(key=lambda c: c["score"], reverse=True)
-
+    # No floor (user decision 2026-09-24): a quiet day ships 0-2 cards and a
+    # one-line Pulse note; repeats live on the watchlist, never as cards.
+    # (The 3-card backfill used to promote demoted repeats every quiet day.)
     watchlist = [c for c in candidates if c not in ranked] + demoted
 
     # ── Headline KPIs ─────────────────────────────────────────────────────────
@@ -1474,6 +1472,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
     return {
         "ranked":    ranked,
         "watchlist": watchlist,
+        "demoted":   demoted,     # repeats held back today (open items)
         "headline":  headline,
     }
 
@@ -1604,23 +1603,155 @@ def _merge_pickup_soft(candidates: list[dict]) -> list[dict]:
     return [c for c in candidates if c is not pick and c is not soft] + [merged]
 
 
+_NUM_SIGNED = re.compile(r"[-+−]?\d[\d,]*(?:\.\d+)?")
+
+
+def _first_signed_number(text: str) -> float | None:
+    """First number in a display string, honouring the typographic minus."""
+    m = _NUM_SIGNED.search(str(text or "").replace("−", "-"))
+    if not m:
+        return None
+    try:
+        return float(m.group(0).replace(",", ""))
+    except ValueError:
+        return None
+
+
+def _fingerprint(c: dict, yesterday_str: str) -> dict:
+    """The card's STATE, so the novelty gate can tell 'same story' from
+    'moved' for every card — including the ones without a euro stake (the
+    2026-09-23 audit showed those were the daily repeaters).
+      metric : a number that moving by >= 10% counts as news
+      key    : '|'-joined tokens; a token never seen before counts as news
+      days_out: for the 'entered the last 30 days' trigger"""
+    sig   = c.get("signal", "")
+    facts = c.get("insight", {}).get("facts", {}) or {}
+    ins   = c.get("insight", {})
+    days_out = int(ins.get("days_to_nearest_arrival") or 0)
+
+    def _fv(name: str):
+        v = facts.get(name)
+        return v.get("value") if isinstance(v, dict) else v
+
+    metric: float | None = None
+    key: str | None = None
+    if sig in ("pickup", "cancellation", "softening"):
+        key = f"day:{yesterday_str}"          # a spike is an event: always news
+    elif sig == "pace":
+        metric = _first_signed_number(_fv("rn_gap"))
+    elif sig == "projection":
+        metric = _first_signed_number(_fv("vs_ref_band"))
+    elif sig == "lead_time":
+        metric = _first_signed_number(_fv("lead_shift"))
+    elif sig in ("soft_dates", "hot_dates"):
+        dates = sorted(str(d.get("date", "")) for d in (facts.get("per_date") or [])
+                       if isinstance(d, dict))
+        key = "|".join(f"date:{d}" for d in dates if d)
+        if sig == "soft_dates":
+            metric = float(c.get("stake_eur") or 0) or None
+    if metric is None and key is None:
+        metric = float(c.get("stake_eur") or 0) or None
+    return {"metric": metric, "key": key, "days_out": days_out}
+
+
+def _novelty_decide(candidates: list[dict], prior_rows: list[dict],
+                    today: _date) -> tuple[list[dict], list[dict]]:
+    """Pure rule (unit-tested): which candidates are NEWS vs repeats of a
+    card shipped in the prior 7 days. A repeat returns as a card only when
+      (a) its fingerprint key has a token never shipped before (new date,
+          new event day), or
+      (b) its metric moved >= 10% vs the LAST sighting (worse OR better), or
+      (c) it entered the last 30 days before arrival since last seen.
+    Prior insights without a fingerprint (pre-2026-09-24 payloads) fall back
+    to the old stake rule; a stake-less legacy repeat is a repeat.
+    No floor, no scheduled 'still open' resurfacing — the watchlist is the
+    memory; cards are news."""
+    sightings: dict[str, list[dict]] = {}
+    for row in sorted(prior_rows, key=lambda x: str(x.get("report_date", ""))):
+        rdate = str(row.get("report_date", ""))
+        for ins in (row.get("ai_insights") or {}).get("insights", []) or []:
+            cid = ins.get("id")
+            if not cid:
+                continue
+            stake = (float(ins.get("_stake_eur") or 0)
+                     or _parse_eur((ins.get("at_stake") or {}).get("value", "")))
+            sightings.setdefault(cid, []).append(
+                {"date": rdate, "stake": stake, "novelty": ins.get("_novelty")})
+
+    def _fmt_day(iso: str) -> str:
+        try:
+            return _date.fromisoformat(iso).strftime("%a %d %b").replace(" 0", " ")
+        except ValueError:
+            return iso
+
+    kept, demoted = [], []
+    for c in candidates:
+        cid  = c["insight"]["id"]
+        seen = sightings.get(cid)
+        if not seen:
+            kept.append(c)
+            continue
+        first, last = seen[0], seen[-1]
+        nov  = c.get("novelty") or {}
+        facts = c["insight"]["facts"]
+        facts["first_flagged"] = _fmt_day(first["date"])
+
+        # follow-up wording vs the FIRST sighting
+        f_metric = (first.get("novelty") or {}).get("metric")
+        ref_first = f_metric if f_metric else (first["stake"] or None)
+        cur_ref   = nov.get("metric") if f_metric else (c.get("stake_eur") or None)
+        if ref_first and cur_ref:
+            move = (abs(cur_ref) - abs(ref_first)) / abs(ref_first) * 100
+            if abs(move) >= 15:
+                facts["since_first_flagged"] = (
+                    f"the underlying gap is ~{abs(move):.0f}% "
+                    f"{'wider' if move > 0 else 'narrower'} than when first flagged")
+
+        # (c) entered the near-term window since last seen
+        l_nov = last.get("novelty") or {}
+        if ("days_out" in l_nov and nov.get("days_out", 99) <= 30
+                and int(l_nov.get("days_out") or 99) > 30):
+            facts["status"] = "now inside the last 30 days before arrival"
+            kept.append(c)
+            continue
+
+        is_news = False
+        if nov.get("key"):
+            # (a) any token never shipped before
+            prior_tokens: set[str] = set()
+            for sgt in seen:
+                k = (sgt.get("novelty") or {}).get("key") or ""
+                prior_tokens.update(t for t in k.split("|") if t)
+            is_news = any(t not in prior_tokens for t in nov["key"].split("|") if t) \
+                if prior_tokens else False
+        elif nov.get("metric") is not None and l_nov.get("metric") is not None:
+            # (b) moved >= 10% vs the last sighting
+            old, new = float(l_nov["metric"]), float(nov["metric"])
+            is_news = abs(new - old) / max(abs(old), 1.0) >= 0.10
+        elif nov.get("metric") is not None and l_nov.get("metric") is None:
+            # legacy prior payload: old stake rule (worsened >= 10%)
+            old_stake = max(sgt["stake"] for sgt in seen)
+            new_stake = float(c.get("stake_eur") or 0)
+            is_news = bool(old_stake > 0 and new_stake >= old_stake * 1.10)
+        else:
+            is_news = False
+        (kept if is_news else demoted).append(c)
+    if demoted:
+        print(f"[analyst] Novelty gate: {len(demoted)} repeat card(s) → watchlist: "
+              f"{[d['insight']['id'] for d in demoted]}")
+    return kept, demoted
+
+
 def _novelty_gate(candidates: list[dict], hotel_id: str) -> tuple[list[dict], list[dict]]:
-    """Spec C2.3 + follow-up memory (2026-08-24): a repeat card without a
-    worsening stake is demoted to the watchlist — EXCEPT every 3rd day, when
-    it resurfaces once as "Still open" so open items are never silently
-    forgotten. Repeats carry follow-up facts (first flagged date, whether the
-    underlying gap widened or narrowed) for the narration to weave in.
-    Fails open on any error."""
+    """Reads the prior 7 days of shipped cards (PG-first, Supabase fallback)
+    and applies `_novelty_decide`. Fails open on any error (all candidates
+    kept). Compares against PRIOR report dates only, never the current one —
+    a same-day manual refresh must not suppress its own cards (2026-07-23)."""
     import os
     import requests as _req
-    # Day-over-day novelty ONLY: compare against briefings for PRIOR report
-    # dates, never the current one — otherwise a same-day manual refresh
-    # suppresses its own cards as "repeats" (incident 2026-07-23).
     current_report = str(_date.today() - timedelta(days=1))
     since = str(_date.today() - timedelta(days=8))   # 7-day memory window
     rows: list[dict] = []
-    # Phase C (STORAGE=pg, 2026-09-11): Postgres is the read store — same
-    # PG-first / Supabase-fallback pattern as railway_main (2026-09-23).
     try:
         from db import store as _store
         if _store.read_from_pg():
@@ -1645,66 +1776,10 @@ def _novelty_gate(candidates: list[dict], hotel_id: str) -> tuple[list[dict], li
             )
             r.raise_for_status()
             rows = r.json()
-        # per card id: max stake (novelty compare), earliest sighting + its stake
-        prev_stakes: dict[str, float] = {}
-        first_seen: dict[str, tuple[str, float]] = {}
-        for row in sorted(rows, key=lambda x: str(x.get("report_date", ""))):
-            rdate = str(row.get("report_date", ""))
-            for ins in (row.get("ai_insights") or {}).get("insights", []):
-                cid = ins.get("id")
-                if not cid:
-                    continue
-                stake = (float(ins.get("_stake_eur") or 0)
-                         or _parse_eur((ins.get("at_stake") or {}).get("value", "")))
-                prev_stakes[cid] = max(prev_stakes.get(cid, 0), stake)
-                if cid not in first_seen:
-                    first_seen[cid] = (rdate, stake)
+        return _novelty_decide(candidates, rows, _date.today())
     except Exception as exc:
         print(f"[analyst] Novelty gate skipped (lookup failed): {exc}")
         return candidates, []
-
-    def _fmt_day(iso: str) -> str:
-        try:
-            d = _date.fromisoformat(iso)
-            return d.strftime("%a %d %b").replace(" 0", " ")
-        except ValueError:
-            return iso
-
-    kept, demoted = [], []
-    for c in candidates:
-        cid = c["insight"]["id"]
-        if cid in first_seen:
-            fdate, fstake = first_seen[cid]
-            days_open = max(0, (_date.today() - timedelta(days=1) - _date.fromisoformat(fdate)).days)
-            facts = c["insight"]["facts"]
-            facts["first_flagged"] = _fmt_day(fdate)
-            new_stake = c.get("stake_eur", 0)
-            if fstake > 0 and new_stake > 0:
-                move = (new_stake - fstake) / fstake * 100
-                if abs(move) >= 15:
-                    facts["since_first_flagged"] = (
-                        f"the underlying gap is ~{abs(move):.0f}% "
-                        f"{'wider' if move > 0 else 'narrower'} than when first flagged")
-        if cid in prev_stakes:
-            old, new = prev_stakes[cid], c.get("stake_eur", 0)
-            if old > 0 and new < old * 1.10:
-                fdate = first_seen.get(cid, ("", 0))[0]
-                days_open = max(0, (_date.today() - timedelta(days=1)
-                                    - _date.fromisoformat(fdate)).days) if fdate else 0
-                if days_open >= 3 and days_open % 3 == 0:
-                    # scheduled resurface: the item is still open — say so
-                    c["title_hint"] = "Still open: " + str(c.get("title_hint", ""))
-                    c["insight"]["facts"]["status"] = f"unresolved for {days_open} days"
-                    kept.append(c)
-                    continue
-                demoted.append(c)
-                continue
-        kept.append(c)
-    if demoted:
-        print(f"[analyst] Novelty gate: {len(demoted)} repeat card(s) → watchlist: "
-              f"{[d['insight']['id'] for d in demoted]}")
-    return kept, demoted
-
 
 # Derived/estimated euro figures (at-stake, projections) never reach the
 # narration prompt or the display — only real PMS revenue does. The values
@@ -1776,7 +1851,10 @@ STRICT RULES
     words "will finish at".
 14. Every fact carries a "period" label. Attach every number only to the
     period named in its fact. Never blend full-month and remaining-period
-    numbers in one sentence."""
+    numbers in one sentence.
+15. Booking SOURCE names (e.g. "BK", "TEL", "T.Os", "Mice") are the hotel's
+    own codes: copy them exactly as given. Never expand, guess or rename a
+    code (never turn "BK" into "Booking.com")."""
 
 _CARD_TOOL: dict[str, Any] = {
     "name": "submit_card",
@@ -2286,7 +2364,23 @@ def _hero_fallback(slots: dict, cards: list[dict]) -> str:
     for c in cards[:2]:
         s = c["headline"].rstrip(".")
         parts.append(s + ".")
+    parts.extend(_pulse_note_parts(slots))
     return " ".join(parts)
+
+
+def _pulse_note_parts(slots: dict) -> list[str]:
+    """One plain sentence on today's Pulse (quiet days / open items)."""
+    pz = slots.get("pulse") or {}
+    if not pz:
+        return []
+    new_n, open_n = str(pz.get("new_items", "0")), str(pz.get("open_items", "0"))
+    if new_n == "0":
+        s = "Nothing new in the Pulse today"
+    else:
+        s = f"{new_n} new item{'s' if new_n != '1' else ''} in the Pulse today"
+    if open_n != "0":
+        s += f"; {open_n} item{'s' if open_n != '1' else ''} still open on the watchlist"
+    return [s + "."]
 
 
 def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
@@ -2315,6 +2409,12 @@ def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
             "(3) then the most important forward-looking points from TOP INSIGHTS, each "
             "compressed to one clause or short sentence, mentioning the at-stake value only "
             "for the single most important one"
+        )
+    if slots.get("pulse"):
+        order_text += (
+            "; (4) close with ONE short sentence on today's Pulse using the PULSE "
+            "numbers verbatim — how many new items today (0 = 'nothing new') and how "
+            "many are still open on the watchlist"
         )
     prompt_base = (
         f"Hotel: {hotel_name}. You write the short morning hero paragraph that opens "
@@ -2422,6 +2522,8 @@ def _card_to_insight(card: dict, priority: int) -> dict:
         # at-stake stays INTERNAL: a bare number for the novelty gate, no display
         **({"_stake_eur": _parse_eur(card["at_stake"]["value"])}
            if card.get("at_stake") else {}),
+        # fingerprint (internal): what tomorrow's novelty gate compares against
+        **({"_novelty": card["_novelty"]} if card.get("_novelty") else {}),
         # Legacy fields (current PWA)
         "priority": priority,
         "type":     _TAG_TO_TYPE.get(card["tag"], "observation"),
@@ -2473,8 +2575,9 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None,
         print(f"[analyst] Compute: {len(ranked)} ranked signals, "
               f"{len(computed['watchlist'])} watchlist")
         if not ranked:
-            print("[analyst] No signals above threshold — falling back to legacy prompt.")
-            return _legacy_generate(data)
+            # Quiet day (2026-09-24): hero only, no cards, no legacy prompt —
+            # nothing new is a valid, cheaper briefing.
+            print("[analyst] No new signals today — hero-only briefing.")
 
         hotel_name = data.get("hotel_name", config.HOTEL_NAME)
         briefing_date = _date.today().isoformat()
@@ -2490,6 +2593,7 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None,
                     "fallback_used": True, "attempts": 0,
                     "validation_problems": ["ai_disabled_for_entity"],
                 })
+                card["_novelty"] = cand.get("novelty")
                 cards.append(card)
                 continue
             wrapper = {
@@ -2499,11 +2603,20 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None,
                 "insight":        cand["insight"],
             }
             card = _narrate_card(wrapper, cand["fallback_card"], meta=meta, lang=lang)
+            card["_novelty"] = cand.get("novelty")
             cards.append(card)
             print(f"[analyst] Card {len(cards)}: [{card['tag']}] {card['headline'][:60]}")
 
+        open_items = [{"id": c["insight"]["id"], "tag": c["tag"],
+                       "title": c.get("title_hint", ""),
+                       "first_flagged": c["insight"]["facts"].get("first_flagged")}
+                      for c in computed.get("demoted", [])]
+        hero_slots = _build_hero_slots(data)
+        if not cards or open_items:
+            hero_slots["pulse"] = {"new_items": str(len(cards)),
+                                   "open_items": str(len(open_items))}
         summary = "" if not narrate else \
-            _narrate_hero(hotel_name, _build_hero_slots(data), cards, meta=meta, lang=lang)
+            _narrate_hero(hotel_name, hero_slots, cards, meta=meta, lang=lang)
         if not narrate:
             print(f"[analyst] AI narration OFF for this hotel — "
                   f"{len(cards)} deterministic cards, zero tokens")
@@ -2517,6 +2630,10 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None,
             # drifts vs the live KPI cards read as timing, not as errors.
             "generated_at": _display_hhmm(),
             "insights": [_card_to_insight(c, i + 1) for i, c in enumerate(cards)],
+            # Open items = repeats held back today; the app's watchlist is the
+            # memory, this list lets it label them without re-computing.
+            "open_items": open_items,
+            "quiet_day": not cards,
             "_meta": meta,
         }
         print(f"[analyst] Narration complete: {len(cards)} cards "
