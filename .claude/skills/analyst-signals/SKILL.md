@@ -17,7 +17,8 @@ Two layers, strictly separated:
 
 - Pickup fires only at |z| ≥ 2 (7-day trailing). Other signals need ≥ 10%
   deviation. Everything needs stake ≥ `_STAKE_FLOOR_EUR` (€1,000).
-- Lead time also needs ≥ 15 rn in BOTH periods; max 2 lead-time cards/day.
+- Lead time also needs ≥ 15 rn in BOTH periods AND a shift of ≥ 2 days
+  (`_LEAD_SHIFT_MIN_DAYS`, 2026-09-28: 10d vs 9d cleared 10%); max 2 lead-time cards/day.
 - Cancellation spike (Signal 6, Q14 `cancel_daily`): yesterday's cancels for a
   stay month vs the prior 7 days ZERO-FILLED (Q14 only ships days with
   cancels), z ≥ 2, ≥ 3 rn, stake = REAL revenue of the cancelled stays
@@ -43,10 +44,16 @@ Two layers, strictly separated:
   `_novelty`. `_novelty_decide` (pure, test_novelty.py): a card seen in the
   prior 7 days ships again ONLY when a key token is new, its metric moved
   ≥ 10% vs the LAST sighting (worse or better), or it entered the last 30
-  days. NO 3-card floor, NO 'still open' resurfacing: a quiet day ships
-  0-2 cards + hero (hero-only, never the legacy prompt) with a pulse note
+  days. NO 3-card floor, NO scheduled resurfacing. QUIET-DAY PIN (2026-09-28,
+  `_pin_open_alert`): with < `_QUIET_DAY_CARDS` (2) fresh cards, the single
+  highest-scoring demoted ALERT (score ≥ 0.08) ships as ONE "Still open" card
+  (facts.status "still open, first flagged N days ago"); busy days never
+  re-ship a repeat. Otherwise a quiet day is hero-only with a pulse note
   (`slots["pulse"]` → "Nothing new in the Pulse today; 3 items still open").
-  Payload gains `open_items` + `quiet_day`. Compares against PREVIOUS
+  Payload carries `open_items` (+ `first_flagged_iso`) + `quiet_day`; the PWA
+  renders open_items as the "Still open" list under the cards. `_first_seen`
+  on shipped cards / `first_flagged_iso` on open_items carry the TRUE first
+  sighting forward, so first_flagged never drifts with the 7-day window. Compares against PREVIOUS
   report_date only, never same-day. New card types MUST get a fingerprint
   branch (or they fall back to stake, and stake-less ones read as repeats).
 - Narration rule 15: booking SOURCE codes are copied verbatim, never

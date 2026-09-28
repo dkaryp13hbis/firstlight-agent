@@ -50,6 +50,8 @@ _PRICE_IN, _PRICE_OUT, _PRICE_CW, _PRICE_CR = 3.00, 15.00, 3.75, 0.30
 
 # Significance floor (spec C2.2): candidates with less at stake are suppressed
 _STAKE_FLOOR_EUR = 1000
+_LEAD_SHIFT_MIN_DAYS = 2.0     # lead-time shift must be >= 2 days AND >= 10%
+_QUIET_DAY_CARDS = 2           # fewer ranked cards than this -> pin the top open ALERT
 
 
 def _usage_zero() -> dict:
@@ -130,6 +132,10 @@ def _fact(value: str, period: str) -> dict:
 
 
 # ─── Scoring helpers ──────────────────────────────────────────────────────────
+
+def _days_word(n: int) -> str:
+    return f"{n} day" if n == 1 else f"{n} days"
+
 
 def _urgency(days_out: int) -> float:
     if days_out <= 7:   return 1.00
@@ -703,6 +709,9 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             shift_pct  = shift_days / wavg_ly
             if abs(shift_pct) < 0.10:
                 continue  # hard gate: <10% shift is noise
+            if abs(shift_days) < _LEAD_SHIFT_MIN_DAYS:
+                continue  # 2026-09-28: 10d vs 9d cleared 10% on tiny numbers — a
+                          # shift under 2 days is not news for a hotel owner
             rev_in_motion = ty_a["rev"]
             if rev_in_motion < _STAKE_FLOOR_EUR:
                 continue  # spec C2.2 significance floor
@@ -792,7 +801,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 }
                 fb_why = "Guests now book earlier, so waiting for late bookings to close the gap looks riskier than last year (confidence: Medium)."
                 fb_action = f"A review of {month_label} prices and where the hotel is listed may be worthwhile — the time to influence the month is running out earlier."
-                fb_headline = f"{month_label} books {abs(shift_i)} days earlier than last year while bookings lag"
+                fb_headline = f"{month_label} books {_days_word(abs(shift_i))} earlier than last year while bookings lag"
                 fb_by_when = "Within 2 days."
             else:
                 tag = "OPPORTUNITY" if pace_status == "ahead" else "MONITOR"
@@ -805,7 +814,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 }
                 fb_why = "Guests booking earlier usually means stronger demand, which can support higher prices (confidence: Medium)."
                 fb_action = f"There may be room for higher rates on open {month_label} nights."
-                fb_headline = f"{month_label} guests book {abs(shift_i)} days earlier than last year"
+                fb_headline = f"{month_label} guests book {_days_word(abs(shift_i))} earlier than last year"
                 fb_by_when = "Within 3 days."
 
             fallback_card = {
@@ -1435,6 +1444,11 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
     # No floor (user decision 2026-09-24): a quiet day ships 0-2 cards and a
     # one-line Pulse note; repeats live on the watchlist, never as cards.
     # (The 3-card backfill used to promote demoted repeats every quiet day.)
+    # Quiet-day pin (2026-09-28): the memory must reach the owner. With fewer
+    # than _QUIET_DAY_CARDS fresh cards, the highest-scoring open ALERT ships
+    # ONCE as a "Still open" card (max one repeat per day, never on busy days).
+    # Everything else stays on the watchlist.
+    ranked, demoted = _pin_open_alert(ranked, demoted, today)
     watchlist = [c for c in candidates if c not in ranked] + demoted
 
     # ── Headline KPIs ─────────────────────────────────────────────────────────
@@ -1475,6 +1489,34 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
         "demoted":   demoted,     # repeats held back today (open items)
         "headline":  headline,
     }
+
+
+def _pin_open_alert(ranked: list[dict], demoted: list[dict],
+                    today: _date) -> tuple[list[dict], list[dict]]:
+    """Pure rule (unit-tested): on a quiet day (< _QUIET_DAY_CARDS ranked cards)
+    promote the single highest-scoring demoted ALERT that still clears the
+    ranking floor, marked as still open. Busy days never re-ship a repeat."""
+    if len(ranked) >= _QUIET_DAY_CARDS or not demoted:
+        return ranked, demoted
+    alerts = [c for c in demoted if c.get("tag") == "ALERT" and c.get("score", 0) >= 0.08]
+    if not alerts:
+        return ranked, demoted
+    pin = max(alerts, key=lambda c: c.get("score", 0))
+    facts = pin["insight"]["facts"]
+    first_iso = pin.get("first_seen_iso")
+    days_open = 0
+    if first_iso:
+        try:
+            days_open = max(0, (today - timedelta(days=1) - _date.fromisoformat(first_iso)).days)
+        except ValueError:
+            days_open = 0
+    facts["status"] = (f"still open, first flagged {days_open} days ago"
+                       if days_open else "still open")
+    pin["title_hint"] = "Still open: " + str(pin.get("title_hint", ""))
+    pin["pinned_repeat"] = True
+    print(f"[analyst] Quiet day: pinned open ALERT {pin['insight']['id']} "
+          f"(score {pin.get('score')}, open {days_open}d)")
+    return ranked + [pin], [c for c in demoted if c is not pin]
 
 
 def _merge_cancel_into_pickup(candidates: list[dict]) -> list[dict]:
@@ -1667,6 +1709,7 @@ def _novelty_decide(candidates: list[dict], prior_rows: list[dict],
     No floor, no scheduled 'still open' resurfacing — the watchlist is the
     memory; cards are news."""
     sightings: dict[str, list[dict]] = {}
+    carried: dict[str, str] = {}      # card id -> earliest ISO first sighting carried forward
     for row in sorted(prior_rows, key=lambda x: str(x.get("report_date", ""))):
         rdate = str(row.get("report_date", ""))
         for ins in (row.get("ai_insights") or {}).get("insights", []) or []:
@@ -1677,6 +1720,14 @@ def _novelty_decide(candidates: list[dict], prior_rows: list[dict],
                      or _parse_eur((ins.get("at_stake") or {}).get("value", "")))
             sightings.setdefault(cid, []).append(
                 {"date": rdate, "stake": stake, "novelty": ins.get("_novelty")})
+            if ins.get("_first_seen"):
+                carried[cid] = min(carried.get(cid, ins["_first_seen"]), ins["_first_seen"])
+        # open items carry the first sighting too, so a card demoted for days
+        # keeps its true start date instead of the 7-day window's edge
+        for oi in (row.get("ai_insights") or {}).get("open_items", []) or []:
+            cid, fs = oi.get("id"), oi.get("first_flagged_iso")
+            if cid and fs:
+                carried[cid] = min(carried.get(cid, fs), fs)
 
     def _fmt_day(iso: str) -> str:
         try:
@@ -1689,12 +1740,15 @@ def _novelty_decide(candidates: list[dict], prior_rows: list[dict],
         cid  = c["insight"]["id"]
         seen = sightings.get(cid)
         if not seen:
+            c["first_seen_iso"] = str(today - timedelta(days=1))
             kept.append(c)
             continue
         first, last = seen[0], seen[-1]
         nov  = c.get("novelty") or {}
         facts = c["insight"]["facts"]
-        facts["first_flagged"] = _fmt_day(first["date"])
+        first_iso = min(first["date"], carried.get(cid, first["date"]))
+        c["first_seen_iso"] = first_iso
+        facts["first_flagged"] = _fmt_day(first_iso)
 
         # follow-up wording vs the FIRST sighting
         f_metric = (first.get("novelty") or {}).get("metric")
@@ -2524,6 +2578,7 @@ def _card_to_insight(card: dict, priority: int) -> dict:
            if card.get("at_stake") else {}),
         # fingerprint (internal): what tomorrow's novelty gate compares against
         **({"_novelty": card["_novelty"]} if card.get("_novelty") else {}),
+        **({"_first_seen": card["_first_seen"]} if card.get("_first_seen") else {}),
         # Legacy fields (current PWA)
         "priority": priority,
         "type":     _TAG_TO_TYPE.get(card["tag"], "observation"),
@@ -2594,6 +2649,7 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None,
                     "validation_problems": ["ai_disabled_for_entity"],
                 })
                 card["_novelty"] = cand.get("novelty")
+                card["_first_seen"] = cand.get("first_seen_iso")
                 cards.append(card)
                 continue
             wrapper = {
@@ -2604,16 +2660,19 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None,
             }
             card = _narrate_card(wrapper, cand["fallback_card"], meta=meta, lang=lang)
             card["_novelty"] = cand.get("novelty")
+            card["_first_seen"] = cand.get("first_seen_iso")
             cards.append(card)
             print(f"[analyst] Card {len(cards)}: [{card['tag']}] {card['headline'][:60]}")
 
         open_items = [{"id": c["insight"]["id"], "tag": c["tag"],
                        "title": c.get("title_hint", ""),
-                       "first_flagged": c["insight"]["facts"].get("first_flagged")}
+                       "first_flagged": c["insight"]["facts"].get("first_flagged"),
+                       "first_flagged_iso": c.get("first_seen_iso")}
                       for c in computed.get("demoted", [])]
         hero_slots = _build_hero_slots(data)
         if not cards or open_items:
-            hero_slots["pulse"] = {"new_items": str(len(cards)),
+            fresh = sum(1 for cand in ranked[:5] if not cand.get("pinned_repeat"))
+            hero_slots["pulse"] = {"new_items": str(fresh),
                                    "open_items": str(len(open_items))}
         summary = "" if not narrate else \
             _narrate_hero(hotel_name, hero_slots, cards, meta=meta, lang=lang)

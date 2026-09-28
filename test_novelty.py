@@ -153,10 +153,49 @@ _orig = A._novelty_gate
 A._novelty_gate = lambda cands, hid: ([], list(cands))      # every card is a repeat
 try:
     out = _compute_signals(data, hotel_id="hotel-x")
-    check("all repeats → 0 ranked cards (no backfill)", out["ranked"] == [], str([c["insight"]["id"] for c in out["ranked"]]))
-    check("  repeats reported as demoted", len(out["demoted"]) >= 1 and out["watchlist"] == out["demoted"])
+    # 2026-09-28: quiet day → the single top open ALERT is pinned as "Still open"
+    ids = [c["insight"]["id"] for c in out["ranked"]]
+    check("all repeats → exactly one pinned open ALERT", len(out["ranked"]) == 1 and out["ranked"][0]["tag"] == "ALERT", str(ids))
+    check("  pinned card marked still open", out["ranked"][0]["title_hint"].startswith("Still open:")
+          and out["ranked"][0]["insight"]["facts"].get("status", "").startswith("still open"), str(out["ranked"][0].get("title_hint")))
+    check("  pinned card not in open items", out["ranked"][0] not in out["demoted"])
+    check("  other repeats reported as demoted", all(c["tag"] != "ALERT" or c["score"] <= out["ranked"][0]["score"] for c in out["demoted"]))
 finally:
     A._novelty_gate = _orig
+
+# pin rule in isolation
+from briefing.analyst import _pin_open_alert
+def _c(cid, tag, score, first=None):
+    c = {"tag": tag, "score": score, "title_hint": cid, "insight": {"id": cid, "facts": {}}}
+    if first: c["first_seen_iso"] = first
+    return c
+r, d = _pin_open_alert([_c("a", "ALERT", 0.5), _c("b", "MONITOR", 0.3)], [_c("x", "ALERT", 0.9)], today)
+check("busy day (2 cards) → no pin", [c["insight"]["id"] for c in r] == ["a", "b"] and len(d) == 1)
+r, d = _pin_open_alert([_c("a", "OPPORTUNITY", 0.5)], [_c("x", "ALERT", 0.4), _c("y", "ALERT", 0.7), _c("z", "OPPORTUNITY", 0.9)], today)
+check("one fresh card → highest-scoring open ALERT pinned (not the OPPORTUNITY)", [c["insight"]["id"] for c in r] == ["a", "y"] and [c["insight"]["id"] for c in d] == ["x", "z"], str([c["insight"]["id"] for c in r]))
+r, d = _pin_open_alert([], [_c("z", "OPPORTUNITY", 0.9), _c("m", "MONITOR", 0.5)], today)
+check("no open ALERT → stays a quiet day", r == [] and len(d) == 2)
+r, d = _pin_open_alert([], [_c("x", "ALERT", 0.05)], today)
+check("open ALERT below the ranking floor → not pinned", r == [])
+r, d = _pin_open_alert([], [_c("x", "ALERT", 0.6, first=str(today - timedelta(days=10)))], today)
+check("days open counted from first sighting", r[0]["insight"]["facts"]["status"] == "still open, first flagged 9 days ago", r[0]["insight"]["facts"]["status"])
+
+# first_flagged carried forward beyond the 7-day window
+c = cand("pace_oct_2026", "pace", {"rn_gap": {"value": "−100 rn"}}, novelty={"metric": -100.0, "key": None, "days_out": 45})
+rows = [prior(str(today - timedelta(days=3)), shipped("pace_oct_2026", novelty={"metric": -100.0, "key": None, "days_out": 45}))]
+rows[0]["ai_insights"]["insights"][0]["_first_seen"] = str(today - timedelta(days=20))
+kept, dem = _novelty_decide([c], rows, today)
+check("first_flagged uses the carried _first_seen", c["insight"]["facts"]["first_flagged"] == (today - timedelta(days=20)).strftime("%a %d %b").replace(" 0", " "), c["insight"]["facts"]["first_flagged"])
+check("  first_seen_iso set on the candidate", c.get("first_seen_iso") == str(today - timedelta(days=20)))
+c2 = cand("soft_dates_oct", "soft_dates", {}, novelty={"metric": 5000.0, "key": "date:Oct 9", "days_out": 20})
+rows2 = [{"report_date": str(today - timedelta(days=2)), "ai_insights": {"insights": [], "open_items": [
+    {"id": "soft_dates_oct", "first_flagged_iso": str(today - timedelta(days=15))}]}},
+         prior(str(today - timedelta(days=1)), shipped("soft_dates_oct", novelty={"metric": 5000.0, "key": "date:Oct 9", "days_out": 20}))]
+kept, dem = _novelty_decide([c2], rows2, today)
+check("first_flagged carried via a prior open_items entry", c2.get("first_seen_iso") == str(today - timedelta(days=15)), str(c2.get("first_seen_iso")))
+c3 = cand("pace_nov_2026", "pace", {"rn_gap": {"value": "−50 rn"}}, novelty={"metric": -50.0, "key": None, "days_out": 60})
+kept, dem = _novelty_decide([c3], [], today)
+check("never seen → first_seen_iso = report date", c3.get("first_seen_iso") == str(today - timedelta(days=1)))
 
 # ── D. hero pulse note ───────────────────────────────────────────────────────
 print("D. hero pulse note")

@@ -66,6 +66,10 @@ check("relapse → streak reset", a == "update" and p["resolve_streak"] == 0)
 old = {"flagged_date": str(D.replace(month=8, day=25)), "resolve_streak": 0, "last_gap_date": None}
 a, _ = decide(old, -9.0, D)
 check("14+ days stuck → retire", a == "retire")
+a, p_ = decide(old, -37.0, D)
+check("14+ days but still 37% behind → keep watching, never retire", a == "update" and p_["last_gap"] == -37.0)
+a, _ = decide(old, -25.0, D)
+check("exactly at the retire limit → keep watching", a == "update")
 
 a, _ = decide(row, None, D)
 check("no gap → skip", a == "skip")

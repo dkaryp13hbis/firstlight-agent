@@ -35,6 +35,7 @@ FIRSTLIGHT_CAP = 3
 RECOVERY_GAP = -2.0        # at/above this % vs same-time-last-year = recovered
 CONFIRM_RUNS = 2           # consecutive DAYS at recovery before resolving
 RETIRE_DAYS = 14           # stuck this long -> step back with a final note
+RETIRE_MAX_GAP = -25.0     # ...unless still this far behind: keep watching silently (2026-09-28)
 ADD_GAP = -5.0             # a month this far behind earns auto-watching
 
 _MON = ["jan", "feb", "mar", "apr", "may", "jun",
@@ -91,8 +92,8 @@ def decide(row: dict, gap: float | None, today: date) -> tuple[str, dict]:
             return "resolve", {}
     else:
         streak = 0
-        if age >= RETIRE_DAYS:
-            return "retire", {}
+        if age >= RETIRE_DAYS and gap > RETIRE_MAX_GAP:
+            return "retire", {}   # a 37% hole is never "stepping back" material
     return "update", {"last_gap": round(gap, 1), "resolve_streak": streak,
                       "last_gap_date": str(today)}
 

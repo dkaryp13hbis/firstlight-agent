@@ -37,6 +37,11 @@ nm_name = calendar.month_abbr[nm]
 # Month after next — used for the below-gate case
 n2 = nm + 1 if nm < 12 else 1
 n2_year = nm_year if nm < 12 else nm_year + 1
+# Three months out — the 1-day-shift case (2026-09-28); avoids Case C's December rows
+n3 = n2 + 1 if n2 < 12 else 1
+n3_year = n2_year if n2 < 12 else n2_year + 1
+if n3 == 12:   # December belongs to Case C — step over it
+    n3, n3_year = 1, n3_year + 1
 
 
 def lt_row(period, sm, sy, source, bucket, rn, avg_lead, rev):
@@ -54,6 +59,9 @@ lead_time = [
     # ── Case B: month after, tiny shift (~5%) → must NOT gate through ──
     lt_row("TY", n2, n2_year, "OTA", "16-30", 40, 21, 6000),
     lt_row("LY", n2, n2_year - 1, "OTA", "16-30", 40, 20, 5800),
+    # ── Case D (2026-09-28): 10d vs 9d = 11% but only 1 day → must NOT gate through ──
+    lt_row("TY", n3, n3_year, "Direct", "0-15", 60, 10, 12000),
+    lt_row("LY", n3, n3_year - 1, "Direct", "0-15", 60, 9, 11000),
     # ── Case C: low volume (rn < 15) → must be skipped ──
     lt_row("TY", 12, nm_year, "Direct", "31-60", 10, 50, 9000),
     lt_row("LY", 12, nm_year - 1, "Direct", "31-60", 9, 30, 8000),
