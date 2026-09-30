@@ -784,3 +784,223 @@ def portfolio_group_hotels(group_id: str, hotel_ids: list[str]) -> tuple[str | N
         return (g[0][0], [_row(cols, r) for r in rows])
     return _safe("portfolio_group_hotels", go) or (None, [])
 
+
+
+# ── own login system (C3, 2026-09-30): users / sessions / memberships ────────
+# Every function is fail-open like the rest of the module: None when PG is
+# not participating or the auth tables are not there yet — the API turns
+# that into 503 "login not available", never into an open door.
+
+_USER_COLS = ["id", "email", "password_hash", "display_name", "language",
+              "is_platform_admin", "must_change_password", "active",
+              "failed_logins", "locked_until", "created_at", "last_login_at"]
+_USER_SEL = ", ".join(f"u.{c}" for c in _USER_COLS)
+
+
+def user_by_email(email: str) -> dict | None:
+    def go():
+        rows = _exec(f"select {_USER_SEL} from users u where lower(u.email) = lower(%s)",
+                     (email.strip(),), fetch=True)
+        return _row(_USER_COLS, rows[0]) if rows else None
+    return _safe("user_by_email", go)
+
+
+def user_by_id(user_id: str) -> dict | None:
+    def go():
+        rows = _exec(f"select {_USER_SEL} from users u where u.id = %s", (user_id,), fetch=True)
+        return _row(_USER_COLS, rows[0]) if rows else None
+    return _safe("user_by_id", go)
+
+
+def user_create(email: str, password_hash: str, display_name: str | None,
+                language: str = "en", must_change: bool = True,
+                is_admin: bool = False) -> dict | None:
+    """{'id': ...} or {'error': 'duplicate'}; None when PG is unavailable."""
+    def go():
+        rows = _exec(
+            "insert into users (email, password_hash, display_name, language, "
+            "must_change_password, is_platform_admin) values (%s,%s,%s,%s,%s,%s) "
+            "on conflict do nothing returning id",
+            (email.strip(), password_hash, display_name, language, must_change, is_admin),
+            fetch=True)
+        return {"id": str(rows[0][0])} if rows else {"error": "duplicate"}
+    return _safe("user_create", go)
+
+
+def user_set_password(user_id: str, password_hash: str, must_change: bool) -> bool | None:
+    return _safe("user_set_password", lambda: _exec(
+        "update users set password_hash = %s, must_change_password = %s, "
+        "failed_logins = 0, locked_until = null where id = %s",
+        (password_hash, must_change, user_id)) is None)
+
+
+def user_set_active(user_id: str, active: bool) -> bool | None:
+    return _safe("user_set_active", lambda: _exec(
+        "update users set active = %s where id = %s", (active, user_id)) is None)
+
+
+def user_login_ok(user_id: str) -> None:
+    _safe("user_login_ok", lambda: _exec(
+        "update users set failed_logins = 0, locked_until = null, last_login_at = now() "
+        "where id = %s", (user_id,)))
+
+
+def user_login_failed(user_id: str, lock_after: int = 10, lock_minutes: int = 15) -> int | None:
+    """Bump the counter; lock the account once it reaches lock_after."""
+    def go():
+        rows = _exec(
+            "update users set failed_logins = failed_logins + 1, "
+            "locked_until = case when failed_logins + 1 >= %s "
+            "then now() + make_interval(mins => %s) else locked_until end "
+            "where id = %s returning failed_logins",
+            (lock_after, lock_minutes, user_id), fetch=True)
+        return int(rows[0][0]) if rows else None
+    return _safe("user_login_failed", go)
+
+
+def session_create(user_id: str, token_hash: str, days: int = 30,
+                   user_agent: str | None = None) -> str | None:
+    """Returns expires_at (ISO)."""
+    def go():
+        rows = _exec(
+            "insert into sessions (user_id, token_hash, expires_at, last_seen_at, user_agent) "
+            "values (%s, %s, now() + make_interval(days => %s), now(), %s) returning expires_at",
+            (user_id, token_hash, days, user_agent), fetch=True)
+        return _norm(rows[0][0])
+    return _safe("session_create", go)
+
+
+def session_user(token_hash: str, slide_days: int = 30) -> dict | None:
+    """The user behind a live session (+ 'session_id', 'expires_at'), sliding
+    the expiry on use. None = unknown / expired / revoked / inactive user."""
+    def go():
+        rows = _exec(
+            f"select {_USER_SEL}, s.id, s.expires_at from sessions s "
+            "join users u on u.id = s.user_id "
+            "where s.token_hash = %s and s.revoked_at is null "
+            "and s.expires_at > now() and u.active",
+            (token_hash,), fetch=True)
+        if not rows:
+            return None
+        out = _row(_USER_COLS + ["session_id", "expires_at"], rows[0])
+        _exec("update sessions set last_seen_at = now(), "
+              "expires_at = greatest(expires_at, now() + make_interval(days => %s)) "
+              "where token_hash = %s", (slide_days, token_hash))
+        return out
+    return _safe("session_user", go)
+
+
+def session_revoke(token_hash: str) -> None:
+    _safe("session_revoke", lambda: _exec(
+        "update sessions set revoked_at = now() where token_hash = %s and revoked_at is null",
+        (token_hash,)))
+
+
+def sessions_revoke_user(user_id: str, keep_hash: str | None = None) -> None:
+    _safe("sessions_revoke_user", lambda: _exec(
+        "update sessions set revoked_at = now() where user_id = %s and revoked_at is null "
+        "and token_hash is distinct from %s", (user_id, keep_hash)))
+
+
+def membership_add(user_id: str, scope_type: str, scope_id: str, role: str) -> dict | None:
+    def go():
+        rows = _exec(
+            "insert into memberships (user_id, scope_type, scope_id, role) "
+            "values (%s,%s,%s,%s) on conflict (user_id, scope_type, scope_id) "
+            "do update set role = excluded.role returning id",
+            (user_id, scope_type, scope_id, role), fetch=True)
+        return {"id": str(rows[0][0])}
+    return _safe("membership_add", go)
+
+
+def membership_delete(membership_id: str, user_id: str) -> None:
+    _safe("membership_delete", lambda: _exec(
+        "delete from memberships where id = %s and user_id = %s", (membership_id, user_id)))
+
+
+def scope_name(scope_type: str, scope_id: str) -> str | None:
+    """The display name of a group / org / hotel (None = does not exist)."""
+    table = {"group": "groups", "org": "organizations", "hotel": "hotels"}.get(scope_type)
+    if not table:
+        return None
+    def go():
+        rows = _exec(f"select name from {table} where id = %s", (scope_id,), fetch=True)
+        return rows[0][0] if rows else None
+    return _safe("scope_name", go)
+
+
+def scope_id_by_slug(scope_type: str, slug: str) -> str | None:
+    table = {"group": "groups", "org": "organizations"}.get(scope_type)
+    if not table:
+        return None
+    def go():
+        rows = _exec(f"select id from {table} where slug = %s", (slug,), fetch=True)
+        return str(rows[0][0]) if rows else None
+    return _safe("scope_id_by_slug", go)
+
+
+_MEM_COLS = ["id", "scope_type", "scope_id", "role", "scope_name"]
+
+
+def memberships_for(user_id: str) -> list[dict] | None:
+    def go():
+        rows = _exec(
+            "select m.id, m.scope_type, m.scope_id, m.role, "
+            "coalesce(g.name, o.name, h.name) from memberships m "
+            "left join groups g on m.scope_type = 'group' and g.id = m.scope_id "
+            "left join organizations o on m.scope_type = 'org' and o.id = m.scope_id "
+            "left join hotels h on m.scope_type = 'hotel' and h.id = m.scope_id "
+            "where m.user_id = %s order by m.created_at", (user_id,), fetch=True)
+        return [_row(_MEM_COLS, r) for r in rows]
+    return _safe("memberships_for", go)
+
+
+def hotel_access_ids(user_id: str) -> list[str] | None:
+    """Active hotels this user can open (any membership level). None = PG off."""
+    def go():
+        rows = _exec(
+            "select distinct a.hotel_id from hotel_access a join hotels h on h.id = a.hotel_id "
+            "where a.user_id = %s and h.active", (user_id,), fetch=True)
+        return [str(r[0]) for r in rows]
+    return _safe("hotel_access_ids", go)
+
+
+def has_hotel_access(user_id: str, hotel_id: str) -> bool | None:
+    def go():
+        rows = _exec(
+            "select 1 from hotel_access where user_id = %s and hotel_id = %s limit 1",
+            (user_id, hotel_id), fetch=True)
+        return bool(rows)
+    return _safe("has_hotel_access", go)
+
+
+def hotels_by_ids(ids: list[str]) -> list[dict] | None:
+    if not ids:
+        return []
+    def go():
+        rows = _exec("select id, name from hotels where id = any(%s::uuid[]) order by name",
+                     (ids,), fetch=True)
+        return [_row(["id", "name"], r) for r in rows]
+    return _safe("hotels_by_ids", go)
+
+
+_USER_LIST_COLS = ["id", "email", "display_name", "language", "is_platform_admin",
+                   "must_change_password", "active", "failed_logins", "locked_until",
+                   "created_at", "last_login_at", "sessions_live"]
+
+
+def users_list() -> list[dict] | None:
+    """Every user (never the hash) with their memberships resolved."""
+    def go():
+        rows = _exec(
+            "select u.id, u.email, u.display_name, u.language, u.is_platform_admin, "
+            "u.must_change_password, u.active, u.failed_logins, u.locked_until, "
+            "u.created_at, u.last_login_at, "
+            "(select count(*) from sessions s where s.user_id = u.id "
+            " and s.revoked_at is null and s.expires_at > now()) "
+            "from users u order by lower(u.email)", fetch=True)
+        users = [_row(_USER_LIST_COLS, r) for r in rows]
+        for u in users:
+            u["memberships"] = memberships_for(u["id"]) or []
+        return users
+    return _safe("users_list", go)

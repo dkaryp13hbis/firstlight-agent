@@ -11,6 +11,10 @@ precondition is ✅.
 2. Cost/control at scale (10+ hotels): storage next to the processor, no
    REST hop, no Supabase tier pressure.
 3. LISTEN/NOTIFY replaces the 30s refresh_commands poller.
+4. **2026-09-10 (user):** Supabase goes away COMPLETELY — including Auth.
+   We run our own login system (C3) and the tenancy hierarchy
+   Group → Company (unique VAT) → Hotel with users at any level (C4).
+   No email channel at all: push + app only (C5).
 
 ## What moves — full inventory (as of 2026-09-04, 736 rows total)
 
@@ -28,7 +32,7 @@ precondition is ✅.
 | usage_events | 18+ | app | write-only | C2 |
 | intraday_log | 2+ | backend | no | C1 |
 | watchlist | 4 | app | YES (r/w) | C2 |
-| (auth.users) | — | Supabase Auth | login | C3 (likely never) |
+| (auth.users) | — | Supabase Auth | login | C3 — imported into OUR `users` table with the SAME uuid; own login system (decided 2026-09-10) |
 
 ## Strategy: three separable phases
 
@@ -95,9 +99,66 @@ The app stops talking to Supabase for DATA (auth stays).
 3. Ship app + API together; parallel-run 3 days (API reads PG, Supabase
    dual-write continues). Then stop dual-writes.
 
-### C3 — auth (decision, not necessarily work)
-RECOMMENDATION: keep Supabase Auth permanently (free at this scale,
-decoupled, battle-tested). Revisit only if Supabase is fully retired.
+### C3 — own login system (2–3 days) — DECIDED 2026-09-10 — CODE SHIPPED 2026-09-30
+**Status 2026-09-30:** steps 2, 3 and 5 are built and tested (backend `db/auth.py`,
+`db/passwords.py` — stdlib scrypt, not argon2 — `scripts/users.py`; app `lib/session.ts`,
+`ChangePassword.tsx`). Both login paths run in parallel; `AUTH=own` closes Supabase.
+
+**Go-live checklist (each is one command, in this order):**
+1. `railway ssh -s web -- python scripts/pg_apply.py docs/sql/pg/2026-09-30_own_login.sql`
+   (after the backend deploy so the script exists in the image — or apply the
+   file's DDL by hand first; it is idempotent).
+2. Deploy: `git push` backend (Railway) and `git push` firstlight-pwa (Pages).
+3. Create the first account:
+   `railway ssh -s web -- python scripts/users.py create --email <email> --name <Name> --group tor-hotel-group --role owner [--password <pw> --keep-password]`
+4. Verify: log in at firstlight.hbis.io as that user → picker shows the three
+   Tor hotels + the group entry; bell → `POST /push/test` arrives.
+5. Step 4 below (import the two Supabase Auth users with the SAME uuid), then set
+   `AUTH=own` on Railway and remove the Supabase JWT path + `hotel_users` after
+   the 1-week parallel-run.
+Supersedes the earlier "keep Supabase Auth" recommendation: the user wants
+Supabase gone entirely. Schema is in `docs/sql/pg/2026-09-10_tenancy_auth.sql`
+(`users`, `sessions`, `memberships`, `hotel_access` view; also in schema.sql).
+1. Apply the migration on the Railway instance (ALTERs are idempotent).
+2. API: `POST /auth/login` (email + password → opaque session token,
+   scrypt (stdlib, `db/passwords.py`), sha256 of the token stored in `sessions`,
+   30-day expiry sliding on use; lockout after 10 failures / 15 min),
+   `POST /auth/logout`, `POST /auth/change-password`, `GET /me` (user +
+   the hotels from `hotel_access`). `auth_user()` verifies the session
+   token instead of the Supabase JWT; `require_member()` reads
+   `hotel_access` instead of `hotel_users`. Both paths coexist behind an
+   env flag (`AUTH=supabase|own`) for the parallel-run.
+3. Admin CLI (`scripts/onboard_hotel.py` / `scripts/users.py`): create
+   user with a generated initial password (`must_change_password=true`),
+   reset password, deactivate. NO email — passwords are read out by
+   phone; the app forces a change on first login.
+4. Import: every `auth.users` row → `users` with the SAME uuid so
+   feedback / watchlist / push_subscriptions / usage_events stay
+   joinable; every `hotel_users` row → `memberships (hotel, viewer)`;
+   each imported user gets a fresh initial password.
+5. App (React): login screen against `/auth/login`, forced
+   change-password screen, token in localStorage (same header shape as
+   today so `api.ts` changes are minimal). Ship app + API together;
+   parallel-run 1 week; then drop the Supabase JWT path and `hotel_users`.
+
+### C4 — tenancy hierarchy (1 day) — DECIDED 2026-09-10
+Group → Company (`organizations`, unique VAT per country) → Hotel.
+1. Same migration file adds `groups`, `organizations.group_id /
+   vat_number / legal_name / country`.
+2. Backfill: create the real company rows (VAT from the client files) and
+   point each existing hotel's `org_id` at its company; group Pome +
+   Potidea only if they share owners (ask).
+3. App: hotel picker lists everything `GET /me` returns; an owner sees the
+   whole company/group. Merges are admin SQL (ONBOARDING.md §4), never
+   deletes.
+
+### C5 — remove the email channel (½ day) — DECIDED 2026-09-10
+Delete `briefing/mailer.py`, `templates/email.html`, the SMTP config for
+briefings, and the email branch of `notify=`; the morning run sends push
+only. KEEP the ops audit/drift email to HBIS (audit.py) — that is
+monitoring, not a client channel. `recipient_email`/`recipient_name`
+columns stay (deprecated) so nothing breaks; the onboarding intake no
+longer asks for them.
 
 ## Cutover verification (run after every flip)
 - `/health`: prompt_version present, `stale_hotels` empty.
@@ -112,8 +173,10 @@ decoupled, battle-tested). Revisit only if Supabase is fully retired.
 - C1: `STORAGE=supabase` env flip (writes never stopped) — minutes.
 - C2: ship previous app build (Pages rollback) — Supabase still has data
   from dual-writes — minutes.
-- Hard rule: Supabase project stays UNTOUCHED for 14 days after C2
-  completes; only then archive.
+- C3: `AUTH=supabase` env flip restores JWT verification (Supabase Auth
+  untouched during the parallel-run) — minutes.
+- Hard rule: Supabase project stays UNTOUCHED for 14 days after C3
+  completes (auth was the last dependency); only then archive.
 
 ## Preconditions (gate to start C1)
 - ✅ Off-platform nightly backup + verified restore drill (2026-09-04:

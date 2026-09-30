@@ -140,6 +140,26 @@ def auth_user(request: Request) -> str:
         hit = _USERS.get(jwt)
         if hit and hit[1] > now:
             return hit[0]
+    # C3 (2026-09-30): our own session tokens (fl_...) are verified against
+    # Postgres; anything else is a Supabase JWT (parallel-run). AUTH=own
+    # closes the Supabase path once every user has been moved over.
+    if jwt.startswith("fl_"):
+        from db import auth as _auth
+        u = _auth.verify_session(jwt)
+        if not u:
+            raise HTTPException(401, "invalid or expired session")
+        uid = u["id"]
+        with _USERS_LOCK:
+            _USERS[jwt] = (uid, now + 300)
+            _USER_EMAILS[uid] = (u.get("email") or "").lower()
+            _USER_ADMIN[uid] = bool(u.get("is_platform_admin"))
+            _USER_OWN.add(uid)
+            if len(_USERS) > 500:
+                _USERS.clear()
+                _USER_EMAILS.clear()
+        return uid
+    if os.getenv("AUTH", "dual").lower() == "own":
+        raise HTTPException(401, "invalid user token")
     url, key = _sb()
     try:
         r = _req.get(f"{url}/auth/v1/user",
@@ -160,6 +180,8 @@ def auth_user(request: Request) -> str:
 
 
 _USER_EMAILS: dict[str, str] = {}   # uid -> email, filled by auth_user
+_USER_ADMIN: dict[str, bool] = {}   # uid -> users.is_platform_admin (own login)
+_USER_OWN: set = set()              # uids authenticated by OUR session store
 
 # Admin gate (v1, pre-C3): superadmin = the founder's emails. Under C3 this
 # becomes users.is_superadmin; the endpoint contract stays the same.
@@ -169,7 +191,7 @@ ADMIN_EMAILS = {e.strip().lower() for e in os.getenv(
 
 def require_admin(request: Request) -> str:
     uid = auth_user(request)
-    if _USER_EMAILS.get(uid, "") not in ADMIN_EMAILS:
+    if _USER_EMAILS.get(uid, "") not in ADMIN_EMAILS and not _USER_ADMIN.get(uid):
         raise HTTPException(403, "admin only")
     return uid
 
@@ -183,10 +205,15 @@ def require_member(user_id: str, hotel_id: str) -> None:
     with _MEMBERS_LOCK:
         if _MEMBERS.get((user_id, hotel_id), 0) > now:
             return
-    rows = _sb_get("hotel_users", {"user_id": f"eq.{user_id}",
-                                   "hotel_id": f"eq.{hotel_id}", "select": "id"})
-    if not rows:
-        raise HTTPException(403, "not a member of this hotel")
+    from db import store
+    ok = store.has_hotel_access(user_id, hotel_id)
+    if not ok:
+        if user_id in _USER_OWN:
+            raise HTTPException(403, "not a member of this hotel")
+        rows = _sb_get("hotel_users", {"user_id": f"eq.{user_id}",
+                                       "hotel_id": f"eq.{hotel_id}", "select": "id"})
+        if not rows:
+            raise HTTPException(403, "not a member of this hotel")
     with _MEMBERS_LOCK:
         _MEMBERS[(user_id, hotel_id)] = now + 300
         if len(_MEMBERS) > 1000:
@@ -877,18 +904,175 @@ def _pg_or_sb_briefing(pg_fn, sb_params) -> dict | list | None:
 @app.get("/app/hotels")
 def app_hotels(request: Request):
     uid = auth_user(request)
-    links = _sb_get("hotel_users", {"user_id": f"eq.{uid}", "select": "hotel_id"})
-    ids = [l["hotel_id"] for l in links]
+    ids = _app_hotel_ids(uid)
     if not ids:
         return {"hotels": []}
-    rows = _sb_get("hotels", {"id": f"in.({','.join(ids)})",
-                              "select": "id,name", "order": "name"})
+    from db import store
+    rows = store.hotels_by_ids(ids)
+    if rows is None:
+        rows = _sb_get("hotels", {"id": f"in.({','.join(ids)})",
+                                  "select": "id,name", "order": "name"})
     return {"hotels": rows}
 
 
 def _app_hotel_ids(uid: str) -> list[str]:
-    links = _sb_get("hotel_users", {"user_id": f"eq.{uid}", "select": "hotel_id"})
-    return [l["hotel_id"] for l in links]
+    """Hotels the caller may open: memberships (PG hotel_access, C3) plus
+    the legacy Supabase hotel_users links for JWT users (parallel-run)."""
+    from db import store
+    ids = list(store.hotel_access_ids(uid) or [])
+    if uid in _USER_OWN:
+        return ids
+    try:
+        links = _sb_get("hotel_users", {"user_id": f"eq.{uid}", "select": "hotel_id"})
+    except HTTPException:
+        links = []
+    for l in links:
+        if l["hotel_id"] not in ids:
+            ids.append(l["hotel_id"])
+    return ids
+
+
+# ── C3 (2026-09-30): own login system — /auth/* for the app, /admin/users
+# for the portal + scripts/users.py. Passwords are never emailed.
+
+def _bearer(request: Request) -> str:
+    auth = request.headers.get("authorization", "")
+    return auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+
+
+def _auth_call(fn, *args):
+    from db import auth as _auth
+    try:
+        return fn(*args)
+    except _auth.AuthError as exc:
+        raise HTTPException(exc.status, exc.message) from exc
+
+
+@app.post("/auth/login")
+def auth_login(request: Request, body: dict):
+    from db import auth as _auth
+    email = str(body.get("email", ""))
+    password = str(body.get("password", ""))
+    return _auth_call(_auth.login, email, password, request.headers.get("user-agent", ""))
+
+
+@app.post("/auth/logout")
+def auth_logout(request: Request):
+    from db import auth as _auth
+    tok = _bearer(request)
+    if tok:
+        _auth.logout(tok)
+        with _USERS_LOCK:
+            _USERS.pop(tok, None)
+    return {"ok": True}
+
+
+@app.get("/auth/me")
+def auth_me(request: Request):
+    uid = auth_user(request)
+    from db import store
+    ids = _app_hotel_ids(uid)
+    hotels = store.hotels_by_ids(ids)
+    if hotels is None and ids:
+        hotels = _sb_get("hotels", {"id": f"in.({','.join(ids)})",
+                                    "select": "id,name", "order": "name"})
+    user = None
+    if uid in _USER_OWN:
+        from db import auth as _auth
+        u = store.user_by_id(uid)
+        user = _auth.public(u) if u else None
+    return {"id": uid, "email": _USER_EMAILS.get(uid), "own_login": uid in _USER_OWN,
+            "is_admin": _USER_EMAILS.get(uid, "") in ADMIN_EMAILS or bool(_USER_ADMIN.get(uid)),
+            "user": user, "hotels": hotels or []}
+
+
+@app.post("/auth/change-password")
+def auth_change_password(request: Request, body: dict):
+    uid = auth_user(request)
+    if uid not in _USER_OWN:
+        raise HTTPException(400, "This account does not use the FirstLight login yet.")
+    from db import auth as _auth
+    user = _auth_call(_auth.change_password, uid, str(body.get("current_password", "")),
+                      str(body.get("new_password", "")), _bearer(request))
+    with _USERS_LOCK:                       # other sessions were revoked
+        for k in [k for k, v in _USERS.items() if v[0] == uid and k != _bearer(request)]:
+            _USERS.pop(k, None)
+    return {"ok": True, "user": user}
+
+
+@app.get("/admin/users")
+def admin_users(request: Request):
+    require_admin(request)
+    from db import store
+    rows = store.users_list()
+    if rows is None:
+        raise HTTPException(503, "user storage unavailable (own-login SQL not applied?)")
+    return {"users": rows}
+
+
+@app.post("/admin/users", status_code=201)
+def admin_users_post(request: Request, body: dict):
+    """Create a user (+ optional first membership). The initial password is
+    returned ONCE in the response — read it out by phone, never email it."""
+    require_admin(request)
+    from db import auth as _auth
+    out = _auth_call(_auth.create_user, str(body.get("email", "")), body.get("display_name"),
+                     body.get("password"), str(body.get("language", "en")),
+                     bool(body.get("is_platform_admin")), not bool(body.get("keep_password")))
+    m = body.get("membership")
+    if isinstance(m, dict):
+        out["membership"] = _auth_call(_auth.grant, out["id"], str(m.get("scope_type", "")),
+                                       str(m.get("scope_id", "")), str(m.get("role", "viewer")))
+    _audit_admin(request, "user.create", "user", out["id"],
+                 after={"email": out["email"], "membership": out.get("membership")})
+    return out
+
+
+@app.post("/admin/users/{user_id}/password")
+def admin_users_password(user_id: str, request: Request, body: dict):
+    require_admin(request)
+    from db import auth as _auth
+    pwd = _auth_call(_auth.reset_password, user_id, body.get("password"),
+                     not bool(body.get("keep_password")))
+    _audit_admin(request, "user.password_reset", "user", user_id)
+    return {"id": user_id, "password": pwd}
+
+
+@app.post("/admin/users/{user_id}/active")
+def admin_users_active(user_id: str, request: Request, body: dict):
+    require_admin(request)
+    from db import store
+    active = bool(body.get("active"))
+    if store.user_set_active(user_id, active) is None:
+        raise HTTPException(503, "user storage unavailable")
+    if not active:
+        store.sessions_revoke_user(user_id)
+    _audit_admin(request, "user.activate" if active else "user.deactivate", "user", user_id,
+                 reason=body.get("reason"))
+    return {"id": user_id, "active": active}
+
+
+@app.post("/admin/users/{user_id}/memberships", status_code=201)
+def admin_users_membership_post(user_id: str, request: Request, body: dict):
+    require_admin(request)
+    from db import auth as _auth
+    m = _auth_call(_auth.grant, user_id, str(body.get("scope_type", "")),
+                   str(body.get("scope_id", "")), str(body.get("role", "viewer")))
+    _audit_admin(request, "user.grant", "user", user_id, after=m)
+    with _MEMBERS_LOCK:
+        _MEMBERS.clear()
+    return m
+
+
+@app.delete("/admin/users/{user_id}/memberships/{membership_id}")
+def admin_users_membership_delete(user_id: str, membership_id: str, request: Request):
+    require_admin(request)
+    from db import store
+    store.membership_delete(membership_id, user_id)
+    _audit_admin(request, "user.revoke", "user", user_id, before={"membership": membership_id})
+    with _MEMBERS_LOCK:
+        _MEMBERS.clear()
+    return {"removed": membership_id}
 
 
 @app.get("/app/portfolios")

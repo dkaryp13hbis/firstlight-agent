@@ -127,7 +127,7 @@ recipes for each line are at the bottom of
    }
    ```
 4. **Users:** for each person in 0.6 → `users` row (email lower-cased,
-   argon2id hash of a generated initial password,
+   scrypt hash of a generated initial password (`scripts/users.py create`, run via `railway ssh -s web`),
    `must_change_password = true`, language) + a `memberships` row at the
    right level (`org`/`group` + `owner`, or `hotel` + `viewer`). Existing
    email → membership only.

@@ -17,7 +17,7 @@ push + app only.
 
 **TODAY vs TARGET:** until Phase C3 (own auth) + C4 (tenancy) ship
 (`docs/PHASE_C_RUNBOOK.md`), the database step still runs in Supabase
-(hotels row + pms_config + Supabase Auth user + hotel_users). Collect the
+(hotels row + pms_config + `users`/`memberships` via `railway ssh -s web -- python scripts/users.py create …`; a Supabase Auth user + hotel_users only for accounts not yet moved). Collect the
 v2 intake answers anyway.
 
 ## 0. Tenancy (decided 2026-09-10)
