@@ -69,3 +69,13 @@ create or replace view hotel_access as
     join hotels h on h.org_id = o.id;
 
 comment on table hotel_users is 'DEPRECATED 2026-09-10: superseded by memberships + hotel_access; drop after the C3 parallel-run.';
+
+-- Roles (grants.sql, 2026-09-11): this file runs as postgres (builder); the
+-- API's fl_app role receives DML on the new tables through the existing
+-- ALTER DEFAULT PRIVILEGES. The read-only visitor role must never see
+-- password or session hashes:
+revoke select on users from fl_readonly;
+grant select (id, email, display_name, language, is_platform_admin, must_change_password,
+              active, failed_logins, locked_until, created_at, last_login_at)
+  on users to fl_readonly;
+revoke select on sessions from fl_readonly;

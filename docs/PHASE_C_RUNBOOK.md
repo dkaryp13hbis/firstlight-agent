@@ -105,9 +105,13 @@ The app stops talking to Supabase for DATA (auth stays).
 `ChangePassword.tsx`). Both login paths run in parallel; `AUTH=own` closes Supabase.
 
 **Go-live checklist (each is one command, in this order):**
-1. `railway ssh -s web -- python scripts/pg_apply.py docs/sql/pg/2026-09-30_own_login.sql`
-   (after the backend deploy so the script exists in the image — or apply the
-   file's DDL by hand first; it is idempotent).
+1. Apply the migration AS THE BUILDER ROLE (the web container's fl_app has no
+   DDL rights — grants.sql). From the backend folder, PowerShell:
+   ```
+   $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("docs\sql\pg\2026-09-30_own_login.sql"))
+   railway ssh -s Postgres -- sh -c "echo $b64 | base64 -d | psql -v ON_ERROR_STOP=1 -U `$POSTGRES_USER -d `$POSTGRES_DB"
+   ```
+   Idempotent; ends with the fl_readonly column revokes (no hash columns visible).
 2. Deploy: `git push` backend (Railway) and `git push` firstlight-pwa (Pages).
 3. Create the first account:
    `railway ssh -s web -- python scripts/users.py create --email <email> --name <Name> --group tor-hotel-group --role owner [--password <pw> --keep-password]`
