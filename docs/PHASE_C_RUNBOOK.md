@@ -118,8 +118,10 @@ The app stops talking to Supabase for DATA (auth stays).
    `railway ssh -s web -- python scripts/users.py create --email <email> --name <Name> --group tor-hotel-group --role owner [--password <pw> --keep-password]`
 4. Verify: log in at firstlight.hbis.io as that user → picker shows the three
    Tor hotels + the group entry; bell → `POST /push/test` arrives.
-5. Step 4 below (import the two Supabase Auth users with the SAME uuid), then set
-   `AUTH=own` on Railway and remove the Supabase JWT path + `hotel_users` after
+5. Import the Supabase Auth accounts with the SAME uuid:
+   `railway ssh -s web -- python scripts/import_supabase_users.py --dry-run` then without
+   the flag (passwords printed once, forced change). When everyone has signed in, set
+   `AUTH=own` on the web service; remove the Supabase JWT path + `hotel_users` after
    the 1-week parallel-run.
 Supersedes the earlier "keep Supabase Auth" recommendation: the user wants
 Supabase gone entirely. Schema is in `docs/sql/pg/2026-09-10_tenancy_auth.sql`

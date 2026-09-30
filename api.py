@@ -948,9 +948,38 @@ def _auth_call(fn, *args):
         raise HTTPException(exc.status, exc.message) from exc
 
 
+# Per-network login throttle (on top of the per-account lockout in db/auth):
+# a bot cycling through many emails from one address is stopped here.
+_LOGIN_HITS: dict[str, list[float]] = {}
+_LOGIN_LOCK = threading.Lock()
+LOGIN_MAX_PER_WINDOW, LOGIN_WINDOW_S = 30, 600
+
+
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[0].strip()[:64]
+    return (request.client.host if request.client else "?")[:64]
+
+
+def _throttle_login(request: Request) -> None:
+    ip, now = _client_ip(request), _time.time()
+    with _LOGIN_LOCK:
+        hits = [t for t in _LOGIN_HITS.get(ip, []) if now - t < LOGIN_WINDOW_S]
+        if len(hits) >= LOGIN_MAX_PER_WINDOW:
+            _LOGIN_HITS[ip] = hits
+            raise HTTPException(429, "Too many sign-in attempts from this network. Try again in a few minutes.")
+        hits.append(now)
+        _LOGIN_HITS[ip] = hits
+        if len(_LOGIN_HITS) > 5000:          # bounded memory
+            for k in [k for k, v in _LOGIN_HITS.items() if not v or now - v[-1] > LOGIN_WINDOW_S]:
+                _LOGIN_HITS.pop(k, None)
+
+
 @app.post("/auth/login")
 def auth_login(request: Request, body: dict):
     from db import auth as _auth
+    _throttle_login(request)
     email = str(body.get("email", ""))
     password = str(body.get("password", ""))
     return _auth_call(_auth.login, email, password, request.headers.get("user-agent", ""))
