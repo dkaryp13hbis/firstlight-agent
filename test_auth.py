@@ -20,7 +20,7 @@ def check(name, cond, detail=""):
 h = pw.hash_password("Sample-Pass-2026")
 check("hash format scrypt$n$r$p$salt$hash", h.startswith("scrypt$") and h.count("$") == 5)
 check("verify ok", pw.verify_password("Sample-Pass-2026", h))
-check("verify wrong", not pw.verify_password("Fltorhotel2026", h))
+check("verify wrong", not pw.verify_password("Other-Pass-2026", h))
 check("verify empty / None safe", not pw.verify_password("", h) and not pw.verify_password("x", None))
 check("verify malformed safe", not pw.verify_password("x", "argon2$zzz") and not pw.verify_password("x", "garbage"))
 check("two hashes differ (salt)", pw.hash_password("abc") != pw.hash_password("abc"))
