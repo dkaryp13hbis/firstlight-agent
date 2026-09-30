@@ -17,9 +17,9 @@ def check(name, cond, detail=""):
     else: F += 1; print(f"FAIL  {name} {detail}")
 
 # ── passwords.py ─────────────────────────────────────────────────────────────
-h = pw.hash_password("Fltorhotel2026!")
+h = pw.hash_password("Sample-Pass-2026")
 check("hash format scrypt$n$r$p$salt$hash", h.startswith("scrypt$") and h.count("$") == 5)
-check("verify ok", pw.verify_password("Fltorhotel2026!", h))
+check("verify ok", pw.verify_password("Sample-Pass-2026", h))
 check("verify wrong", not pw.verify_password("Fltorhotel2026", h))
 check("verify empty / None safe", not pw.verify_password("", h) and not pw.verify_password("x", None))
 check("verify malformed safe", not pw.verify_password("x", "argon2$zzz") and not pw.verify_password("x", "garbage"))
@@ -27,7 +27,7 @@ check("two hashes differ (salt)", pw.hash_password("abc") != pw.hash_password("a
 check("policy: short rejected", pw.password_problem("Ab1") is not None)
 check("policy: letters only rejected", pw.password_problem("abcdefghijkl") is not None)
 check("policy: digits only rejected", pw.password_problem("123456789012") is not None)
-check("policy: ok", pw.password_problem("Fltorhotel2026!") is None)
+check("policy: ok", pw.password_problem("Sample-Pass-2026") is None)
 g = pw.generate_password()
 check("generated passes policy, phone-safe", pw.password_problem(g) is None and len(g) == 12
       and not any(c in "0O1lI" for c in g))
@@ -98,11 +98,11 @@ except auth.AuthError as e: check("create: bad email rejected", e.status == 422)
 try:
     auth.create_user("a@b.gr", "x", password="short1"); check("create: weak password rejected", False)
 except auth.AuthError as e: check("create: weak password rejected", e.status == 422)
-out = auth.create_user("Dinos@TorHotelGroup.gr", "Dinos", password="Fltorhotel2026!", must_change=False)
+out = auth.create_user("Dinos@TorHotelGroup.gr", "Dinos", password="Sample-Pass-2026", must_change=False)
 check("create: lowercases email, returns id + password once", out["email"] == "dinos@torhotelgroup.gr"
-      and out["id"] == "u1" and out["initial_password"] == "Fltorhotel2026!")
+      and out["id"] == "u1" and out["initial_password"] == "Sample-Pass-2026")
 check("create: hash stored, not clear text", USERS["u1"]["password_hash"].startswith("scrypt$")
-      and "Fltorhotel2026!" not in USERS["u1"]["password_hash"])
+      and "Sample-Pass-2026" not in USERS["u1"]["password_hash"])
 check("create: must_change honoured", USERS["u1"]["must_change_password"] is False)
 gen = auth.create_user("gm@torhotelgroup.gr", "GM")
 check("create: generated password when none given", pw.password_problem(gen["initial_password"]) is None
@@ -120,7 +120,7 @@ try:
 except auth.AuthError as e: check("grant: bad scope type → 422", e.status == 422)
 
 # ── login ────────────────────────────────────────────────────────────────────
-r = auth.login("DINOS@torhotelgroup.gr ", "Fltorhotel2026!", "Mozilla/5.0 iPhone")
+r = auth.login("DINOS@torhotelgroup.gr ", "Sample-Pass-2026", "Mozilla/5.0 iPhone")
 check("login: ok → token + user (no hash)", r["token"].startswith("fl_") and r["user"]["email"] == "dinos@torhotelgroup.gr"
       and "password_hash" not in r["user"] and r["user"]["must_change_password"] is False)
 tok1 = r["token"]
@@ -168,17 +168,17 @@ check("logout: token revoked", auth.verify_session(tok1) is None)
 auth.logout("eyJnot-a-session")   # must not raise
 
 # ── change password ──────────────────────────────────────────────────────────
-a = auth.login("dinos@torhotelgroup.gr", "Fltorhotel2026!")["token"]
-b = auth.login("dinos@torhotelgroup.gr", "Fltorhotel2026!")["token"]
+a = auth.login("dinos@torhotelgroup.gr", "Sample-Pass-2026")["token"]
+b = auth.login("dinos@torhotelgroup.gr", "Sample-Pass-2026")["token"]
 for cur, new, code, label in (("wrong", "NewPassword2026", 401, "wrong current"),
-                              ("Fltorhotel2026!", "short1", 422, "weak new"),
-                              ("Fltorhotel2026!", "Fltorhotel2026!", 422, "same as current")):
+                              ("Sample-Pass-2026", "short1", 422, "weak new"),
+                              ("Sample-Pass-2026", "Sample-Pass-2026", 422, "same as current")):
     try: auth.change_password("u1", cur, new, a); check(f"change: {label} rejected", False)
     except auth.AuthError as e: check(f"change: {label} rejected ({code})", e.status == code)
-res = auth.change_password("u1", "Fltorhotel2026!", "NewPassword2026", a)
+res = auth.change_password("u1", "Sample-Pass-2026", "NewPassword2026", a)
 check("change: ok → must_change false", res["must_change_password"] is False and USERS["u1"]["must_change_password"] is False)
 check("change: old password dead, new works", pw.verify_password("NewPassword2026", USERS["u1"]["password_hash"])
-      and not pw.verify_password("Fltorhotel2026!", USERS["u1"]["password_hash"]))
+      and not pw.verify_password("Sample-Pass-2026", USERS["u1"]["password_hash"]))
 check("change: current session kept, other session revoked",
       auth.verify_session(a) is not None and auth.verify_session(b) is None)
 
@@ -187,12 +187,12 @@ newpw = auth.reset_password("u1")
 check("reset: generated password, forced change, all sessions out",
       pw.password_problem(newpw) is None and USERS["u1"]["must_change_password"] is True
       and auth.verify_session(a) is None)
-newpw2 = auth.reset_password("u1", "Fltorhotel2026!", must_change=False)
-check("reset: explicit password + keep", newpw2 == "Fltorhotel2026!" and USERS["u1"]["must_change_password"] is False)
+newpw2 = auth.reset_password("u1", "Sample-Pass-2026", must_change=False)
+check("reset: explicit password + keep", newpw2 == "Sample-Pass-2026" and USERS["u1"]["must_change_password"] is False)
 
 # ── store off → 503, never open ──────────────────────────────────────────────
 store.enabled = lambda: False
-try: auth.login("dinos@torhotelgroup.gr", "Fltorhotel2026!"); check("store off: login 503", False)
+try: auth.login("dinos@torhotelgroup.gr", "Sample-Pass-2026"); check("store off: login 503", False)
 except auth.AuthError as e: check("store off: login 503", e.status == 503)
 check("store off: verify_session None", auth.verify_session(a) is None)
 
