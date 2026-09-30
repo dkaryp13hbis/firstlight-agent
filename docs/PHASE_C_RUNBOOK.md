@@ -106,11 +106,12 @@ The app stops talking to Supabase for DATA (auth stays).
 
 **Go-live checklist (each is one command, in this order):**
 1. Apply the migration AS THE BUILDER ROLE (the web container's fl_app has no
-   DDL rights — grants.sql). From the backend folder, PowerShell:
+   DDL rights — grants.sql). From the backend folder, Command Prompt or PowerShell:
    ```
-   $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("docs\sql\pg\2026-09-30_own_login.sql"))
-   railway ssh -s Postgres -- sh -c "echo $b64 | base64 -d | psql -v ON_ERROR_STOP=1 -U `$POSTGRES_USER -d `$POSTGRES_DB"
+   powershell -ExecutionPolicy Bypass -File scripts\pg_migrate.ps1 docs\sql\pg\2026-09-30_own_login.sql
    ```
+   (`scripts/pg_migrate.ps1` base64-encodes the file into a `railway ssh -s Postgres`
+   psql call that uses the container's own DATABASE_URL — nothing lands on the laptop.)
    Idempotent; ends with the fl_readonly column revokes (no hash columns visible).
 2. Deploy: `git push` backend (Railway) and `git push` firstlight-pwa (Pages).
 3. Create the first account:
