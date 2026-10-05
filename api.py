@@ -468,6 +468,9 @@ def admin_usage(request: Request):
     hotels = {h["id"]: h["name"] for h in _sb_get(
         "hotels", {"select": "id,name"})}
     members = _sb_get("hotel_users", {"select": "user_id,hotel_id"})
+    # C3: own-login users come from memberships (hotel_access), not hotel_users
+    members += [{"user_id": a["user_id"], "hotel_id": a["hotel_id"]}
+                for a in (store.hotel_access_all() or [])]
     events = store.usage_events_since(since)
     if events is None:
         events = _sb_get("usage_events", {
@@ -476,8 +479,9 @@ def admin_usage(request: Request):
             "order": "created_at.desc", "limit": "10000",
         })
 
-    # emails via GoTrue admin (service key); fail-open to short ids
-    emails: dict[str, str] = {}
+    # emails: our users table first (own login), then GoTrue for the rest;
+    # fail-open to short ids
+    emails: dict[str, str] = {u["id"]: u["email"] for u in (store.users_list() or [])}
     try:
         url, key = _sb()
         r = _req.get(f"{url}/auth/v1/admin/users", params={"per_page": "200"},
@@ -485,7 +489,7 @@ def admin_usage(request: Request):
                      timeout=10)
         if r.ok:
             for u in (r.json().get("users") or []):
-                emails[u["id"]] = u.get("email") or u["id"][:8]
+                emails.setdefault(u["id"], u.get("email") or u["id"][:8])
     except Exception:
         pass
 
@@ -493,17 +497,22 @@ def admin_usage(request: Request):
     for m in members:
         per[(m["hotel_id"], m["user_id"])] = {
             "events_30d": 0, "opens_30d": 0, "days": set(), "last_seen": None,
-            "top": {},
+            "top": {}, "seconds": 0,
         }
     for e in events:
         k = (e.get("hotel_id"), e["user_id"])
         if k not in per:
             per[k] = {"events_30d": 0, "opens_30d": 0, "days": set(),
-                      "last_seen": None, "top": {}}
+                      "last_seen": None, "top": {}, "seconds": 0}
         s = per[k]
         s["events_30d"] += 1
         if e["event"] == "app_open":
             s["opens_30d"] += 1
+        if e["event"] == "session_end":
+            try:   # active (visible) seconds; capped so a tab left open never counts as a day
+                s["seconds"] += min(int((e.get("props") or {}).get("seconds") or 0), 3600)
+            except (TypeError, ValueError):
+                pass
         s["days"].add(e["created_at"][:10])
         s["top"][e["event"]] = s["top"].get(e["event"], 0) + 1
         if s["last_seen"] is None or e["created_at"] > s["last_seen"]:
@@ -519,6 +528,7 @@ def admin_usage(request: Request):
                 "user_id": u, "email": emails.get(u, u[:8]),
                 "events_30d": s["events_30d"], "opens_30d": s["opens_30d"],
                 "days_active": len(s["days"]),
+                "minutes_30d": round(s["seconds"] / 60),
                 "last_seen": s["last_seen"],
                 "top": sorted(s["top"].items(), key=lambda x: -x[1])[:3],
             })

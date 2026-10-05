@@ -656,14 +656,22 @@ def events_insert(rows: list[dict]) -> None:
 
 
 def usage_events_since(since: str, limit: int = 10000) -> list[dict] | None:
-    cols = ["user_id", "hotel_id", "event", "created_at"]
+    cols = ["user_id", "hotel_id", "event", "created_at", "props"]
     def go():
         rows = _exec(
-            "select user_id, hotel_id, event, created_at from usage_events "
+            "select user_id, hotel_id, event, created_at, props from usage_events "
             "where created_at >= %s order by created_at desc limit %s",
             (since, limit), fetch=True)
         return [_row(cols, r) for r in rows]
     return _safe("usage_events_since", go)
+
+
+def hotel_access_all() -> list[dict] | None:
+    """Every (user, hotel) pair granted by memberships (admin usage view)."""
+    def go():
+        rows = _exec("select distinct user_id, hotel_id from hotel_access", fetch=True)
+        return [_row(["user_id", "hotel_id"], r) for r in rows]
+    return _safe("hotel_access_all", go)
 
 
 def feedback_recent(limit: int = 200) -> list[dict] | None:
