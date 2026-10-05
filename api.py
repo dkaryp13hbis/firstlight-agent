@@ -455,6 +455,37 @@ def watchlist_remove(item_id: str, request: Request):
     return {"removed": item_id}
 
 
+def _user_emails() -> dict[str, str]:
+    """user id → email: our users table first (own login), GoTrue for the
+    accounts not moved yet; fail-open to short ids at the caller."""
+    from db import store
+    emails: dict[str, str] = {u["id"]: u["email"] for u in (store.users_list() or [])}
+    try:
+        url, key = _sb()
+        r = _req.get(f"{url}/auth/v1/admin/users", params={"per_page": "200"},
+                     headers={"apikey": key, "Authorization": f"Bearer {key}"},
+                     timeout=10)
+        if r.ok:
+            for u in (r.json().get("users") or []):
+                emails.setdefault(u["id"], u.get("email") or u["id"][:8])
+    except Exception:
+        pass
+    return emails
+
+
+@app.get("/admin/usage/daily")
+def admin_usage_daily(request: Request, days: int = Query(90, ge=1, le=365)):
+    """Usage by day × user × hotel × action for the portal's Usage section
+    (charts + filters client-side; the rows are small)."""
+    require_admin(request)
+    from db import store
+    rows = store.usage_daily(days)
+    if rows is None:
+        raise HTTPException(503, "usage storage unavailable")
+    hotels = {h["id"]: h["name"] for h in _sb_get("hotels", {"select": "id,name"})}
+    return {"days": days, "rows": rows, "users": _user_emails(), "hotels": hotels}
+
+
 @app.get("/admin/usage")
 def admin_usage(request: Request):
     """Usage per hotel and per user, last 30 days (superadmin only).
@@ -479,19 +510,7 @@ def admin_usage(request: Request):
             "order": "created_at.desc", "limit": "10000",
         })
 
-    # emails: our users table first (own login), then GoTrue for the rest;
-    # fail-open to short ids
-    emails: dict[str, str] = {u["id"]: u["email"] for u in (store.users_list() or [])}
-    try:
-        url, key = _sb()
-        r = _req.get(f"{url}/auth/v1/admin/users", params={"per_page": "200"},
-                     headers={"apikey": key, "Authorization": f"Bearer {key}"},
-                     timeout=10)
-        if r.ok:
-            for u in (r.json().get("users") or []):
-                emails.setdefault(u["id"], u.get("email") or u["id"][:8])
-    except Exception:
-        pass
+    emails = _user_emails()
 
     per: dict[tuple, dict] = {}   # (hotel_id, user_id) -> stats
     for m in members:

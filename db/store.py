@@ -666,6 +666,21 @@ def usage_events_since(since: str, limit: int = 10000) -> list[dict] | None:
     return _safe("usage_events_since", go)
 
 
+def usage_daily(days: int = 90) -> list[dict] | None:
+    """Per day × user × hotel × event: count + active seconds (session_end,
+    capped at one hour per event) — the portal's Usage section slices it."""
+    cols = ["day", "user_id", "hotel_id", "event", "n", "seconds"]
+    def go():
+        rows = _exec(
+            "select to_char(created_at, 'YYYY-MM-DD'), user_id, hotel_id, event, count(*), "
+            "coalesce(sum(case when event = 'session_end' "
+            "  then least(coalesce((props->>'seconds')::numeric, 0), 3600) else 0 end), 0) "
+            "from usage_events where created_at > now() - make_interval(days => %s) "
+            "group by 1, 2, 3, 4 order by 1", (days,), fetch=True)
+        return [_row(cols, r) for r in rows]
+    return _safe("usage_daily", go)
+
+
 def hotel_access_all() -> list[dict] | None:
     """Every (user, hotel) pair granted by memberships (admin usage view)."""
     def go():
