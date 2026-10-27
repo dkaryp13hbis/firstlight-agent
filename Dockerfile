@@ -5,6 +5,11 @@
 
 FROM python:3.12-slim
 
+# Pinned, never "latest": a cached build layer would silently keep an old
+# binary. >= 2026.10.2 required (eMudhra/emSign distrust, Cloudflare advisory
+# 2026-10-20). Bumping this line forces a fresh download on the next deploy.
+ARG CLOUDFLARED_VERSION=2026.10.3
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl gnupg2 \
     && curl -sSL https://packages.microsoft.com/keys/microsoft.asc \
@@ -19,7 +24,7 @@ RUN apt-get update \
     && (ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql17 \
         || echo "msodbcsql17 unavailable — Driver 18 only") \
     && curl -fsSL -o /usr/local/bin/cloudflared \
-       https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+       https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64 \
     && chmod +x /usr/local/bin/cloudflared \
     && apt-get purge -y gnupg2 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
