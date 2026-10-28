@@ -15,12 +15,12 @@
 -- pms_config.demo_of is live. Prints its own verification:
 --   powershell -ExecutionPolicy Bypass -File scripts\pg_migrate.ps1 docs\sql\pg\2026-10-28_demo_tor_twins.sql
 
-insert into groups (name, slug) values ('Aurora Hotels', 'demo-aurora')
+insert into groups (name, slug) values ('HBIS Hotels', 'demo-hbis')
 on conflict (slug) do update set name = excluded.name;
 
 insert into organizations (group_id, name, slug, country)
-select g.id, 'Aurora Hotels (demo)', 'demo-aurora-hotels', 'GR'
-  from groups g where g.slug = 'demo-aurora'
+select g.id, 'HBIS Hotels (demo)', 'demo-hbis-hotels', 'GR'
+  from groups g where g.slug = 'demo-hbis'
 on conflict (slug) do update set group_id = excluded.group_id, name = excluded.name;
 
 -- Text pairs applied to every copied briefing (longest phrase first, one pass).
@@ -28,22 +28,22 @@ on conflict (slug) do update set group_id = excluded.group_id, name = excluded.n
 -- the city / group names. Extend here when the verification below shows a
 -- name that should not reach the demo (agencies, companies), then re-run.
 with shared(pairs) as (values (jsonb_build_array(
-        jsonb_build_array('City Hotel Thessaloniki', 'Aurora City Hotel'),
-        jsonb_build_array('City Hotel',              'Aurora City Hotel'),
-        jsonb_build_array('The Excelsior Hotel',     'Aurora Boutique Hotel'),
-        jsonb_build_array('The Excelsior',           'Aurora Boutique Hotel'),
-        jsonb_build_array('Excelsior',               'Aurora Boutique'),
-        jsonb_build_array('ON Residence',            'Aurora Residences'),
-        jsonb_build_array('Tor City Hotels Group',   'Aurora Hotels'),
-        jsonb_build_array('Tor Hotel Group',         'Aurora Hotels'),
+        jsonb_build_array('City Hotel Thessaloniki', 'HBIS City'),
+        jsonb_build_array('City Hotel',              'HBIS City'),
+        jsonb_build_array('The Excelsior Hotel',     'HBIS Boutique'),
+        jsonb_build_array('The Excelsior',           'HBIS Boutique'),
+        jsonb_build_array('Excelsior',               'HBIS Boutique'),
+        jsonb_build_array('ON Residence',            'HBIS Grand'),
+        jsonb_build_array('Tor City Hotels Group',   'HBIS Hotels'),
+        jsonb_build_array('Tor Hotel Group',         'HBIS Hotels'),
         jsonb_build_array('Thessaloniki',            'the city')))),
 src as (
   select h.id, h.name, h.total_rooms, h.timezone, h.pms_type, h.season_settings,
          v.demo_name, v.demo_slug
     from (values
-      ('City Hotel%',    'Aurora City Hotel',     'demo-aurora-city'),
-      ('%Excelsior%',    'Aurora Boutique Hotel', 'demo-aurora-boutique'),
-      ('ON Residence%',  'Aurora Residences',     'demo-aurora-residences')
+      ('City Hotel%',    'HBIS City',     'demo-hbis-city'),
+      ('%Excelsior%',    'HBIS Boutique', 'demo-hbis-boutique'),
+      ('ON Residence%',  'HBIS Grand',     'demo-hbis-grand')
     ) as v(match, demo_name, demo_slug)
     join hotels h on h.name ilike v.match and h.active
                and h.pms_config->>'tunnel_hostname' = 'sql-torcity.hbis.io'
@@ -58,7 +58,7 @@ select o.id, s.demo_name, s.demo_slug, s.total_rooms, s.timezone, s.pms_type, fa
        s.season_settings
   from src s
   cross join shared sh
-  join organizations o on o.slug = 'demo-aurora-hotels'
+  join organizations o on o.slug = 'demo-hbis-hotels'
 on conflict (slug) do update
    set name = excluded.name, total_rooms = excluded.total_rooms,
        pms_config = excluded.pms_config, season_settings = excluded.season_settings,
@@ -68,7 +68,7 @@ on conflict (slug) do update
 -- login — otherwise create it first, see the log entry of 2026-10-28)
 insert into memberships (user_id, scope_type, scope_id, role)
 select u.id, 'group', g.id, 'viewer'
-  from users u join groups g on g.slug = 'demo-aurora'
+  from users u join groups g on g.slug = 'demo-hbis'
  where lower(u.email) = 'demo@hbis.io'
 on conflict (user_id, scope_type, scope_id) do nothing;
 
@@ -86,7 +86,7 @@ select t.name as demo_hotel, s.name as copies, t.total_rooms, t.active,
   from hotels t join hotels s on s.id::text = t.pms_config->>'demo_of'
  order by t.name;
 
--- expect the 3 Aurora hotels and nothing else
+-- expect the 3 HBIS hotels and nothing else
 select u.email, h.name, a.role, a.via
   from hotel_access a join users u on u.id = a.user_id join hotels h on h.id = a.hotel_id
  where lower(u.email) = 'demo@hbis.io' order by h.name;
