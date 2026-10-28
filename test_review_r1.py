@@ -402,5 +402,129 @@ try:
 finally:
     A._get_client = _orig_client
 
+# ══ FL Pulse audit fixes (user: "all 1 to 6", 2026-10-28) ═══════════════════
+from briefing.analyst import _confidence_violations
+
+print("Audit 1. pickup: cancellations / new bookings / both — exact split")
+
+
+def pickup_case(prior_net, yday_net, prior_cx, yday_cx):
+    days = range(20, 27)
+    pk = [{"ref_date": f"2026-10-{d:02d}", "stay_month": 11, "stay_year": 2026, "net_rn": v, "net_rev": v * 150}
+          for d, v in zip(days, prior_net)]
+    pk.append({"ref_date": yday, "stay_month": 11, "stay_year": 2026, "net_rn": yday_net, "net_rev": yday_net * 150})
+    cx = [{"ref_date": f"2026-10-{d:02d}", "stay_month": 11, "stay_year": 2026, "cancel_rn": v, "cancel_rev": v * 150}
+          for d, v in zip(days, prior_cx) if v]
+    if yday_cx:
+        cx.append({"ref_date": yday, "stay_month": 11, "stay_year": 2026, "cancel_rn": yday_cx, "cancel_rev": yday_cx * 150})
+    else:
+        cx.append({"ref_date": "2026-10-20", "stay_month": 12, "stay_year": 2026, "cancel_rn": 1, "cancel_rev": 150})
+    out = _compute_signals(payload(pace=[pace_row(11, 500, 500, 95_000, 95_000)], pickup_daily=pk, cancel_daily=cx))
+    return next((c for c in cands(out) if c["signal"] == "pickup"), None)
+
+
+# Potidea 2026-10-15: net −7 vs a normal +13, 7 cancelled vs a normal 0.0
+c = pickup_case([12, 14, 13, 13, 12, 14, 13], -7, [0] * 7, 7)
+check("Potidea case → 'Both moved'", c and c["insight"]["cause_hypotheses"][0]["text"].startswith("Both moved"),
+      str(c and c["insight"]["cause_hypotheses"]))
+if c:
+    blob = json.dumps(c["fallback_card"], ensure_ascii=False)
+    check("never says 'in line with the normal' here", "in line with" not in blob, blob)
+    f = c["insight"]["facts"]
+    check("exact split: 13.0 from new bookings + 7.0 from cancellations = the 20 rn swing",
+          f["swing_from_new_bookings"]["value"] == "13.0 rn" and f["swing_from_cancellations"]["value"] == "7.0 rn",
+          str((f.get("swing_from_new_bookings"), f.get("swing_from_cancellations"))))
+    template_ok(c["fallback_card"], "pickup-both")
+# cancellations genuinely normal (1 vs 1.0/day; 1 new booking before it) →
+# the 'new bookings slowed' wording is true
+c = pickup_case([12, 14, 13, 13, 12, 14, 13], 0, [1, 1, 1, 1, 1, 1, 1], 1)
+check("normal cancellations → 'New bookings slowed'", c and c["insight"]["cause_hypotheses"][0]["text"]
+      .startswith("New bookings slowed"), str(c and c["insight"]["cause_hypotheses"]))
+# Q9 and Q14 disagree (net −12 but only 2 cancelled → −10 new bookings) → no attribution
+c = pickup_case([12, 14, 13, 13, 12, 14, 13], -12, [0] * 7, 2)
+check("Q9/Q14 inconsistent → the original Low hypothesis, no claim",
+      c and c["insight"]["cause_hypotheses"][0]["confidence"] == "Low", str(c and c["insight"]["cause_hypotheses"]))
+
+print("Audit 2. offset story (Excelsior 2026-10-20: TEL −236 inside −58)")
+exc = pace_row(11, 489, 547, 73_350, 82_050, adr_final=150.0)
+q17_exc = [src(11, "TEL", 60, 9_000, 296, 44_400), src(11, "BK", 250, 37_500, 160, 24_000),
+           src(11, "Direct", 179, 26_850, 91, 13_650)]
+out = _compute_signals(payload(pace=[exc], sources_by_month=q17_exc))
+pc = cands(out, "pace")
+if pc:
+    c = pc[0]
+    fb = c["fallback_card"]
+    check("headline leads with the source", fb["headline"] == "Nov bookings −10.6%, but TEL alone is −236 rn", fb["headline"])
+    check("other sources together +178 rn (adds up: −236 + 178 = −58)",
+          c["insight"]["facts"].get("other_sources_move", {}).get("value") == "+178 rn", str(c["insight"]["facts"].get("other_sources_move")))
+    check("measured → High", c["insight"]["cause_hypotheses"][0]["confidence"] == "High")
+    check("no 'Most of the gap' wording", "Most of the gap" not in fb["why_it_matters"], fb["why_it_matters"])
+    check("fingerprint follows TEL's own move", c["novelty"]["metric"] == -236.0 and c["novelty"]["floor"] == 5.0,
+          str(c["novelty"]))
+    template_ok(fb, "offset")
+else:
+    check("Excelsior pace card fires", False)
+
+print("Audit 3. repeats need a real change")
+lt_c = {"signal": "lead_time", "insight": {"id": "leadtime_oct_2026", "facts": {}}}
+
+
+def nov_case(cid, sig, metric, floor, old_metric, key=None, old_key=None):
+    cnd = {"signal": sig, "insight": {"id": cid, "facts": {}}, "stake_eur": 0,
+           "novelty": {"metric": metric, "key": key, "days_out": 40, "floor": floor}}
+    prior_ = [{"report_date": "2026-10-26", "ai_insights": {"insights": [
+        {"id": cid, "_novelty": {"metric": old_metric, "key": old_key, "days_out": 40}}]}}]
+    kept, _ = _novelty_decide([cnd], prior_, date(2026, 10, 28))
+    return bool(kept)
+
+
+check("lead shift 3.0 → 3.4 days (13%) is NOT news", not nov_case("leadtime_oct_2026", "lead_time", -3.4, 1.0, -3.0))
+check("lead shift 3.0 → 4.5 days IS news", nov_case("leadtime_oct_2026", "lead_time", -4.5, 1.0, -3.0))
+check("projection −12% → −13% is NOT news", not nov_case("proj_nov_2026", "projection", -13.0, 3.0, -12.0))
+check("projection −12% → −16% IS news", nov_case("proj_nov_2026", "projection", -16.0, 3.0, -12.0))
+check("TEL −239 → −236 is NOT news (month gap drifting does not matter)",
+      not nov_case("pace_nov_2026", "pace", -236.0, 5.0, -239.0))
+d5 = "date:Nov 1|date:Nov 2|date:Nov 3|date:Nov 4|date:Nov 5"
+check("one new date out of five is NOT news",
+      not nov_case("soft_dates_nov", "soft_dates", None, 0.0, None, key="date:Nov 2|date:Nov 3|date:Nov 4|date:Nov 5|date:Nov 6", old_key=d5))
+check("three new dates out of five IS news",
+      nov_case("soft_dates_nov", "soft_dates", None, 0.0, None, key="date:Nov 4|date:Nov 5|date:Nov 6|date:Nov 7|date:Nov 8", old_key=d5))
+check("a new event day is still news", nov_case("pickup_nov_2026", "pickup", None, 0.0, None, key="day:2026-10-27", old_key="day:2026-10-26"))
+
+print("Audit 4. confidence honesty")
+ins_med = {"cause_hypotheses": [{"text": "x", "confidence": "Medium"}]}
+ins_high = {"cause_hypotheses": [{"text": "x", "confidence": "High"}]}
+check("Claude raising Medium → High is rejected", _confidence_violations({"why_it_matters": "Demand is up (confidence: High)."}, ins_med))
+check("a lower label (under-claiming) is allowed", not _confidence_violations({"why_it_matters": "Demand is up (confidence: Low)."}, ins_med))
+check("High on 'likely' wording is rejected", _confidence_violations({"why_it_matters": "This is likely demand (confidence: High)."}, ins_high))
+check("High on a plain measured fact passes", not _confidence_violations({"why_it_matters": "TEL is −236 rn (confidence: High)."}, ins_high))
+sweep = []
+for fx in (dict(pace=[nov_mix], sources_by_month=q17_mix), dict(pace=[dec], sources_by_month=q17_dec),
+           dict(pace=[exc], sources_by_month=q17_exc), dict(pace=[pace_row(11, 500, 500, 95_000, 95_000)], otb_by_date=run + hot),
+           dict(pace=[pace_row(11, 500, 500, 95_000, 95_000)], lead_time=lt),
+           dict(pace=[pace_row(11, 300, 400, 57_000, 76_000)]),
+           dict(pace=[pace_row(11, 560, 500, 95_000, 100_000)]),
+           dict(mtd={"revenue": 200_000}, current_month_remaining={"rn_remaining_otb_ty": 100, "rev_remaining_otb_ty": 230_000,
+                "rev_remaining_final_ly": 100_000, "rev_remaining_stly": 90_000},
+                pace=[pace_row(10, 1500, 1500, 250_000, 200_000, rev_final=380_000)])):
+    for c in cands(_compute_signals(payload(**fx))):
+        sweep.append((c["insight"]["id"], _confidence_violations(c["fallback_card"], c["insight"])))
+bad = [s for s in sweep if s[1]]
+check(f"every fallback's confidence matches its analysis ({len(sweep)} cards)", not bad, str(bad))
+hd = cands(_compute_signals(payload(pace=[pace_row(11, 500, 500, 95_000, 95_000)], otb_by_date=run + hot)), "hot_dates")
+check("near-full High is a plain fact now", hd and "looks strong" not in hd[0]["fallback_card"]["why_it_matters"]
+      and "rooms left" in hd[0]["fallback_card"]["why_it_matters"], str(hd and hd[0]["fallback_card"]["why_it_matters"]))
+
+print("Audit 6. a measured cancellation spike ranks on its strength")
+on = [{"ref_date": f"2026-10-{d:02d}", "stay_month": 11, "stay_year": 2026, "cancel_rn": v, "cancel_rev": v * 420}
+      for d, v in zip(range(20, 27), [5, 4, 6, 4, 5, 4, 4])]
+on.append({"ref_date": yday, "stay_month": 11, "stay_year": 2026, "cancel_rn": 19, "cancel_rev": 8015})
+cx_c = cands(_compute_signals(payload(pace=[pace_row(11, 500, 500, 95_000, 95_000)], cancel_daily=on)), "cancellation")
+check("ON Residence-like spike fires", len(cx_c) == 1)
+if cx_c:
+    z = float(cx_c[0]["insight"]["facts"]["cancel_swing"]["value"].replace("+", ""))
+    check("19 rn, z >= 3 → confidence factor 1.0 (was 0.7)", z >= 3.0 and cx_c[0]["score"] >= 0.75,
+          f"z={z} score={cx_c[0]['score']}")
+
 print(f"\n{PASS} passed, {FAIL} failed")
 raise SystemExit(1 if FAIL else 0)

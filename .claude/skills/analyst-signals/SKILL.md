@@ -55,6 +55,19 @@ Two layers, strictly separated:
   weekday pattern from them (needs Release 2 same-weekday data).
 - SIZE IS NOT A CAUSE: a slice explains a gap only when over-represented in it
   (≥ 60% of the gap AND ≥ 20 pts above its share of volume).
+- FL Pulse audit fixes (2026-10-28): pickup ALERT attribution has THREE outcomes
+  (cancellations / new bookings / both) from the exact split swing = drop in
+  new bookings before cancellations + extra cancellations, and says nothing
+  when Q9 and Q14 disagree; a pace card whose top source moved > 125% of the
+  month's net tells the OFFSET story ("TEL alone is −236 rn; other sources
+  together +178"); cancellation spikes take C from the spike (z ≥ 3 → 1.0).
+- NOVELTY FLOORS: `_fingerprint` returns `floor` (lead time 1 day, % metrics
+  3 pts, room nights 5 rn) — a repeat is news only at ≥ 10% AND ≥ floor; a
+  source-named pace card fingerprints that source's move; a date set needs
+  ≥ half new dates. New card types must set a floor.
+- CONFIDENCE: "High" only for measured facts — never on likely/may wording.
+  `_confidence_violations` rejects a narrated label above Layer A's (lower is
+  fine); fallback templates must carry the same label as their hypothesis.
 - CROSS-FILTER ENGINE (`briefing/discovery.py`, Release 2, DARK): raw numbers
   only (no formatting, no Claude); `_discovery_candidate` in analyst.py does the
   presentation. `DISCOVERY_CARDS=1` lets discoveries compete — otherwise they

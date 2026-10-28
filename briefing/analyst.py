@@ -241,7 +241,9 @@ def _source_attribution(sources_by_month: list[dict], sm: int, rn_gap: float) ->
     share_txt = _share_of(share, "gap" if sign < 0 else "lead")
     direct = next(((n, d) for n, d in deltas.items() if n.lower() == "direct"), None)
     return {"top_name": top_name, "top_delta": top_delta, "share": share,
-            "share_txt": share_txt, "spread": spread, "movers": movers, "direct": direct}
+            "share_txt": share_txt, "spread": spread, "movers": movers, "direct": direct,
+            "total": total,                       # Q17's own net (≈ the pace gap)
+            "others": total - top_delta}          # every other source combined, signed
 
 
 def _source_totals(sources_by_month: list[dict], sm: int, name: str) -> tuple[float, float]:
@@ -636,11 +638,47 @@ def _signal_pickup(ctx: dict) -> list[dict]:
                 facts["cancellations_avg"]  = _fact(f_c_avg, f"cancellations per day, prior 7 days, {month_label} stays")
                 facts["new_bookings_before_cancellations"] = _fact(f"{gross_new} rn", p_yday)
                 extra_cancels = c_y - c_avg
-                if c_y >= 3 and gap_per_day > 0 and extra_cancels >= 0.5 * gap_per_day:
+                # Three outcomes with an EXACT split (2026-10-28, FL Pulse audit:
+                # "7 rn cancelled yesterday is in line with the normal 0.0" —
+                # the old else-branch said "normal" whenever cancellations were
+                # under half the swing). swing = mean − yday
+                #   = (normal new bookings before cancellations − yesterday's)
+                #   + (cancellations − normal cancellations).
+                # Q9 and Q14 must agree (new bookings before cancellations >= 0,
+                # minus a little slack: a shortened stay can push net pickup a
+                # room night or two below the cancellations), otherwise nothing
+                # is attributed (consistency check).
+                normal_gross = mean_rn + c_avg
+                raw_gross    = yday_rn + c_y
+                consistent   = raw_gross >= -max(2.0, 0.2 * gap_per_day)
+                cancels_normal = extra_cancels <= max(1.0, 0.2 * gap_per_day)
+                if not consistent:
+                    print(f"[analyst] Pickup {month_label}: Q9/Q14 disagree (net {yday_rn} + cancels {c_y} < 0) "
+                          f"— no attribution")
+                elif c_y >= 3 and gap_per_day > 0 and extra_cancels >= 0.5 * gap_per_day:
                     hypo = [{"text": f"Mostly cancellations: {f_c_y} for {month_label} were cancelled yesterday against a normal {f_c_avg} — one source, rate plan or group may explain it", "confidence": "Medium"}]
                     directive["target"] = f"yesterday's {month_label} cancellations by source, rate plan and group"
                     fb_why = f"Cancellations explain most of the swing: {f_c_y} cancelled yesterday against a normal {f_c_avg}; one source, rate plan or group may be behind it (confidence: Medium)."
                     fb_action = f"It may be worth checking yesterday's {month_label} cancellations for a common source, rate plan or group."
+                    ev2 = {"label": "CANCELLED", "value": f_c_y, "sub": f"yesterday, vs {f_c_avg} prior 7 days"}
+                elif not cancels_normal:
+                    # both moved: fewer new bookings AND more cancellations
+                    f_norm = f"{normal_gross:.1f} rn/day"
+                    facts["normal_new_bookings_before_cancellations"] = _fact(f_norm, p_prior)
+                    facts["swing_from_new_bookings"] = _fact(f"{normal_gross - raw_gross:.1f} rn", p_yday)
+                    facts["swing_from_cancellations"] = _fact(f"{extra_cancels:.1f} rn", p_yday)
+                    both_txt = (f"new bookings before cancellations fell to {gross_new} rn against a normal "
+                                f"{f_norm}, and {f_c_y} were cancelled against a normal {f_c_avg}")
+                    hypo = [{"text": f"Both moved: {both_txt}", "confidence": "Medium"}]
+                    directive = {
+                        "type": "investigate_demand",
+                        "target": f"what slowed new {month_label} bookings, and yesterday's cancellations by source, rate plan and group",
+                        "deadline": "today",
+                        "trigger_if_monitor": None,
+                    }
+                    fb_why = f"Both moved: {both_txt} (confidence: Medium)."
+                    fb_action = (f"It may be worth checking what slowed new {month_label} bookings and "
+                                 f"yesterday's cancellations for a common source or group.")
                     ev2 = {"label": "CANCELLED", "value": f_c_y, "sub": f"yesterday, vs {f_c_avg} prior 7 days"}
                 else:
                     hypo = [{"text": f"New bookings slowed rather than cancellations rising — {f_c_y} cancelled yesterday is in line with the normal {f_c_avg}", "confidence": "Medium"}]
@@ -819,8 +857,9 @@ def _signal_pace(ctx: dict) -> list[dict]:
             facts["value_at_stake_calc"] = f_calc
             confidence = "Medium"
             hypo = [{"text": f"The extra {m_name} rooms are coming in at a lower average rate than last year — a change in where bookings come from or which rate plans sell may explain it", "confidence": "Low"}]
-            why    = (f"The extra rooms are coming in at a lower average rate: {f_adr_ty} "
-                      f"against {f_adr_stly} at the same time last year (confidence: Medium).")
+            why    = (f"The extra rooms are coming in at a lower average rate ({f_adr_ty} against "
+                      f"{f_adr_stly} last year); a change in where bookings come from or which "
+                      f"rate plans sell may explain it (confidence: Low).")
             action = f"It may be worth checking which sources and rate plans the extra {m_name} rooms come from."
             # Mix vs rate (the charts.py ADR bridge on Q17): is the lower average
             # rate a change in WHICH sources sold, or lower rates within sources?
@@ -993,6 +1032,31 @@ def _signal_pace(ctx: dict) -> list[dict]:
                 if not adr_dilution:
                     fb["why_it_matters"] = f"{top_name} is driving most of the lead, {f_top_rn} vs same time last year; the remaining rooms are selling into stronger demand (confidence: Medium)."
 
+            # OFFSET STORY (2026-10-28, FL Pulse audit): the top source moved by
+            # more than 125% of the month's net change, so the other sources went
+            # the other way — the real news is the change in WHERE bookings come
+            # from (Excelsior: TEL −236 rn inside a −58 rn November; City: TRV
+            # −476 inside −185). Only when Q17's own net matches the pace gap
+            # tightly, so "other sources together" adds up exactly on the card.
+            if (attr["spread"] == "concentrated" and attr["share"] > 1.25
+                    and not mixed and not adr_dilution
+                    and abs(attr["total"] - rn_gap) <= max(3.0, 0.05 * abs(attr["top_delta"]))):
+                f_others = _rn_signed(rn_gap - attr["top_delta"])
+                facts["other_sources_move"] = _fact(f_others, p_vs_stly)
+                mix_txt = "a change in where bookings come from"
+                if ahead:
+                    tail = f"so the lead rests on {top_name} alone — {mix_txt}"
+                    fb["recommended_action"] = (f"It may be worth checking what is driving the extra "
+                                                f"{top_name} bookings for {m_name}.")
+                else:
+                    tail = f"which hides how much {top_name} has dropped — {mix_txt}"
+                hypo = [{"text": (f"{top_name} alone is {f_top_rn} vs same time last year while the other "
+                                  f"sources together are {f_others} — {mix_txt}"), "confidence": "High"}]
+                fb["headline"] = f"{m_name} bookings {f_pct_gap}, but {top_name} alone is {f_top_rn}"
+                fb["evidence"][1] = {"label": "BIGGEST MOVER", "value": f_top,
+                                     "sub": f"other sources together {f_others}"}
+                fb["why_it_matters"] = f"The other sources together are {f_others}, {tail} (confidence: High)."
+
         # the mixed card gets its own id: same month, different story (novelty
         # must not read it as a repeat of yesterday's "bookings ahead" card)
         fb["id"]  = f"pace_{'mix_' if mixed else ''}{m_name.lower()}_{sy}"
@@ -1006,6 +1070,11 @@ def _signal_pace(ctx: dict) -> list[dict]:
             "month_num":  sm,
             "stay_year":  sy,
             "stake_eur":  facts.get("value_at_stake") and _parse_eur(facts["value_at_stake"]) or 0,
+            # a card that names one source is the SAME story while that source's
+            # move holds, even if the month total drifts (Excelsior TEL −239 →
+            # −236 repeated on Oct 14/16/19/20) — the fingerprint follows it
+            "top_source_delta": (attr["top_delta"] if attr and attr["spread"] == "concentrated"
+                                 and not mixed else None),
             "insight": {
                 "id": fb["id"],
                 "tag": tag,
@@ -1723,7 +1792,7 @@ def _signal_dates(ctx: dict) -> list[dict]:
                     fb["headline"] = f"{f_run} behind last year"
                     fb["why_it_matters"] = ("Several nights in a row are behind, which may point to "
                                             "an event or group last year that has not repeated "
-                                            "(confidence: Low).")
+                                            "(confidence: Medium).")
                 candidates.append({
                     "signal":     "soft_dates",
                     "tag":        "ALERT",
@@ -1788,7 +1857,9 @@ def _signal_dates(ctx: dict) -> list[dict]:
                 ],
                 "what_happened": (f"{len(top_hot)} nights ({date_range}) are filling up fast; {nearest['label']} "
                                   f"is {f_near_occ} booked with {nearest['rooms_left']} rooms left."),
-                "why_it_matters": "Bookings on these dates are well ahead of the same time last year, so demand looks strong for the rooms that are left (confidence: High).",
+                # a measured fact only — High is reserved for facts (2026-10-28)
+                "why_it_matters": (f"Bookings on these dates are well ahead of the same time last year; "
+                                   f"{nearest['label']} has {nearest['rooms_left']} rooms left (confidence: High)."),
                 "recommended_action": f"It may be worth reviewing the rates and discounts still open on {date_range}.",
                 "by_when": f"Today — {nearest['label']} is {_days_word(nearest['days_out'])} out.",
             }
@@ -1909,7 +1980,8 @@ def _signal_projection_current(ctx: dict) -> list[dict]:
                 if "value_at_stake" in facts:
                     fb["at_stake"] = {"value": facts["value_at_stake"], "calc": facts["value_at_stake_calc"]}
             else:
-                hypo = [{"text": "Cancellations in the remaining days are the main risk to the finish", "confidence": "High"}]
+                # an interpretation, not a measurement → Medium (2026-10-28)
+                hypo = [{"text": "Cancellations in the remaining days are the main risk to the finish", "confidence": "Medium"}]
                 directive = {
                     "type": "monitor_only",
                     "target": f"remaining {month_name} bookings",
@@ -1926,7 +1998,7 @@ def _signal_projection_current(ctx: dict) -> list[dict]:
                         {"label": "STILL TO COME", "value": f_rem_otb, "sub": "booked, not yet earned"},
                     ],
                     "what_happened": f"Month-end revenue is expected to land {f_vs_band} vs {ref_label}.",
-                    "why_it_matters": f"{f_rem_otb} is booked but not yet earned; cancellations in the final {days_left} days are the main risk (confidence: High).",
+                    "why_it_matters": f"{f_rem_otb} is booked but not yet earned; cancellations in the final {days_left} days are the main risk (confidence: Medium).",
                     "recommended_action": "No action suggested — worth watching cancellations daily.",
                     "by_when": "Daily until month end; trigger: cancellations above normal.",
                 }
@@ -2139,7 +2211,12 @@ def _signal_cancellations(ctx: dict) -> list[dict]:
             R = min(c_rev / daily_rev_baseline, 1.0)
             U = _urgency(days_to_start)
             M = _magnitude_z(z)
-            C = _confidence(c_y)
+            # A spike is a MEASURED event with real lost revenue: its confidence
+            # comes from how far above normal it is, not from volume (user OK
+            # 2026-10-28, FL Pulse audit: ON Residence's €8,015 November burst of
+            # 19 rn scored C = 0.7 and ranked 3rd behind a distant Dec opportunity).
+            # The scoring formula itself is unchanged.
+            C = max(_confidence(c_y), 1.0 if z >= 3.0 else 0.85)
             score = _score_candidate(R, U, M, C=C)
 
             f_c     = f"{c_y} rn"
@@ -2527,6 +2604,9 @@ def _fingerprint(c: dict, yesterday_str: str) -> dict:
     'moved' for every card — including the ones without a euro stake (the
     2026-09-23 audit showed those were the daily repeaters).
       metric : a number that moving by >= 10% counts as news
+      floor  : ...AND by at least this much in absolute terms (2026-10-28,
+               FL Pulse audit: 46% of October cards repeated — a 3.0 → 3.4
+               day booking shift or a −12% → −13% projection is not news)
       key    : '|'-joined tokens; a token never seen before counts as news
       days_out: for the 'entered the last 30 days' trigger"""
     sig   = c.get("signal", "")
@@ -2540,22 +2620,27 @@ def _fingerprint(c: dict, yesterday_str: str) -> dict:
 
     metric: float | None = None
     key: str | None = None
+    floor = 0.0
     if sig in ("pickup", "cancellation", "softening"):
         key = f"day:{yesterday_str}"          # a spike is an event: always news
     elif sig == "pace":
-        # the mixed card (more rooms, less revenue) moves with its revenue gap
-        metric = _first_signed_number(_fv("rev_vs_stly_pct") or _fv("rn_gap"))
+        if _fv("rev_vs_stly_pct"):             # mixed card: its revenue gap, pts
+            metric, floor = _first_signed_number(_fv("rev_vs_stly_pct")), 3.0
+        elif c.get("top_source_delta") is not None:   # a named source: ITS move, rn
+            metric, floor = float(c["top_source_delta"]), 5.0
+        else:                                  # the month's room-night gap
+            metric, floor = _first_signed_number(_fv("rn_gap")), 5.0
     elif sig == "projection":
-        metric = _first_signed_number(_fv("vs_ref_band"))
+        metric, floor = _first_signed_number(_fv("vs_ref_band")), 3.0
     elif sig == "hidden_source":
-        metric = _first_signed_number(_fv("source_vs_stly_pct"))   # the source's own gap
+        metric, floor = _first_signed_number(_fv("source_vs_stly_pct")), 3.0   # the source's own gap
     elif sig == "discovery":
         if c.get("discovery_type") == "cancellation_driver":
             key = f"day:{yesterday_str}"      # a cancellation burst is an event
         else:
-            metric = c.get("disc_metric")     # the slice's own gap, signed %
+            metric, floor = c.get("disc_metric"), 3.0   # the slice's own gap, signed %
     elif sig == "lead_time":
-        metric = _first_signed_number(_fv("lead_shift"))
+        metric, floor = _first_signed_number(_fv("lead_shift")), 1.0   # days
     elif sig in ("soft_dates", "hot_dates"):
         dates = sorted(str(d.get("date", "")) for d in (facts.get("per_date") or [])
                        if isinstance(d, dict))
@@ -2564,16 +2649,17 @@ def _fingerprint(c: dict, yesterday_str: str) -> dict:
             metric = float(c.get("stake_eur") or 0) or None
     if metric is None and key is None:
         metric = float(c.get("stake_eur") or 0) or None
-    return {"metric": metric, "key": key, "days_out": days_out}
+    return {"metric": metric, "key": key, "days_out": days_out, "floor": floor}
 
 
 def _novelty_decide(candidates: list[dict], prior_rows: list[dict],
                     today: _date) -> tuple[list[dict], list[dict]]:
     """Pure rule (unit-tested): which candidates are NEWS vs repeats of a
     card shipped in the prior 7 days. A repeat returns as a card only when
-      (a) its fingerprint key has a token never shipped before (new date,
-          new event day), or
-      (b) its metric moved >= 10% vs the LAST sighting (worse OR better), or
+      (a) its fingerprint key has a token never shipped before (new event
+          day; for a date set, at least half of its dates new), or
+      (b) its metric moved >= 10% vs the LAST sighting (worse OR better) and
+          by at least the fingerprint's absolute floor, or
       (c) it entered the last 30 days before arrival since last seen.
     Prior insights without a fingerprint (pre-2026-09-24 payloads) fall back
     to the old stake rule; a stake-less legacy repeat is a repeat.
@@ -2642,17 +2728,23 @@ def _novelty_decide(candidates: list[dict], prior_rows: list[dict],
 
         is_news = False
         if nov.get("key"):
-            # (a) any token never shipped before
+            # (a) new tokens. An event key ("day:…") is news whenever the day
+            # is new. A DATE SET is news only when at least half of today's
+            # dates were never shipped (2026-10-28): the 90-day window rolls
+            # forward daily, so one fresh date at the far end is not a story.
             prior_tokens: set[str] = set()
             for sgt in seen:
                 k = (sgt.get("novelty") or {}).get("key") or ""
                 prior_tokens.update(t for t in k.split("|") if t)
-            is_news = any(t not in prior_tokens for t in nov["key"].split("|") if t) \
-                if prior_tokens else False
+            tokens = [t for t in nov["key"].split("|") if t]
+            fresh = sum(1 for t in tokens if t not in prior_tokens)
+            need = 1 if not all(t.startswith("date:") for t in tokens) else -(-len(tokens) // 2)
+            is_news = fresh >= need if prior_tokens else False
         elif nov.get("metric") is not None and l_nov.get("metric") is not None:
-            # (b) moved >= 10% vs the last sighting
+            # (b) moved >= 10% vs the last sighting AND by the metric's floor
             old, new = float(l_nov["metric"]), float(nov["metric"])
-            is_news = abs(new - old) / max(abs(old), 1.0) >= 0.10
+            is_news = (abs(new - old) / max(abs(old), 1.0) >= 0.10
+                       and abs(new - old) >= float(nov.get("floor") or 0.0))
         elif nov.get("metric") is not None and l_nov.get("metric") is None:
             # legacy prior payload: old stake rule (worsened >= 10%)
             old_stake = max(sgt["stake"] for sgt in seen)
@@ -2731,8 +2823,11 @@ STRICT RULES
 4. what_happened: 1 sentence, factual, includes the key numbers.
 5. why_it_matters: 1-2 sentences. Phrase causes from cause_hypotheses as
    hypotheses ("likely driven by...", "may reflect...") and append
-   (confidence: X). If cause_hypotheses is empty, write "Cause unclear
-   from available data" (confidence: Low).
+   (confidence: X), copying X EXACTLY from the cause_hypothesis you use —
+   never raise it. "High" is only for a measured fact: a High sentence
+   states it plainly, never with "likely", "may" or "could". If
+   cause_hypotheses is empty, write "Cause unclear from available data"
+   (confidence: Low).
 6. recommended_action: rephrase action_directives naturally. Suggest,
    never command. Never state a specific price unless it appears in facts.
 7. by_when: always present. For tag MONITOR include the recheck cadence
@@ -2984,6 +3079,35 @@ def _source_violations(texts: list[str], haystack: str) -> list[str]:
            if m.group(0).lower() not in seen}
     return [f"source name '{b}' is not in the input — copy source codes exactly as given"
             for b in sorted(out)]
+
+
+# ── Confidence honesty (2026-10-28, FL Pulse audit: 49 October cards said
+# "confidence: High" on a "likely" explanation) ──────────────────────────────
+# The label is Layer A's, never Claude's: it must be one of the insight's
+# hypothesis confidences, and "High" (measured fact) may not sit on hedged
+# wording. English only (the hedge list is English).
+_CONF_LABEL = re.compile(r"\(confidence:\s*(high|medium|low)\)", re.IGNORECASE)
+_HEDGES = re.compile(r"\b(?:likely|may|might|could|possibly|probably|perhaps)\b", re.IGNORECASE)
+
+
+_CONF_RANK = {"low": 0, "medium": 1, "high": 2}
+
+
+def _confidence_violations(card: dict, insight: dict) -> list[str]:
+    """Narrated confidence may never be HIGHER than Layer A's (a lower label
+    under-claims and is allowed), and 'High' may not sit on hedged wording."""
+    ranks = [_CONF_RANK[str(h.get("confidence", "")).lower()]
+             for h in (insight.get("cause_hypotheses") or [])
+             if str(h.get("confidence", "")).lower() in _CONF_RANK]
+    why = str(card.get("why_it_matters") or "")
+    v = []
+    for m in _CONF_LABEL.finditer(why):
+        label = m.group(1).lower()
+        if ranks and _CONF_RANK[label] > max(ranks):
+            v.append(f"confidence '{m.group(1)}' is higher than the analysis supports — never raise it")
+        if label == "high" and _HEDGES.search(why):
+            v.append("'confidence: High' is for measured facts — not on 'likely' / 'may' wording")
+    return v
 
 
 def _card_texts(card: dict) -> list[str]:
@@ -3252,8 +3376,9 @@ def _narrate_card(wrapper: dict, fallback_card: dict, meta: dict | None = None,
         else:
             bad_nums = _bad_numbers(card, haystack)
             style    = _style_violations(card)
-            if lang == "en":  # both wording checks are English-only
+            if lang == "en":  # the wording checks are English-only
                 style += _action_violations(card)
+                style += _confidence_violations(card, wrapper["insight"])
             else:
                 style = [v for v in style if "imperative" not in v]
             style += _source_violations(_card_texts(card), haystack)   # any language

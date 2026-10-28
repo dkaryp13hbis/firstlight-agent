@@ -121,6 +121,20 @@ try:
     check("ai payload json-serializable", True)
 except TypeError:
     check("ai payload json-serializable", False)
+check("no first_seen when the card carries none", "first_seen" not in fu)
+
+# Two clocks (2026-10-28): the card was flagged a week before watching began
+store.fl_watch_rows = lambda h: [dict(_dec_row)]
+store.fl_watch_update = lambda i, p: True
+try:
+    early = str(_today - timedelta(days=10))
+    ai = {"insights": [{"id": "pace_oct_2026", "_first_seen": early},
+                       {"id": "pace_oct_2026", "_first_seen": str(_today)}]}
+    followup.update_followups("hotel-x", PACE, ai, is_morning=False)
+finally:
+    store.fl_watch_rows, store.fl_watch_update = _orig
+check("earlier first sighting carried for the label", ai["insights"][0]["follow_up"].get("first_seen") == early)
+check("a later first sighting is not shown", "first_seen" not in ai["insights"][1]["follow_up"])
 
 print(f"\n{P} passed, {F} failed")
 raise SystemExit(1 if F else 0)

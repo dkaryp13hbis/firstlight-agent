@@ -14,7 +14,8 @@ FirstLight item's gap and:
     honest note.  Re-flagging later creates a NEW episode (the analyst's
     novelty memory keeps the continuity wording).
   - Attaches follow-up meta to matching FL Pulse cards
-    ("Flagged Mon · day 3 · gap 18% -> 11%").
+    ("Watching since Sep 29 (first flagged Sep 21) · gap 55% -> 61%";
+    `first_seen` only when the card was flagged before watching began).
 
 Owner rows (source='user') are NEVER touched.  Caps: max 3 FirstLight items
 per hotel.  Everything here is fail-open: any error logs and the briefing
@@ -229,5 +230,14 @@ def update_followups(hotel_id: str, data: dict, ai: dict,
             "first_gap": None if fg is None else float(fg),
             "last_gap": None if lg is None else float(lg),
         }
+        # Two clocks, now both shown (2026-10-28, FL Pulse audit: 63 of 66
+        # cards showed a "first flagged" date that differed from the card's
+        # first sighting). `flagged` = the day the month joined the watchlist
+        # (the follow-up clock: day count, resolve / retire timing); the card
+        # may have been flagged earlier — the app labels it "Watching since
+        # <flagged> (first flagged <first_seen>)".
+        fs = str(ins.get("_first_seen") or "")[:10]
+        if fs and fs < str(row["flagged_date"])[:10]:
+            ins["follow_up"]["first_seen"] = fs
     if closures:
         ai["watch_closures"] = (ai.get("watch_closures") or []) + closures
