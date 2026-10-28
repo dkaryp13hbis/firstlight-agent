@@ -82,8 +82,32 @@ def _safe(label: str, fn):
 
 # ── backend writes (dual-write targets) ──────────────────────────────────────
 
-def upsert_briefing(payload: dict[str, Any]) -> None:
-    """Twin of cloud_push's briefings upsert (on hotel_id+report_date)."""
+_COLS_CACHE: dict[str, set[str]] = {}
+
+
+def _columns(table: str) -> set[str]:
+    """Column names of a public table, cached for the process. Writes keep only
+    these, so a field the schema lacks is dropped (and logged) instead of
+    failing the whole row — the Supabase path did the same with HTTP-400
+    retries (2026-10-28: RunLogger fields reached PG unfiltered)."""
+    if table not in _COLS_CACHE:
+        rows = _exec("select column_name from information_schema.columns "
+                     "where table_schema = 'public' and table_name = %s",
+                     (table,), fetch=True)
+        _COLS_CACHE[table] = {r[0] for r in rows}
+    return _COLS_CACHE[table]
+
+
+def _known(table: str, row: dict[str, Any]) -> dict[str, Any]:
+    cols = _columns(table)
+    dropped = sorted(k for k in row if k not in cols)
+    if dropped:
+        print(f"[store] {table}: dropping fields the schema lacks: {dropped}")
+    return {k: v for k, v in row.items() if k in cols}
+
+
+def upsert_briefing(payload: dict[str, Any]) -> bool:
+    """Publish a briefing (upsert on hotel_id+report_date). True = written."""
     def go():
         cols = ["hotel_id", "report_date", "data", "ai_insights", "kpi_summary",
                 "rendered_html", "source_run_id"]
@@ -95,30 +119,34 @@ def upsert_briefing(payload: dict[str, Any]) -> None:
             f"on conflict (hotel_id, report_date) do update set {sets}, generated_at = now()",
             tuple(_jsonb(payload[c]) for c in present),
         )
-    _safe("upsert_briefing", go)
+        return True
+    return bool(_safe("upsert_briefing", go))
 
 
-def insert_run(row: dict[str, Any]) -> None:
-    """Twin of RunLogger's insert — reuses the Supabase-assigned run id so the
-    two stores stay joinable."""
+def insert_run(row: dict[str, Any]) -> bool:
+    """Open a refresh_runs row (RunLogger generates the id). True = written."""
     def go():
-        cols = list(row.keys())
+        r = _known("refresh_runs", row)
+        cols = list(r.keys())
         _exec(
             f"insert into refresh_runs ({', '.join(cols)}) "
             f"values ({', '.join(['%s'] * len(cols))}) on conflict (id) do nothing",
-            tuple(_jsonb(row[c]) for c in cols),
+            tuple(_jsonb(r[c]) for c in cols),
         )
-    _safe("insert_run", go)
+        return True
+    return bool(_safe("insert_run", go))
 
 
-def update_run(run_id: str, fields: dict[str, Any]) -> None:
+def update_run(run_id: str, fields: dict[str, Any]) -> bool:
     def go():
-        if not fields:
-            return
-        sets = ", ".join(f"{c} = %s" for c in fields)
+        f = _known("refresh_runs", fields)
+        if not f:
+            return True
+        sets = ", ".join(f"{c} = %s" for c in f)
         _exec(f"update refresh_runs set {sets} where id = %s",
-              tuple(_jsonb(v) for v in fields.values()) + (run_id,))
-    _safe("update_run", go)
+              tuple(_jsonb(v) for v in f.values()) + (run_id,))
+        return True
+    return bool(_safe("update_run", go))
 
 
 def upsert_command(row: dict[str, Any]) -> None:
@@ -134,6 +162,156 @@ def upsert_command(row: dict[str, Any]) -> None:
             tuple(_jsonb(row[c]) for c in cols),
         )
     _safe("upsert_command", go)
+
+
+# ── Postgres is the only store (2026-10-28, user: "lets totally kill supabase,
+# everything should go to postgresql"). The functions below replace the
+# remaining Supabase-only paths; each returns None when PG is off so a caller
+# can tell "PG unavailable" from "nothing there".
+
+_CMD_COLS = ["id", "hotel_id", "type", "status", "requested_at", "completed_at"]
+
+
+def command_insert(hotel_id: str, ctype: str = "manual") -> str | None:
+    """Queue a refresh (portal "Refresh now", the app's refresh button)."""
+    def go():
+        rows = _exec("insert into refresh_commands (hotel_id, type) values (%s, %s) "
+                     "returning id", (hotel_id, ctype), fetch=True)
+        return str(rows[0][0])
+    return _safe("command_insert", go)
+
+
+def command_open_for(hotel_id: str, minutes: int = 5) -> dict | None:
+    """A refresh already pending/running for this hotel in the last few
+    minutes — the app's double taps join it instead of queueing another."""
+    def go():
+        rows = _exec(
+            f"select {', '.join(_CMD_COLS)} from refresh_commands where hotel_id = %s "
+            "and status in ('pending', 'running') "
+            "and requested_at > now() - make_interval(mins => %s) "
+            "order by requested_at desc limit 1", (hotel_id, minutes), fetch=True)
+        return _row(_CMD_COLS, rows[0]) if rows else {}
+    return _safe("command_open_for", go)
+
+
+def commands_claim(limit: int = 3) -> list[dict]:
+    """Atomically take the oldest pending commands (pending → running).
+    FOR UPDATE SKIP LOCKED: two pollers never take the same command."""
+    def go():
+        rows = _exec(
+            "update refresh_commands set status = 'running' where id in ("
+            " select id from refresh_commands where status = 'pending'"
+            " order by requested_at limit %s for update skip locked) "
+            f"returning {', '.join(_CMD_COLS)}", (limit,), fetch=True)
+        return [_row(_CMD_COLS, r) for r in rows]
+    return _safe("commands_claim", go) or []
+
+
+def command_finish(cmd_id: str, status: str = "done") -> bool:
+    """Close a command. False when the id is not in PG (or PG is down)."""
+    def go():
+        rows = _exec("update refresh_commands set status = %s, completed_at = now() "
+                     "where id::text = %s returning id", (status, cmd_id), fetch=True)
+        return bool(rows)
+    return bool(_safe("command_finish", go))
+
+
+def command_get(cmd_id: str) -> dict | None:
+    def go():
+        rows = _exec(f"select {', '.join(_CMD_COLS)} from refresh_commands "
+                     "where id::text = %s", (cmd_id,), fetch=True)
+        return _row(_CMD_COLS, rows[0]) if rows else {}
+    return _safe("command_get", go)
+
+
+def push_subs_for_hotel(hotel_id: str) -> list[dict] | None:
+    """Every subscription of a hotel with its per-type prefs — read at SEND
+    time (morning, intraday, test pushes)."""
+    cols = ["id", "user_id", "subscription", "notification_prefs"]
+    def go():
+        rows = _exec("select id, user_id, subscription, notification_prefs "
+                     "from push_subscriptions where hotel_id = %s", (hotel_id,), fetch=True)
+        return [_row(cols, r) for r in rows]
+    return _safe("push_subs_for_hotel", go)
+
+
+def push_any_for_user(user_id: str) -> bool | None:
+    """Does this user still have a subscription for any hotel? (the app keeps
+    the browser subscription while one is left)."""
+    def go():
+        rows = _exec("select 1 from push_subscriptions where user_id::text = %s limit 1",
+                     (user_id,), fetch=True)
+        return bool(rows)
+    return _safe("push_any_for_user", go)
+
+
+def hotels_all(columns: list[str]) -> list[dict] | None:
+    """Every hotel, active or paused (admin lists, name maps)."""
+    def go():
+        rows = _exec(f"select {', '.join(columns)} from hotels order by name", fetch=True)
+        return [_row(columns, r) for r in rows]
+    return _safe("hotels_all", go)
+
+
+def hotel_names() -> dict[str, str]:
+    return {h["id"]: h["name"] for h in (hotels_all(["id", "name"]) or [])}
+
+
+def latest_report_dates() -> dict[str, str] | None:
+    """hotel_id → newest report_date (admin "Last briefing", /health stale)."""
+    def go():
+        rows = _exec("select hotel_id::text, max(report_date) from briefings "
+                     "group by hotel_id", fetch=True)
+        return {r[0]: str(r[1]) for r in rows}
+    return _safe("latest_report_dates", go)
+
+
+def runs_since(hotel_id: str, since_iso: str, columns: list[str],
+               limit: int = 50) -> list[dict] | None:
+    def go():
+        rows = _exec(
+            f"select {', '.join(columns)} from refresh_runs where hotel_id = %s "
+            "and started_at >= %s order by started_at desc limit %s",
+            (hotel_id, since_iso, limit), fetch=True)
+        return [_row(columns, r) for r in rows]
+    return _safe("runs_since", go)
+
+
+def feedback_for_hotel(hotel_id: str, since: str) -> list[dict] | None:
+    cols = ["report_date", "card_id", "verdict", "reason", "card_content", "created_at"]
+    def go():
+        rows = _exec(
+            f"select {', '.join(cols)} from insight_feedback where hotel_id = %s "
+            "and report_date >= %s order by created_at desc", (hotel_id, since), fetch=True)
+        return [_row(cols, r) for r in rows]
+    return _safe("feedback_for_hotel", go)
+
+
+_SUB_COLS = ["hotel_id", "plan", "status", "price_eur", "started_on", "renews_on",
+             "notes", "updated_at"]
+
+
+def subscriptions_list() -> list[dict] | None:
+    def go():
+        rows = _exec(f"select {', '.join(_SUB_COLS)} from subscriptions", fetch=True)
+        return [_row(_SUB_COLS, r) for r in rows]
+    return _safe("subscriptions_list", go)
+
+
+def subscription_upsert(row: dict[str, Any]) -> dict | None:
+    def go():
+        r = _known("subscriptions", row)
+        r.pop("updated_at", None)
+        cols = list(r.keys())
+        sets = ", ".join(f"{c} = excluded.{c}" for c in cols if c != "hotel_id")
+        out = _exec(
+            f"insert into subscriptions ({', '.join(cols)}, updated_at) "
+            f"values ({', '.join(['%s'] * len(cols))}, now()) "
+            f"on conflict (hotel_id) do update set {sets}{', ' if sets else ''}updated_at = now() "
+            f"returning {', '.join(_SUB_COLS)}",
+            tuple(_jsonb(r[c]) for c in cols), fetch=True)
+        return _row(_SUB_COLS, out[0])
+    return _safe("subscription_upsert", go)
 
 
 def claim_intraday(hotel_id: str, day: str, ntype: str) -> bool | None:
@@ -409,13 +587,14 @@ def db_size_mb() -> float | None:
     return _safe("db_size", go)
 
 
-def update_hotel_fields(hotel_id: str, fields: dict) -> None:
-    """PG twin for hotel edits (pipeline reads hotels from PG now)."""
+def update_hotel_fields(hotel_id: str, fields: dict) -> bool:
+    """Hotel edits (Postgres is the registry). True = a row was updated."""
     def go():
         sets = ", ".join(f"{c} = %s" for c in fields)
-        _exec(f"update hotels set {sets} where id = %s",
-              tuple(_jsonb(v) for v in fields.values()) + (hotel_id,))
-    _safe("update_hotel_fields", go)
+        rows = _exec(f"update hotels set {sets} where id = %s returning id",
+                     tuple(_jsonb(v) for v in fields.values()) + (hotel_id,), fetch=True)
+        return bool(rows)
+    return bool(_safe("update_hotel_fields", go))
 
 def finance_daily(days: int = 30) -> list[dict]:
     """Per day: AI cost, tokens, rows processed (rows_fetched is jsonb —

@@ -14,13 +14,7 @@ adapter yet). This skill holds the condensed task knowledge; the runbooks
 are what you follow, and they must be updated with any portal / hotel-column
 / adapter change (CLAUDE.md).
 
-**TWO STORES TODAY (verified 2026-10-28):** publication writes Supabase
-FIRST and stops if that fails (`briefing/cloud_push.py`); "Refresh now"
-goes through Supabase `refresh_commands`; the nightly `FirstLightMirror`
-task (08:40 Athens, founder's laptop) upserts Supabase `organizations` +
-`hotels` over Postgres. → Every hotel must exist in BOTH stores with the
-same id and identical values (incl. `pms_config`), and every later edit
-goes to both. Demo twins are Postgres-only by design.
+**ONE STORE since 2026-10-28 (Supabase retirement stage 1):** publication, refresh queue (portal + app) and push recipients are Postgres-only and the nightly `FirstLightMirror` copy is off — create and edit hotels in Postgres ONLY. Supabase gets a best-effort echo (`db/sb_echo.py`) until stage 2 removes it.
 
 Target state: hotel server runs ONLY cloudflared (Windows service). No code,
 no keys, no scheduled tasks. Everything else is rows in OUR Postgres on

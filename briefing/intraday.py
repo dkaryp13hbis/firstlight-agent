@@ -183,7 +183,21 @@ def check_intraday(data: dict[str, Any], prev: dict[str, Any] | None) -> list[di
 # ── send path (claim-then-send; prefs-aware via cloud_push) ──────────────────
 
 def _claim(hotel_id: str, ntype: str) -> bool:
-    """Insert the (hotel, day, type) marker; False = already sent or no table."""
+    """Insert the (hotel, day, type) marker; False = already sent or no table.
+    With STORAGE=pg the Postgres insert decides (2026-10-28); Supabase gets a
+    best-effort echo. A PG error means "do not send" — never a duplicate push."""
+    from db import store
+    if store.read_from_pg():
+        from db import sb_echo
+        day = str(date.today())
+        won = store.claim_intraday(hotel_id, day, ntype)
+        if won:
+            sb_echo.echo("POST", "intraday_log", None,
+                         {"hotel_id": hotel_id, "day": day, "type": ntype})
+            return True
+        print(f"[intraday] {ntype} already sent today — skipping." if won is False
+              else f"[intraday] log claim error — not sending.")
+        return False
     url = os.getenv("SUPABASE_URL", "").rstrip("/")
     key = os.getenv("SUPABASE_SERVICE_KEY", "")
     if not url or not key:

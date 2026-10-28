@@ -169,12 +169,16 @@ def _fetch_hotel_data(hotel: dict, run) -> dict:
 
 
 def _briefing_exists_today(hotel_id: str) -> bool:
-    """Returns True if a briefing for yesterday already exists in Supabase."""
+    """Returns True if a briefing for yesterday already exists (Postgres when
+    it is the store, 2026-10-28; any error → False = run as usual)."""
     import requests as _req
     from datetime import date, timedelta
+    from db import store as _store
+    yesterday = str(date.today() - timedelta(days=1))
+    if _store.read_from_pg():
+        return bool(_store.get_briefing_on(hotel_id, yesterday, ["report_date"]))
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
     supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
-    yesterday = str(date.today() - timedelta(days=1))
     try:
         r = _req.get(
             f"{supabase_url}/rest/v1/briefings",
@@ -461,16 +465,40 @@ def _poll_refresh_commands() -> None:
     update), so it coexists safely with any hotel daemon still polling during
     the transition — the per-hotel lock dedupes double delivery."""
     import requests as _req
+    from db import store as _store
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
     supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
-    if not supabase_url or not supabase_key:
-        log.warning("[cmd-poll] SUPABASE env missing — cloud command poller disabled.")
-        return
     headers = {"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}",
                "Content-Type": "application/json"}
-    log.info("[cmd-poll] Cloud command poller started — every 30s.")
+    pg = _store.read_from_pg()
+    legacy = bool(supabase_url and supabase_key)
+    if not pg and not legacy:
+        log.warning("[cmd-poll] no command store configured — poller disabled.")
+        return
+    # 2026-10-28: the queue lives in Postgres (claimed with FOR UPDATE SKIP
+    # LOCKED, every 10 s). Supabase is still polled every 30 s during the
+    # switch, for app installs that have not picked up the new bundle yet.
+    log.info(f"[cmd-poll] Command poller started — Postgres {'on' if pg else 'off'}, "
+             f"Supabase legacy {'on' if legacy else 'off'}.")
+    tick = 0
     while True:
-        time.sleep(30)
+        time.sleep(10 if pg else 30)
+        tick += 1
+        if pg:
+            try:
+                for cmd in _store.commands_claim(3):
+                    log.info(f"[cmd-poll] Claimed command {cmd['id'][:8]}… "
+                             f"for hotel {cmd['hotel_id'][:8]}… (Postgres)")
+                    threading.Thread(
+                        target=run_all_hotels,
+                        kwargs={"hotel_id_filter": cmd["hotel_id"], "cmd_id": cmd["id"],
+                                "force": True, "manual": True},
+                        daemon=True,
+                    ).start()
+            except Exception as exc:
+                log.warning(f"[cmd-poll] Postgres poll error: {exc}")
+        if not legacy or (pg and tick % 3):
+            continue
         try:
             r = _req.get(
                 f"{supabase_url}/rest/v1/refresh_commands",
@@ -502,22 +530,28 @@ def _poll_refresh_commands() -> None:
             log.warning(f"[cmd-poll] Poll error: {exc}")
 
 
-def _mark_cmd_done(cmd_id: str) -> None:
+def _mark_cmd_done(cmd_id: str, status: str = "done") -> None:
     import requests as _req
-    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    from db import store as _store
+    if not cmd_id:
+        return
+    if _store.command_finish(cmd_id, status):        # Postgres queue (2026-10-28)
+        log.info(f"[railway] Marked refresh command {cmd_id[:8]}… {status}")
+        return
+    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")   # legacy Supabase queue
     supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
-    if not supabase_url or not supabase_key or not cmd_id:
+    if not supabase_url or not supabase_key:
         return
     try:
         _req.patch(
             f"{supabase_url}/rest/v1/refresh_commands",
             params={"id": f"eq.{cmd_id}"},
-            json={"status": "done"},
+            json={"status": status},
             headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}",
                      "Content-Type": "application/json"},
             timeout=10,
         )
-        log.info(f"[railway] Marked refresh command {cmd_id[:8]}… done")
+        log.info(f"[railway] Marked refresh command {cmd_id[:8]}… {status} (Supabase)")
     except Exception as e:
         log.warning(f"[railway] Failed to mark cmd done: {e}")
 
@@ -536,6 +570,8 @@ def run_all_hotels(hotel_id_filter: str | None = None, cmd_id: str | None = None
     if not hotels:
         if not slot:
             log.warning("[scheduler] No hotels configured.")
+        if cmd_id:   # paused / unknown hotel: close the command so the app stops waiting
+            _mark_cmd_done(cmd_id, "failed")
         return
     for hotel in hotels:
         status = process_hotel(hotel, force=force, data_only=data_only, manual=manual)

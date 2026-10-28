@@ -1,8 +1,12 @@
 """
-Pushes the daily briefing to the FirstLight cloud API and sends push notifications.
-Requires FIRSTLIGHT_API_URL and FIRSTLIGHT_API_KEY in .env.
-For push notifications also requires VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY,
-VAPID_EMAIL, SUPABASE_URL, and SUPABASE_SERVICE_KEY.
+Publishes the daily briefing and sends push notifications.
+
+2026-10-28 (Supabase retirement, stage 1): with STORAGE=pg the briefing is
+written to Postgres FIRST — that write decides success — and Supabase only
+gets a best-effort echo (db/sb_echo.py). If Postgres refuses the row, the old
+Supabase write is tried so a briefing is never lost during the switch; stage
+2 removes that fallback. Push subscriptions are read from Postgres at send
+time. Push needs VAPID_PRIVATE_KEY / VAPID_PUBLIC_KEY / VAPID_EMAIL.
 """
 
 import json
@@ -41,16 +45,40 @@ def _kpi_summary(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _publish_supabase(payload: dict[str, Any]) -> bool:
+    """The pre-2026-10-28 publication path (Supabase REST upsert). Used only
+    when Postgres is not the store, or as the transition fallback."""
+    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
+    if not (supabase_url and supabase_key):
+        print("[cloud] Supabase not configured — nothing published.")
+        return False
+    headers = {
+        "apikey":        supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Content-Type":  "application/json",
+        "Prefer":        "resolution=merge-duplicates,return=minimal",
+    }
+    url = f"{supabase_url}/rest/v1/briefings?on_conflict=hotel_id,report_date"
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=30)
+        if resp.status_code == 400 and "kpi_summary" in resp.text:
+            resp = requests.post(url, json={k: v for k, v in payload.items() if k != "kpi_summary"},
+                                 headers=headers, timeout=30)
+        resp.raise_for_status()
+        return True
+    except requests.RequestException as exc:
+        print(f"[cloud] Supabase publish failed: {exc}")
+        return False
+
+
 def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str | None = None,
                   hotel_id: str | None = None, source_run_id: str | None = None,
                   notify: bool = True) -> bool:
-    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
-    supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
     if hotel_id is None:
-        hotel_id = os.getenv("SUPABASE_HOTEL_ID", "")
-
-    if not all([supabase_url, supabase_key, hotel_id]):
-        print("[cloud] Skipped — SUPABASE_URL / SUPABASE_SERVICE_KEY / SUPABASE_HOTEL_ID not set.")
+        hotel_id = os.getenv("SUPABASE_HOTEL_ID", "")   # legacy on-prem env name
+    if not hotel_id:
+        print("[cloud] Skipped — no hotel id.")
         return False
 
     yesterday = date.today() - timedelta(days=1)
@@ -74,38 +102,30 @@ def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str |
     if source_run_id is not None:
         payload["source_run_id"] = source_run_id
 
-    try:
-        headers = {
-            "apikey":        supabase_key,
-            "Authorization": f"Bearer {supabase_key}",
-            "Content-Type":  "application/json",
-            "Prefer":        "resolution=merge-duplicates,return=minimal",
-        }
-        url = f"{supabase_url}/rest/v1/briefings?on_conflict=hotel_id,report_date"
-        resp = requests.post(url, json=payload, headers=headers, timeout=30)
-        if resp.status_code == 400 and "kpi_summary" in resp.text:
-            payload.pop("kpi_summary", None)
-            resp = requests.post(url, json=payload, headers=headers, timeout=30)
-        resp.raise_for_status()
-        print(f"[cloud] Pushed briefing for {yesterday} (hotel {hotel_id[:8]}…) -> HTTP {resp.status_code}")
-        try:  # Phase C dual-write (no-op unless STORAGE=dual|pg)
-            from db import store
-            pg_payload = {k: v for k, v in payload.items() if k != "generated_at"}
-            if source_run_id:
-                pg_payload["source_run_id"] = source_run_id
-            store.upsert_briefing(pg_payload)
-        except Exception:
-            pass
-        if notify:
-            _send_push_notifications(ai, hotel_id,
-                                     hotel_name=data.get("hotel_name") or config.HOTEL_NAME,
-                                     data=data)
+    from db import store, sb_echo
+    pg_payload = {k: v for k, v in payload.items() if k != "generated_at"}
+    if store.read_from_pg():
+        ok = store.upsert_briefing(pg_payload)
+        if ok:
+            print(f"[cloud] Published briefing for {yesterday} (hotel {hotel_id[:8]}…) -> Postgres")
+            sb_echo.echo("POST", "briefings", {"on_conflict": "hotel_id,report_date"}, payload,
+                         prefer="resolution=merge-duplicates,return=minimal")
         else:
-            print("[cloud] Push notifications suppressed (manual/data-only run).")
-        return True
-    except requests.RequestException as exc:
-        print(f"[cloud] Push failed: {exc}")
+            print("[cloud] Postgres publish FAILED — trying Supabase (transition fallback)")
+            ok = _publish_supabase(payload)
+    else:                       # Postgres not the store (on-prem main.py, tests)
+        ok = _publish_supabase(payload)
+        if ok:
+            store.upsert_briefing(pg_payload)   # no-op unless STORAGE=dual
+    if not ok:
         return False
+    if notify:
+        _send_push_notifications(ai, hotel_id,
+                                 hotel_name=data.get("hotel_name") or config.HOTEL_NAME,
+                                 data=data)
+    else:
+        print("[cloud] Push notifications suppressed (manual/data-only run).")
+    return True
 
 
 def _send_push_notifications(ai: dict[str, Any], hotel_id: str, hotel_name: str | None = None,
@@ -128,6 +148,33 @@ def _send_push_notifications(ai: dict[str, Any], hotel_id: str, hotel_name: str 
                     title_is_full=True)
 
 
+def _subscriptions(hotel_id: str) -> list[dict] | None:
+    """The hotel's push subscriptions (+ per-type prefs). Postgres when it is
+    the store; the old Supabase read otherwise. None = could not read."""
+    from db import store
+    if store.read_from_pg():
+        subs = store.push_subs_for_hotel(hotel_id)
+        if subs is None:
+            print("[push] Failed to read subscriptions from Postgres.")
+        return subs
+    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "")
+    if not (supabase_url and supabase_key):
+        print("[push] No subscription store configured.")
+        return None
+    try:
+        r = requests.get(
+            f"{supabase_url}/rest/v1/push_subscriptions",
+            params={"hotel_id": f"eq.{hotel_id}", "select": "subscription,notification_prefs"},
+            headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
+            timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception as exc:
+        print(f"[push] Failed to fetch subscriptions: {exc}")
+        return None
+
+
 def send_typed_push(hotel_id: str, hotel_name: str, title: str, body: str,
                     ntype: str, section_id: str = "sec-ai",
                     title_is_full: bool = False) -> None:
@@ -136,12 +183,10 @@ def send_typed_push(hotel_id: str, hotel_name: str, title: str, body: str,
     prefs column/value = all types on (schema-tolerant)."""
     vapid_private     = os.getenv("VAPID_PRIVATE_KEY", "")
     vapid_email       = os.getenv("VAPID_EMAIL", "mailto:dk@bi-automations.com")
-    supabase_url      = os.getenv("SUPABASE_URL", "").rstrip("/")
-    supabase_key      = os.getenv("SUPABASE_SERVICE_KEY", "")
-    supabase_hotel_id = hotel_id or os.getenv("SUPABASE_HOTEL_ID", "")
+    supabase_hotel_id = hotel_id or os.getenv("SUPABASE_HOTEL_ID", "")   # legacy env name
 
-    if not all([vapid_private, supabase_url, supabase_key, supabase_hotel_id]):
-        print("[push] Skipped — VAPID_PRIVATE_KEY / SUPABASE_URL / SUPABASE_SERVICE_KEY / SUPABASE_HOTEL_ID not set.")
+    if not all([vapid_private, supabase_hotel_id]):
+        print("[push] Skipped — VAPID_PRIVATE_KEY or the hotel id is not set.")
         return
 
     # If VAPID_PRIVATE_KEY is a file path that doesn't exist (e.g. Windows path on Linux),
@@ -169,28 +214,9 @@ def send_typed_push(hotel_id: str, hotel_name: str, title: str, body: str,
                                "sectionId": section_id, "url": pwa_url,
                                "hotelId": supabase_hotel_id})
 
-    # Fetch subscriptions (+ per-type prefs; column may not exist yet)
-    try:
-        params = {"hotel_id": f"eq.{supabase_hotel_id}",
-                  "select": "subscription,notification_prefs"}
-        r = requests.get(
-            f"{supabase_url}/rest/v1/push_subscriptions", params=params,
-            headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
-            timeout=10,
-        )
-        if r.status_code == 400 and "notification_prefs" in r.text:
-            params["select"] = "subscription"
-            r = requests.get(
-                f"{supabase_url}/rest/v1/push_subscriptions", params=params,
-                headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
-                timeout=10,
-            )
-        r.raise_for_status()
-        subscriptions = r.json()
-    except Exception as exc:
-        print(f"[push] Failed to fetch subscriptions: {exc}")
+    subscriptions = _subscriptions(supabase_hotel_id)
+    if subscriptions is None:
         return
-
     if not subscriptions:
         print("[push] No push subscriptions registered.")
         return

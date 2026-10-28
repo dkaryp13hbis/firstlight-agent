@@ -24,6 +24,7 @@ import requests as _req
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 
 import railway_main as core
+from db import sb_echo   # temporary best-effort Supabase copy (stage 2 removes it)
 
 # ── Background machinery (same jobs as railway_main.__main__) ────────────────
 
@@ -230,6 +231,15 @@ def _token_map() -> dict[str, str]:
     with _TOKENS_LOCK:
         if _time.time() - _TOKENS["at"] < 60:
             return _TOKENS["map"]
+    from db import store
+    if store.read_from_pg():                 # Postgres is the store (2026-10-28)
+        rows = store.get_active_hotels(["id", "api_token"])
+        if not rows and not store.ping():
+            raise HTTPException(503, "token store unreachable")
+        mp = {r["api_token"]: r["id"] for r in rows if r.get("api_token")}
+        with _TOKENS_LOCK:
+            _TOKENS["at"], _TOKENS["map"] = _time.time(), mp
+        return mp
     url, key = _sb()
     try:
         r = _req.get(f"{url}/rest/v1/hotels",
@@ -291,13 +301,14 @@ def trigger(hotel_id: str = Depends(auth_hotel),
 def briefing_latest(hotel_id: str = Depends(auth_hotel),
                     include_html: bool = Query(False)):
     cols = "report_date,generated_at,data,ai_insights" + (",rendered_html" if include_html else "")
-    rows = _sb_get("briefings", {
-        "hotel_id": f"eq.{hotel_id}", "select": cols,
-        "order": "report_date.desc", "limit": "1",
-    })
-    if not rows:
+    from db import store
+    out = _pg_or_sb_briefing(
+        lambda: store.get_latest_briefing(hotel_id, cols.split(",")),
+        {"hotel_id": f"eq.{hotel_id}", "select": cols, "order": "report_date.desc", "limit": "1"})
+    row = out[0] if isinstance(out, list) and out else out
+    if not row:
         raise HTTPException(404, "no briefing yet")
-    return rows[0]
+    return row
 
 
 @app.get("/briefing/history")
@@ -305,6 +316,10 @@ def briefing_history(hotel_id: str = Depends(auth_hotel),
                      days: int = Query(7, ge=1, le=60)):
     """Per-day KPI summaries, newest first. kpi_summary is populated at
     publish time from this release on; older rows return null."""
+    from db import store
+    if store.read_from_pg():
+        rows = store.get_recent_briefings(hotel_id, days, ["report_date", "kpi_summary"])
+        return {"hotel_id": hotel_id, "days": len(rows), "history": rows}
     try:
         rows = _sb_get("briefings", {
             "hotel_id": f"eq.{hotel_id}", "select": "report_date,kpi_summary",
@@ -325,12 +340,15 @@ def feedback(hotel_id: str = Depends(auth_hotel),
     """Read the 👍/👎 loop (verdict + note + rated card snapshot)."""
     from datetime import date, timedelta
     since = (date.today() - timedelta(days=days)).isoformat()
-    rows = _sb_get("insight_feedback", {
-        "hotel_id": f"eq.{hotel_id}",
-        "report_date": f"gte.{since}",
-        "select": "report_date,card_id,verdict,reason,card_content,created_at",
-        "order": "created_at.desc",
-    })
+    from db import store
+    rows = store.feedback_for_hotel(hotel_id, since)
+    if rows is None:
+        rows = _sb_get("insight_feedback", {
+            "hotel_id": f"eq.{hotel_id}",
+            "report_date": f"gte.{since}",
+            "select": "report_date,card_id,verdict,reason,card_content,created_at",
+            "order": "created_at.desc",
+        })
     return {"hotel_id": hotel_id, "count": len(rows), "feedback": rows}
 
 
@@ -341,9 +359,14 @@ def push_test(hotel_id: str = Depends(auth_hotel)):
     Returns how many subscriptions the hotel has and how many sends succeeded."""
     import io, contextlib
     from briefing.cloud_push import _send_push_notifications
-    hotels = _sb_get("hotels", {"id": f"eq.{hotel_id}", "select": "name"})
-    name = (hotels[0].get("name") if hotels else None) or "FirstLight"
-    subs = _sb_get("push_subscriptions", {"hotel_id": f"eq.{hotel_id}", "select": "id"})
+    from db import store
+    if store.read_from_pg():
+        name = store.hotel_names().get(hotel_id) or "FirstLight"
+        subs = store.push_subs_for_hotel(hotel_id) or []
+    else:
+        hotels = _sb_get("hotels", {"id": f"eq.{hotel_id}", "select": "name"})
+        name = (hotels[0].get("name") if hotels else None) or "FirstLight"
+        subs = _sb_get("push_subscriptions", {"hotel_id": f"eq.{hotel_id}", "select": "id"})
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         _send_push_notifications(
@@ -362,26 +385,37 @@ def push_test(hotel_id: str = Depends(auth_hotel)):
 
 @app.get("/briefing/by-date")
 def briefing_by_date(hotel_id: str = Depends(auth_hotel), date: str = Query(...)):
-    rows = _sb_get("briefings", {
-        "hotel_id": f"eq.{hotel_id}", "report_date": f"eq.{date}",
-        "select": "report_date,generated_at,data,ai_insights",
-        "order": "generated_at.desc", "limit": "1",
-    })
-    if not rows:
+    from db import store
+    out = _pg_or_sb_briefing(
+        lambda: store.get_briefing_on(hotel_id, date, _B_COLS),
+        {"hotel_id": f"eq.{hotel_id}", "report_date": f"eq.{date}",
+         "select": ",".join(_B_COLS), "order": "generated_at.desc", "limit": "1"})
+    row = out[0] if isinstance(out, list) and out else out
+    if not row:
         raise HTTPException(404, "no briefing for that date")
-    return rows[0]
+    return row
+
+
+_RUN_COLS = ["started_at", "completed_at", "run_type", "status", "error_type", "attempt"]
+
+
+def _runs_since(hotel_id: str, since: str) -> list:
+    """Refresh history for the Data health sheet — Postgres first (2026-10-28)."""
+    from db import store
+    rows = store.runs_since(hotel_id, since, _RUN_COLS, 50)
+    if rows is not None:
+        return rows
+    return _sb_get("refresh_runs", {
+        "hotel_id": f"eq.{hotel_id}", "started_at": f"gte.{since}",
+        "select": ",".join(_RUN_COLS), "order": "started_at.desc", "limit": "50",
+    })
 
 
 @app.get("/runs")
 def runs(hotel_id: str = Depends(auth_hotel), days: int = Query(3, ge=1, le=14)):
     from datetime import datetime, timedelta, timezone
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    rows = _sb_get("refresh_runs", {
-        "hotel_id": f"eq.{hotel_id}", "started_at": f"gte.{since}",
-        "select": "started_at,completed_at,run_type,status,error_type,attempt",
-        "order": "started_at.desc", "limit": "50",
-    })
-    return {"hotel_id": hotel_id, "runs": rows}
+    return {"hotel_id": hotel_id, "runs": _runs_since(hotel_id, since)}
 
 
 @app.get("/watchlist")
@@ -430,13 +464,10 @@ def watchlist_add(request: Request, body: dict):
     if created is not None:                       # PG is authority
         if created.get("error") == "duplicate":
             raise HTTPException(409, "duplicate")
-        try:
-            _sb_write("POST", "watchlist", None,
-                      {"id": created["id"], "user_id": uid, "hotel_id": hotel_id,
-                       "kind": body["kind"], "key": str(body["key"]),
-                       "label": body.get("label")})
-        except HTTPException:
-            pass   # Supabase echo is best-effort
+        sb_echo.echo("POST", "watchlist", None,
+                     {"id": created["id"], "user_id": uid, "hotel_id": hotel_id,
+                      "kind": body["kind"], "key": str(body["key"]),
+                      "label": body.get("label")})
         return created
     row = {"user_id": uid, "hotel_id": hotel_id, "kind": body["kind"],
            "key": str(body["key"]), "label": body.get("label")}
@@ -449,10 +480,16 @@ def watchlist_remove(item_id: str, request: Request):
     uid = auth_user(request)
     from db import store
     store.watch_delete(item_id, uid)
-    # Supabase delete runs regardless: echo while PG is up, sole path if down
-    _sb_write("DELETE", "watchlist",
-              {"id": f"eq.{item_id}", "user_id": f"eq.{uid}"}, None)
+    sb_echo.echo("DELETE", "watchlist", {"id": f"eq.{item_id}", "user_id": f"eq.{uid}"})
     return {"removed": item_id}
+
+
+def _hotel_names() -> dict[str, str]:
+    """hotel id → name, every hotel (active or paused) — Postgres first."""
+    from db import store
+    if store.read_from_pg():
+        return store.hotel_names()
+    return {h["id"]: h["name"] for h in _sb_get("hotels", {"select": "id,name"})}
 
 
 def _user_emails() -> dict[str, str]:
@@ -460,6 +497,8 @@ def _user_emails() -> dict[str, str]:
     accounts not moved yet; fail-open to short ids at the caller."""
     from db import store
     emails: dict[str, str] = {u["id"]: u["email"] for u in (store.users_list() or [])}
+    if os.getenv("AUTH", "dual").lower() == "own":
+        return emails                  # one login system: no GoTrue lookup
     try:
         url, key = _sb()
         r = _req.get(f"{url}/auth/v1/admin/users", params={"per_page": "200"},
@@ -482,8 +521,7 @@ def admin_usage_daily(request: Request, days: int = Query(90, ge=1, le=365)):
     rows = store.usage_daily(days)
     if rows is None:
         raise HTTPException(503, "usage storage unavailable")
-    hotels = {h["id"]: h["name"] for h in _sb_get("hotels", {"select": "id,name"})}
-    return {"days": days, "rows": rows, "users": _user_emails(), "hotels": hotels}
+    return {"days": days, "rows": rows, "users": _user_emails(), "hotels": _hotel_names()}
 
 
 @app.get("/admin/usage")
@@ -496,12 +534,10 @@ def admin_usage(request: Request):
     from datetime import datetime, timedelta, timezone
     since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
 
-    hotels = {h["id"]: h["name"] for h in _sb_get(
-        "hotels", {"select": "id,name"})}
-    members = _sb_get("hotel_users", {"select": "user_id,hotel_id"})
-    # C3: own-login users come from memberships (hotel_access), not hotel_users
-    members += [{"user_id": a["user_id"], "hotel_id": a["hotel_id"]}
-                for a in (store.hotel_access_all() or [])]
+    hotels = _hotel_names()
+    # one login system (2026-10-28): members = memberships (hotel_access) only
+    members = [{"user_id": a["user_id"], "hotel_id": a["hotel_id"]}
+               for a in (store.hotel_access_all() or [])]
     events = store.usage_events_since(since)
     if events is None:
         events = _sb_get("usage_events", {
@@ -571,12 +607,17 @@ def admin_clients(request: Request):
         else admin_usage(request)   # same aggregation, same gate (cached auth)
     subs: dict[str, dict] = {}
     subs_ready = True
-    try:
-        for s in _sb_get("subscriptions", {
-                "select": "hotel_id,plan,status,price_eur,started_on,renews_on,notes"}):
-            subs[s["hotel_id"]] = s
-    except HTTPException:
-        subs_ready = False   # table not pasted yet
+    from db import store
+    pg_subs = store.subscriptions_list()
+    if pg_subs is not None:                      # Postgres (2026-10-28)
+        subs = {s["hotel_id"]: s for s in pg_subs}
+    else:
+        try:
+            for s in _sb_get("subscriptions", {
+                    "select": "hotel_id,plan,status,price_eur,started_on,renews_on,notes"}):
+                subs[s["hotel_id"]] = s
+        except HTTPException:
+            subs_ready = False   # table not pasted yet
     for h in usage["hotels"]:
         h["subscription"] = subs.get(h["hotel_id"])
     usage["subs_ready"] = subs_ready
@@ -607,14 +648,13 @@ def admin_audit_list(request: Request, action: str = Query(None),
 def admin_hotels(request: Request):
     require_admin(request)
     from db import store
-    hotels = _sb_get("hotels", {
-        "select": "id,name,active,total_rooms,pms_type,pms_config,api_token"})
+    cols = ["id", "name", "active", "total_rooms", "pms_type", "pms_config", "api_token"]
+    hotels = store.hotels_all(cols)
+    if hotels is None:
+        raise HTTPException(503, "hotel registry unavailable")
     ai_map = store.ai_enabled_map() or {}
     runs = {r["hotel_id"]: r for r in store.hotels_run_summary(30)}
-    briefs = {}
-    for b in _sb_get("briefings", {"select": "hotel_id,report_date",
-                                   "order": "report_date.desc", "limit": "50"}):
-        briefs.setdefault(b["hotel_id"], b["report_date"])
+    briefs = store.latest_report_dates() or {}
     out = []
     for h in hotels:
         cfg = h.get("pms_config") or {}
@@ -648,10 +688,12 @@ def admin_hotel_runs(hotel_id: str, request: Request):
 def admin_hotel_refresh(hotel_id: str, request: Request):
     """Manual refresh through the SAME fail-open pipeline (refresh_commands)."""
     require_admin(request)
-    _sb_write("POST", "refresh_commands", None,
-              {"hotel_id": hotel_id, "type": "manual", "status": "pending"})
+    from db import store
+    cmd_id = store.command_insert(hotel_id, "manual")
+    if cmd_id is None:
+        raise HTTPException(503, "refresh queue unavailable")
     _audit_admin(request, "hotel.refresh", "hotel", hotel_id)
-    return {"queued": True}
+    return {"queued": True, "id": cmd_id}
 
 
 @app.post("/admin/hotels/{hotel_id}/token/rotate")
@@ -659,8 +701,9 @@ def admin_hotel_token(hotel_id: str, request: Request):
     require_admin(request)
     from db import store
     new_token = "flh_" + secrets.token_urlsafe(24)
-    _sb_write("PATCH", "hotels", {"id": f"eq.{hotel_id}"}, {"api_token": new_token})
-    store.update_hotel_fields(hotel_id, {"api_token": new_token})
+    if not store.update_hotel_fields(hotel_id, {"api_token": new_token}):
+        raise HTTPException(503, "hotel registry unavailable")
+    sb_echo.echo("PATCH", "hotels", {"id": f"eq.{hotel_id}"}, {"api_token": new_token})
     with _TOKENS_LOCK:
         _TOKENS["at"] = 0.0          # bust the 60s token cache
     _audit_admin(request, "hotel.token_rotate", "hotel", hotel_id)
@@ -675,8 +718,9 @@ def admin_hotel_active(hotel_id: str, request: Request, body: dict):
     reason = (body.get("reason") or "").strip()
     if not active and not reason:
         raise HTTPException(422, "pausing needs a reason")
-    _sb_write("PATCH", "hotels", {"id": f"eq.{hotel_id}"}, {"active": active})
-    store.update_hotel_fields(hotel_id, {"active": active})
+    if not store.update_hotel_fields(hotel_id, {"active": active}):
+        raise HTTPException(503, "hotel registry unavailable")
+    sb_echo.echo("PATCH", "hotels", {"id": f"eq.{hotel_id}"}, {"active": active})
     _audit_admin(request, "hotel.activate" if active else "hotel.pause",
                  "hotel", hotel_id, reason=reason or None)
     return {"active": active}
@@ -732,7 +776,7 @@ def admin_feedback(request: Request, limit: int = Query(200, le=500)):
         rows = _sb_get("insight_feedback", {
             "select": "hotel_id,report_date,card_id,verdict,note,created_at",
             "order": "created_at.desc", "limit": str(limit)})
-    hotels = {h["id"]: h["name"] for h in _sb_get("hotels", {"select": "id,name"})}
+    hotels = _hotel_names()
     for r in rows:
         r["hotel"] = hotels.get(r.get("hotel_id"), "?")
     return {"rows": rows}
@@ -750,11 +794,13 @@ def admin_subscription_put(hotel_id: str, request: Request, body: dict):
     if row.get("status") not in (None, "active", "paused", "cancelled"):
         raise HTTPException(422, "status must be active|paused|cancelled")
     row["hotel_id"] = hotel_id
-    from datetime import datetime, timezone
-    row["updated_at"] = datetime.now(timezone.utc).isoformat()
-    out = _sb_write("POST", "subscriptions", {"on_conflict": "hotel_id"}, row,
-                    prefer="resolution=merge-duplicates,return=representation")
-    return (out or [row])[0]
+    from db import store
+    out = store.subscription_upsert(row)
+    if out is None:
+        raise HTTPException(503, "subscription storage unavailable")
+    sb_echo.echo("POST", "subscriptions", {"on_conflict": "hotel_id"}, row,
+                 prefer="resolution=merge-duplicates,return=minimal")
+    return out
 
 
 @app.get("/admin/groups")
@@ -841,21 +887,13 @@ def admin_companies_post(request: Request, body: dict):
         raise HTTPException(502, f"registry write failed: {str(exc)[:120]}")
     if not org_id:
         raise HTTPException(503, "registry storage unavailable")
-    # Supabase keeps a base org row (id+name+slug) so the nightly mirror
-    # never resurrects a deleted org or diverges on identity.
-    try:
-        _sb_write("POST", "organizations", {"on_conflict": "id"},
-                  {"id": org_id, "name": org["name"], "slug": org["slug"]},
-                  prefer="resolution=merge-duplicates")
-    except HTTPException:
-        pass
+    sb_echo.echo("POST", "organizations", {"on_conflict": "id"},
+                 {"id": org_id, "name": org["name"], "slug": org["slug"]},
+                 prefer="resolution=merge-duplicates")
     store.upsert_contract(org_id, body.get("contract") or {})
     for hid in (body.get("hotel_ids") or []):
         store.set_hotel_org(hid, org_id)
-        try:
-            _sb_write("PATCH", "hotels", {"id": f"eq.{hid}"}, {"org_id": org_id})
-        except HTTPException:
-            pass
+        sb_echo.echo("PATCH", "hotels", {"id": f"eq.{hid}"}, {"org_id": org_id})
     _audit_admin(request, "company.upsert", "org", org_id,
                  after={k: v for k, v in body.items() if k != "id"})
     return {"id": org_id}
@@ -889,12 +927,8 @@ def admin_finance(request: Request):
         if c.get("status") == "active":
             active.append(line)
     if not lines:
-        hotels = {h["id"]: h["name"] for h in _sb_get("hotels", {"select": "id,name"})}
-        try:
-            subs = _sb_get("subscriptions", {
-                "select": "hotel_id,plan,status,price_eur,started_on,renews_on"})
-        except HTTPException:
-            subs = []
+        hotels = _hotel_names()
+        subs = store.subscriptions_list() or []
         lines = [{**s2, "name": hotels.get(s2["hotel_id"], "?")} for s2 in subs]
         active = [l for l in lines if l.get("status") == "active"]
     by_plan: dict[str, dict] = {}
@@ -1253,11 +1287,42 @@ def app_runs(request: Request, hotel_id: str = Query(...),
     require_member(uid, hotel_id)
     from datetime import datetime, timedelta, timezone
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    rows = _sb_get("refresh_runs", {
-        "hotel_id": f"eq.{hotel_id}", "started_at": f"gte.{since}",
-        "select": "started_at,completed_at,run_type,status,error_type,attempt",
-        "order": "started_at.desc", "limit": "50"})
-    return {"runs": rows}
+    return {"runs": _runs_since(hotel_id, since)}
+
+
+# ── Refresh from the app (2026-10-28): the button used to insert straight into
+# Supabase refresh_commands and poll it. Now: queue in Postgres, poll here.
+
+@app.post("/app/hotels/{hotel_id}/refresh", status_code=202)
+def app_refresh(hotel_id: str, request: Request):
+    """Queue a silent manual refresh (AI reused, no push). A refresh already
+    queued or running for this hotel in the last 5 minutes is returned
+    instead of a second one (double taps, two users at once)."""
+    uid = auth_user(request)
+    require_member(uid, hotel_id)
+    from db import store
+    open_cmd = store.command_open_for(hotel_id)
+    if open_cmd is None:
+        raise HTTPException(503, "refresh queue unavailable")
+    if open_cmd:
+        return {"id": open_cmd["id"], "status": open_cmd["status"], "joined": True}
+    cmd_id = store.command_insert(hotel_id, "data_only")
+    if cmd_id is None:
+        raise HTTPException(503, "refresh queue unavailable")
+    return {"id": cmd_id, "status": "pending", "joined": False}
+
+
+@app.get("/app/refresh/{cmd_id}")
+def app_refresh_status(cmd_id: str, request: Request):
+    uid = auth_user(request)
+    from db import store
+    cmd = store.command_get(cmd_id)
+    if cmd is None:
+        raise HTTPException(503, "refresh queue unavailable")
+    if not cmd:
+        raise HTTPException(404, "unknown refresh")
+    require_member(uid, cmd["hotel_id"])
+    return {"id": cmd["id"], "status": cmd["status"], "completed_at": cmd["completed_at"]}
 
 
 @app.post("/feedback", status_code=201)
@@ -1273,10 +1338,8 @@ def feedback_post(request: Request, body: dict):
            "user_id": uid}
     from db import store
     store.feedback_upsert(row)
-    try:
-        _sb_write("POST", "insight_feedback", {"on_conflict": "hotel_id,report_date,card_id,user_id"}, row, prefer="resolution=merge-duplicates,return=minimal")
-    except HTTPException:
-        pass   # Supabase echo is best-effort — PG is authority
+    sb_echo.echo("POST", "insight_feedback", {"on_conflict": "hotel_id,report_date,card_id,user_id"},
+                 row, prefer="resolution=merge-duplicates,return=minimal")
     return {"ok": True}
 
 
@@ -1303,10 +1366,9 @@ def prefs_put(request: Request, body: dict):
     from db import store
     now = datetime.now(timezone.utc).isoformat()
     store.pref_upsert(hotel_id, body["language"], now)
-    try:
-        _sb_write("POST", "hotel_prefs", {"on_conflict": "hotel_id"}, {"hotel_id": hotel_id, "language": body["language"], "updated_at": now}, prefer="resolution=merge-duplicates,return=minimal")
-    except HTTPException:
-        pass   # Supabase echo is best-effort — PG is authority
+    sb_echo.echo("POST", "hotel_prefs", {"on_conflict": "hotel_id"},
+                 {"hotel_id": hotel_id, "language": body["language"], "updated_at": now},
+                 prefer="resolution=merge-duplicates,return=minimal")
     return {"ok": True}
 
 
@@ -1319,10 +1381,9 @@ def push_subscribe(request: Request, body: dict):
         raise HTTPException(422, "subscription object required")
     from db import store
     store.push_replace(uid, hotel_id, body["subscription"])
-    try:
-        _sb_write("DELETE", "push_subscriptions", {"user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}"}, None); _sb_write("POST", "push_subscriptions", None, {"hotel_id": hotel_id, "user_id": uid, "subscription": body["subscription"]})
-    except HTTPException:
-        pass   # Supabase echo is best-effort — PG is authority
+    sb_echo.echo("DELETE", "push_subscriptions", {"user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}"})
+    sb_echo.echo("POST", "push_subscriptions", None,
+                 {"hotel_id": hotel_id, "user_id": uid, "subscription": body["subscription"]})
     return {"ok": True}
 
 
@@ -1332,11 +1393,21 @@ def push_unsubscribe(request: Request, body: dict):
     hotel_id = str(body.get("hotel_id", ""))
     from db import store
     store.push_delete(uid, hotel_id)
-    try:
-        _sb_write("DELETE", "push_subscriptions", {"user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}"}, None)
-    except HTTPException:
-        pass   # Supabase echo is best-effort — PG is authority
+    sb_echo.echo("DELETE", "push_subscriptions", {"user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}"})
     return {"ok": True}
+
+
+@app.get("/push/any")
+def push_any(request: Request):
+    """Does the caller still have a subscription for ANY hotel? The app keeps
+    the browser's push subscription while one is left (2026-10-28: replaces
+    its direct Supabase read)."""
+    uid = auth_user(request)
+    from db import store
+    anyleft = store.push_any_for_user(uid)
+    if anyleft is None:
+        raise HTTPException(503, "push storage unavailable")
+    return {"any": anyleft}
 
 
 @app.put("/push/prefs")
@@ -1348,10 +1419,8 @@ def push_prefs(request: Request, body: dict):
         raise HTTPException(422, "notification_prefs object required")
     from db import store
     store.push_set_prefs(uid, hotel_id, prefs)
-    try:
-        _sb_write("PATCH", "push_subscriptions", {"user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}"}, {"notification_prefs": prefs})
-    except HTTPException:
-        pass   # Supabase echo is best-effort — PG is authority
+    sb_echo.echo("PATCH", "push_subscriptions", {"user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}"},
+                 {"notification_prefs": prefs})
     return {"ok": True}
 
 
@@ -1389,11 +1458,7 @@ def events(request: Request, body: dict):
     if rows:
         from db import store
         store.events_insert(rows)
-        try:
-            _sb_write("POST", "usage_events", None, rows)
-        except HTTPException:
-            pass   # Supabase echo is best-effort — PG is authority
-
+        sb_echo.echo("POST", "usage_events", None, rows)
     return {"accepted": len(rows)}
 
 

@@ -28,7 +28,7 @@ cloud / API.
 | 0 | Intake | sales / ops | intake sheet (this page) | 15 min |
 | 1 | Client record (group, company, contract) | ops | portal → **Onboarding** | 5 min |
 | 2 | PMS connection | engineering + hotel IT | path runbook | 30 min on-premises · weeks for a new cloud PMS |
-| 3 | Hotel row | engineering | SQL, **two stores today** (⚠ below) | 10 min |
+| 3 | Hotel row | engineering | SQL (Postgres) | 10 min |
 | 4 | Season dates (resorts only) | engineering | SQL | 5 min |
 | 5 | Users | ops | portal → **Users** ([USER_ADMIN.md](USER_ADMIN.md)) | 5 min |
 | 6 | Verify and go live | engineering | portal → **Hotels** + the app | 15 min + next morning |
@@ -56,21 +56,13 @@ cloud / API.
 - **No guest-level data in our cloud.** Only stays, nights, revenue,
   sources and dates — never names, contacts, documents or cards.
 
-> ⚠ **Two stores, today.** The move from Supabase to our Postgres is not
-> finished for hotels. Until it is (TO-DO in ENGINEERING_LOG):
-> 1. **Publishing writes Supabase first** (`briefing/cloud_push.py`). If the
->    hotel is missing there, the briefing is not published at all.
-> 2. **"Refresh now" goes through Supabase** (`refresh_commands`), which
->    needs the hotel there too.
-> 3. **A nightly copy overwrites Postgres with Supabase**
->    (`scripts/mirror_to_pg.ps1`, Task Scheduler `FirstLightMirror`, 08:40
->    Athens on the founder's laptop) for `organizations`, `hotels` and other
->    tables. A value that differs between the two (or is empty in Supabase)
->    is replaced in Postgres the next morning.
->
-> So: **create every hotel in both stores with the same id and identical
-> values, and make every later change in both.** Demo twins (HBIS City /
-> Boutique / Grand) are the exception: Postgres only, by design.
+> ✅ **One store since 2026-10-28** (Supabase retirement, stage 1 —
+> ENGINEERING_LOG "SUPABASE RETIREMENT"). Publication, "Refresh now", the
+> app's refresh button and push recipients use Postgres only, and the nightly
+> Supabase → Postgres copy (`FirstLightMirror`) is switched off. **Create and
+> edit hotels in Postgres only.** Until stage 2, Supabase still receives a
+> best-effort copy of new writes; for a hotel that does not exist there the
+> copy simply fails, harmlessly.
 
 ## Step 0 — Intake (15 min) — mandatory
 
@@ -138,14 +130,11 @@ select gen_random_uuid(), o.id, '<Hotel name>', '<hotel-slug>', <rooms 0.3>,
 returning id, name;
 ```
 
-Then **the same row in Supabase** (⚠ above): same `id` as returned,
-same name, total_rooms, pms_type, active, season_settings, api_token and
-pms_config — pasted in the Supabase SQL editor (the founder does this).
-Finally tick the hotel under Clients (Step 1.3).
+Then tick the hotel under Clients (Step 1.3).
 
 ## Step 4 — Season dates (resorts only, 5 min)
 
-`hotels.season_settings` in **both** stores, e.g.
+`hotels.season_settings`, e.g.
 `{"2025": {"open": "2025-04-25", "close": "2025-10-20"}, "2026": {"open": "2026-04-30", "close": "2026-10-14"}}`
 where `close` is the **first closed night**. Template with checks:
 `docs/sql/pg/2026-10-26_pome_season_settings.sql`. City hotels stay `null`.
@@ -198,16 +187,13 @@ morning. Contract status in Clients: Trial or Active.
 | Pause a hotel (unpaid, closed for good) | Hotels → row → **Pause** (reason required) | `hotels.active = false` — no runs, no briefings; history kept |
 | Contract ends | Clients → **Contract status** Ended; Users → **Deactivate** each user | users signed out everywhere |
 
-Hotel-row edits (`active`, `pms_config`, `org_id`, rooms) must also reach
-Supabase while the ⚠ two-store rule holds.
 
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| "Refresh now" queues but no run appears | hotel still paused, or missing in Supabase | Step 6.2; ⚠ two stores |
+| "Refresh now" queues but no run appears | hotel still paused (the refresh is closed as failed) | Step 6.2 |
 | Run **failed** with `yesterday_nonzero` | resort closed (Step 4 note), or wrong property id | season release; check the PMS id in the path runbook |
-| A setting "came back" the next day | the nightly copy restored Supabase's value | change it in Supabase too |
 | Numbers too high / occupancy too low | `total_rooms` wrong, fake rooms counted | 0.3; path runbook gotchas |
 | App: "Data may be out of date" | no briefing since that date | Hotels → row → runs → Error column |
 | Owner sees no portfolio entry | fewer than 2 of the group's hotels in their access | USER_ADMIN.md §9 |
@@ -218,4 +204,5 @@ Supabase while the ⚠ two-store rule holds.
 |---|---|---|
 | 2026-08-04 | v1 from the Pome pilot + tunnel migration | — |
 | 2026-09-10 | v2: own Postgres, own login, no email, Group → Company → Hotel | — |
-| 2026-10-28 | v3: split into start-here + [on-premises](ONBOARDING_ONPREM.md) + [API](ONBOARDING_API.md); portal Onboarding / Clients / Hotels steps with exact labels; the two-store rule; season-release caveat | (this commit) |
+| 2026-10-28 | v3: split into start-here + [on-premises](ONBOARDING_ONPREM.md) + [API](ONBOARDING_API.md); portal Onboarding / Clients / Hotels steps with exact labels; the two-store rule; season-release caveat | bb80884 |
+| 2026-10-28 | Postgres only (Supabase retirement stage 1): two-store rule and the Supabase hotel step removed | (this commit) |

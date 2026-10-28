@@ -44,17 +44,50 @@ def _get(path: str, params: dict) -> list:
     return r.json()
 
 
+# Reads go to Postgres when it is the store (2026-10-28); the Supabase REST
+# reads stay only for STORAGE unset. A PG outage raises, like a REST error did.
+
+def _pg():
+    from db import store
+    return store if store.read_from_pg() else None
+
+
+def _active_hotels() -> list[dict]:
+    s = _pg()
+    if s:
+        rows = s.get_active_hotels(["id", "name"])
+        if not rows and not s.ping():
+            raise RuntimeError("Postgres unreachable")
+        return rows
+    return _get("hotels", {"active": "eq.true", "select": "id,name"})
+
+
+def _recent_briefings(hid: str, limit: int, cols: list[str]) -> list[dict]:
+    s = _pg()
+    if s:
+        return s.get_recent_briefings(hid, limit, cols)
+    return _get("briefings", {"hotel_id": f"eq.{hid}", "select": ",".join(cols),
+                              "order": "report_date.desc", "limit": str(limit)})
+
+
+def _runs_today(hid: str) -> list[dict]:
+    cols = ["status", "run_type", "started_at", "error_type"]
+    since = f"{date.today()}T00:00:00"
+    s = _pg()
+    if s:
+        return s.runs_since(hid, since, cols, 10) or []
+    return _get("refresh_runs", {"hotel_id": f"eq.{hid}", "started_at": f"gte.{since}",
+                                 "select": ",".join(cols), "order": "started_at.desc",
+                                 "limit": "10"})
+
+
 def _hotel_report(hotel: dict) -> list[str]:
     """Problem strings for one hotel (empty = healthy)."""
     hid, name = hotel["id"], hotel["name"]
     problems: list[str] = []
     yesterday = str(date.today() - timedelta(days=1))
 
-    rows = _get("briefings", {
-        "hotel_id": f"eq.{hid}",
-        "select": "report_date,data",
-        "order": "report_date.desc", "limit": "4",
-    })
+    rows = _recent_briefings(hid, 4, ["report_date", "data"])
     if not rows:
         return [f"{name}: no briefings stored at all"]
 
@@ -63,12 +96,7 @@ def _hotel_report(hotel: dict) -> list[str]:
         problems.append(f"{name}: MISSED — latest briefing is for {latest} "
                         f"(expected {yesterday}); the overnight refresh did not publish")
 
-    runs = _get("refresh_runs", {
-        "hotel_id": f"eq.{hid}",
-        "started_at": f"gte.{date.today()}T00:00:00",
-        "select": "status,run_type,started_at,error_type",
-        "order": "started_at.desc", "limit": "10",
-    })
+    runs = _runs_today(hid)
     ok_today = any(r.get("status") in ("success", "degraded") for r in runs)
     if runs and not ok_today:
         worst = runs[0]
@@ -103,7 +131,7 @@ def _hotel_report(hotel: dict) -> list[str]:
 
 
 def audit_all() -> list[str]:
-    hotels = _get("hotels", {"active": "eq.true", "select": "id,name"})
+    hotels = _active_hotels()
     problems: list[str] = []
     for h in hotels:
         try:
@@ -120,11 +148,17 @@ def stale_hotels(max_age_s: int = 60) -> list[str]:
     stale: list[str] = []
     try:
         yesterday = str(date.today() - timedelta(days=1))
-        for h in _get("hotels", {"active": "eq.true", "select": "id,name"}):
-            rows = _get("briefings", {"hotel_id": f"eq.{h['id']}",
-                                      "select": "report_date",
-                                      "order": "report_date.desc", "limit": "1"})
-            if not rows or rows[0]["report_date"] < yesterday:
+        s = _pg()
+        latest = s.latest_report_dates() if s else None
+        if s and latest is None:
+            raise RuntimeError("Postgres unreachable")
+        for h in _active_hotels():
+            if latest is not None:
+                newest = latest.get(h["id"])
+            else:
+                rows = _recent_briefings(h["id"], 1, ["report_date"])
+                newest = rows[0]["report_date"] if rows else None
+            if not newest or newest < yesterday:
                 stale.append(h["name"])
     except Exception:  # noqa: BLE001 — /health must never 500 over this
         return _CACHE["stale"]

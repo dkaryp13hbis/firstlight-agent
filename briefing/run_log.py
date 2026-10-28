@@ -4,8 +4,12 @@ refresh_runs operational logger — one row per refresh attempt.
 Records timings per stage, data quality, per-card AI audit (facts given,
 validation attempts, fallback usage), token usage, and estimated cost.
 
-FAIL-OPEN: every Supabase error is printed and swallowed. Logging must never
+FAIL-OPEN: every store error is printed and swallowed. Logging must never
 break a briefing — if the logbook is unreachable, the run proceeds unlogged.
+
+2026-10-28 (Supabase retirement, stage 1): with STORAGE=pg the run id is
+generated here and Postgres is the logbook; Supabase gets a best-effort echo.
+The Supabase-first path below stays only for STORAGE unset (stage 2 removes it).
 """
 
 import os
@@ -29,6 +33,7 @@ class RunLogger:
         self._key = os.getenv("SUPABASE_SERVICE_KEY", "")
         self._finished = False
         self._finish_lock = threading.Lock()
+        self._pg_mode = False
 
     @property
     def _enabled(self) -> bool:
@@ -39,6 +44,19 @@ class RunLogger:
                 "Content-Type": "application/json"}
 
     def start(self) -> None:
+        from db import store
+        if store.read_from_pg():
+            import uuid
+            from db import sb_echo
+            rid = str(uuid.uuid4())
+            row = {"id": rid, "hotel_id": self.hotel_id, "run_type": self.run_type,
+                   "status": "running", "attempt": self.attempt}
+            if store.insert_run(row):
+                self.run_id, self._pg_mode = rid, True
+                sb_echo.echo("POST", "refresh_runs", None, row)
+            else:
+                print("[run-log] Postgres start failed (continuing unlogged)")
+            return
         if not self._enabled:
             return
         base = {"hotel_id": self.hotel_id, "run_type": self.run_type, "status": "running"}
@@ -83,7 +101,7 @@ class RunLogger:
         summary = (f"[run-log] {self.run_type} run {str(self.hotel_id)[:8]}…: {status}"
                    + (f" ({error_type}: {str(error_message)[:120]})" if error_type else ""))
         print(summary)
-        if not self._enabled or not self.run_id:
+        if not self.run_id or not (self._pg_mode or self._enabled):
             return
         payload: dict[str, Any] = {
             "status": status,
@@ -95,6 +113,12 @@ class RunLogger:
             payload["error_type"] = error_type
         if error_message is not None:
             payload["error_message"] = str(error_message)[:2000]
+        if self._pg_mode:
+            from db import store, sb_echo
+            if not store.update_run(self.run_id, payload):
+                print(f"[run-log] Postgres finish failed (run {self.run_id} stays 'running')")
+            sb_echo.echo("PATCH", "refresh_runs", {"id": f"eq.{self.run_id}"}, payload)
+            return
         try:  # Phase C dual-write (no-op unless STORAGE=dual|pg)
             from db import store
             store.update_run(self.run_id, payload)

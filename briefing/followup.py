@@ -135,7 +135,7 @@ def update_followups(hotel_id: str, data: dict, ai: dict,
     """Mutates ai in place (watch_closures + per-card follow_up) and keeps the
     hotel's FirstLight watchlist rows current.  Never raises."""
     today = date.today() - timedelta(days=0)   # run day; report_date is D-1
-    from db import store as _store
+    from db import store as _store, sb_echo
     rows = _store.fl_watch_rows(hotel_id)
     if rows is None:
         try:
@@ -159,10 +159,7 @@ def update_followups(hotel_id: str, data: dict, ai: dict,
         try:
             if action in ("resolve", "retire"):
                 _store.fl_watch_delete(row["id"])
-                try:
-                    _sb("DELETE", "watchlist", {"id": f"eq.{row['id']}"})
-                except Exception:
-                    pass   # echo
+                sb_echo.echo("DELETE", "watchlist", {"id": f"eq.{row['id']}"})
                 closures.append({
                     "key": row.get("key"), "kind": action,
                     "title": month_title(row.get("key") or "").upper(),
@@ -171,10 +168,7 @@ def update_followups(hotel_id: str, data: dict, ai: dict,
                 log.info(f"[followup] {action}: {row.get('key')} gap={gap}")
             elif action == "update":
                 _store.fl_watch_update(row["id"], patch)
-                try:
-                    _sb("PATCH", "watchlist", {"id": f"eq.{row['id']}"}, patch)
-                except Exception:
-                    pass   # echo
+                sb_echo.echo("PATCH", "watchlist", {"id": f"eq.{row['id']}"}, patch)
                 open_by_key[row["key"]] = {**row, **patch}
             else:
                 open_by_key[row["key"]] = row
@@ -208,10 +202,7 @@ def update_followups(hotel_id: str, data: dict, ai: dict,
                     "last_gap_date": str(today), "resolve_streak": 0,
                 }
                 _store.fl_watch_insert(new_row)
-                try:
-                    _sb("POST", "watchlist", None, new_row)
-                except Exception:
-                    pass   # echo
+                sb_echo.echo("POST", "watchlist", None, new_row)
                 taken.add(key)
                 fl_count += 1
                 open_by_key[key] = {"flagged_date": str(today),
