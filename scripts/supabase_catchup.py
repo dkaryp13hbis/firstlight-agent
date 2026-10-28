@@ -28,7 +28,8 @@ TABLES = {
     "insight_feedback": "hotel_id, report_date, card_id, user_id",
     "hotel_prefs": "hotel_id",
     "push_subscriptions": "user_id, hotel_id",
-    "watchlist": "id",
+    # watchlist: NOT copied — its Supabase-only rows are FirstLight follow-ups that
+    # Postgres already resolved (each store made its own ids); copying reopens them
     "usage_events": "id",
     "subscriptions": "hotel_id",
 }
