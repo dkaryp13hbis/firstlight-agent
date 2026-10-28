@@ -417,6 +417,40 @@ def assemble_snapshot(rows: dict[str, Any], hotel_ctx: dict[str, Any],
             "cancel_rev": round(float(r["cancel_rev"] or 0), 0),
         })
 
+    # ── Q18 / Q19: cross-filter engine inputs (review 2026-10-28, dark) ──
+    # Analyst-only: cloud_push strips both before a briefing is stored.
+    # Fail-open — a malformed row must never block the snapshot.
+    def _iso(v: Any) -> str:
+        return v.strftime("%Y-%m-%d") if hasattr(v, "strftime") else str(v)[:10]
+    booking_cube: list[dict] = []
+    cancel_detail: list[dict] = []
+    skipped = 0
+    for r in rows.get("booking_cube") or []:
+        try:
+            booking_cube.append({
+                "stay_date":   _iso(r["stay_date"]),
+                "source":      str(r.get("source") or "Direct"),
+                "room_cat":    None if r.get("room_cat") is None else str(r["room_cat"]),
+                "lead_bucket": r.get("lead_bucket"),
+                "rn_ty":  float(r.get("rn_ty") or 0),  "rev_ty": round(float(r.get("rev_ty") or 0), 2),
+                "rn_ly":  float(r.get("rn_ly") or 0),  "rev_ly": round(float(r.get("rev_ly") or 0), 2),
+            })
+        except Exception:   # noqa: BLE001 — one bad row is skipped, never fatal
+            skipped += 1
+    for r in rows.get("cancel_detail") or []:
+        try:
+            cancel_detail.append({
+                "cancel_date": _iso(r["cancel_date"]),
+                "stay_date":   _iso(r["stay_date"]),
+                "source":      str(r.get("source") or "Direct"),
+                "cancel_rn":   float(r.get("cancel_rn") or 0),
+                "cancel_rev":  round(float(r.get("cancel_rev") or 0), 2),
+            })
+        except Exception:   # noqa: BLE001
+            skipped += 1
+    if skipped:
+        print(f"[assemble] booking_cube / cancel_detail: {skipped} malformed row(s) skipped")
+
     # ── Q15: Consumed rn+rev by source, MTD vs LY-364d ────────────
     consumed_by_source = []
     for r in rows.get("consumed") or []:
@@ -534,6 +568,8 @@ def assemble_snapshot(rows: dict[str, Any], hotel_ctx: dict[str, Any],
         "consumed_by_source": consumed_by_source,
         "sources_by_month": sources_by_month,
         "pace_next_year": pace_next_year,
+        "booking_cube":  booking_cube,     # Q18 — analyst-only, stripped on publish
+        "cancel_detail": cancel_detail,    # Q19 — analyst-only, stripped on publish
         "hotel_type":  hotel_ctx.get("hotel_type", "resort"),
         "otb_by_date": otb_by_date,
         "current_month_remaining": current_month_remaining,

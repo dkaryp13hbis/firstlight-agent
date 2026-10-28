@@ -149,9 +149,47 @@ failures can.
 - *Payload:* each insight carries `confidence` (Layer A) and `drilldown`
   (signal, stay_from/to, source when named) — metadata only, no BI deep-link
   contract yet; the PWA ignores both until a screen is designed.
-- Tests: `test_review_r1.py` (195 checks). Known limitation kept honest: soft/hot
+- Tests: `test_review_r1.py` (198 checks). Known limitation kept honest: soft/hot
   dates compare the same CALENDAR date last year (a Friday vs a Thursday) — no
   weekday split is claimed until Release 2's same-weekday data exists.
+- *Size is not a cause (2026-10-28, found while testing Release 2):* a source that is
+  70% of the business carries ~70% of ANY even gap. `_source_attribution` now calls a
+  source "concentrated" only when its share of the gap is ≥ 60% AND ≥ 20 pts above its
+  share of last year's volume; `_lead_shift_attribution` the same against its average
+  booking share. Claims only get rarer; every existing test case still qualifies.
+
+**Review 2026-10-28 — Release 2: cross-filter engine (`briefing/discovery.py`, DARK):**
+- *Data:* Q18 `booking_cube` (next 90 stay dates × source × room category × booking
+  window, TY vs the SAME WEEKDAY last year −364 d at the same booking stage, cancelled-
+  later restored) and Q19 `cancel_detail` (cancel date × stay date × source, 8 days).
+  Protel: two new optional queries using only columns already used by Q4/Q13/Q14/Q17
+  (no new permissions). Opera: computed from the existing grain extract (no room
+  category there → `room_cat` None, the engine skips it). Both optional in the contract,
+  per-row fail-open in assemble, and STRIPPED before a briefing is stored (cloud_push
+  `_ANALYST_ONLY_KEYS`) — thousands of rows never reach the briefings table.
+- *Engine (raw numbers only):* `hidden_day_type` (month not ≥ 10% behind, Fri+Sat or
+  Sun–Thu nights ≥ 20% behind and the other nights covering it), `gap_driver` (month
+  ≥ 10% behind → which slice carries it), `cancellation_driver` (yesterday's cancels
+  ≥ 60% one source, z ≥ 2 vs its own zero-filled prior 7 days, real cancelled revenue
+  ≥ €1,000, with the stay dates). `explain()`: single dimensions first; a slice must
+  carry ≥ 60% of the gap, be ≥ 20 pts over-represented vs its volume, had ≥ 15 rn last
+  year, moved ≥ 10 rn, and clear Poisson z ≥ max(2, √(2·ln k)) with k = slices tested;
+  an extra dimension only when the narrower slice keeps ≥ 85% of the move; pairs only
+  when no single dimension explains it; ≤ 3 dimensions; signed contributions always
+  partition the parent gap; dims in canonical order (stable ids for novelty).
+- *Presentation (analyst.py):* `_discovery_candidate` builds period-scoped facts, a
+  review-language fallback inside the caps, confidence (High only with ≥ 80% share,
+  z ≥ bar + 1, ≥ 40 rn), a fingerprint metric (the slice's own gap; cancellation =
+  event day). Exposure (rn × that slice's own last-year rate) is internal only.
+- *Dark launch:* `DISCOVERY_CARDS` env (default off) → each discovery is written to
+  cards_audit as `card_id: "discovery:<id>"`, tag WATCH (headline, why, facts,
+  confidence) and never reaches an owner. On: `_fold_discoveries` folds a discovery
+  into the month's existing pace card (or yesterday's pickup / cancellation ALERT) —
+  facts as `driver_*`, its explanation first — and only competes on its own when no
+  card tells that story.
+- Measured: a worst-case 26,208-row cube runs in ≤ 0.23 s; random noise and an evenly
+  spread gap produce 0 discoveries; one planted driver is found in every month.
+  Tests: `test_discovery.py` (95 checks).
 
 **Word-limit contract (canonical, `_WORD_CAPS` + `_HERO_WORD_CAP` in analyst.py;
 relaxed 2026-09-05 and 2026-09-11 by user "go" — the table below was stale until
@@ -249,12 +287,26 @@ rule), and changing test assertions beyond the three that check removed names.
   ~40 texts + the user's Greek review. Not started — no Greek text is guessed.
 - ⬜ **PWA:** show `confidence` and (when a BI deep-link contract exists) `drilldown` on
   the card — mock from firstlight-pwa sources first (mock rule).
-- ⬜ **Release 2 — cross-filter engine** (ships DARK: findings → cards_audit only until
-  reconciled against Hotel Bi per hotel): stay date × source × room category × booking
-  window × status cube with SAME-WEEKDAY last year (364 d), cancellations by source ×
-  stay date; Protel uses only columns already proven in Q4/Q13/Q14/Q17 (date, SystemDate,
-  Canceled, Sourcen, kat). Segment + rate plan are fetched nowhere — not invented;
-  needs a column inventory on a live Protel + the Opera stats tables.
+- ✅ **Release 2 code — cross-filter engine** (§3, `briefing/discovery.py`, DARK):
+  Q18 booking cube + Q19 cancel detail (Protel SQL; Opera from the grain), engine,
+  presentation, dark audit + `DISCOVERY_CARDS` switch, folding. test_discovery.py 95/95.
+- ⬜ **Release 2 rollout** (after Release 1 is live and clean): deploy → manual refresh
+  per hotel → `refresh_runs.data_quality.rows_fetched.booking_cube` > 0 and the query
+  time acceptable on each hotel server → read the `discovery:*` cards_audit entries for
+  a week and reconcile each against Hotel Bi (same filters: stay dates, source, booking
+  window, same weekday last year) → only then `DISCOVERY_CARDS=1` (user's OK).
+- ⬜ **Q10 STLY undercount (found 2026-10-28, NOT fixed):** Protel Q10 (`otb_by_date`,
+  soft/hot dates) sums `h.Occupancy` for last-year rows that were active then and
+  cancelled later — Protel stores those with Occupancy 0, so last year's room nights
+  are understated (soft dates under-detected, hot dates over-detected). Q17/Q18 and the
+  Opera adapter restore them with the `datumbis = date` CASE. Fix = the same CASE in
+  Q10's `stly_otb`, validated on a live hotel before it changes a live signal.
+- ⬜ **Room category names:** Q18 ships `katnr` (the hotel's category NUMBER); the name
+  column of `protel.proteluser.kat` is not used anywhere yet — confirm it on a live DB
+  before any card says more than "room category 12". Opera grain has no category.
+- ⬜ **Segment + rate plan** are fetched nowhere (Protel or Opera) — not invented. Needs
+  a column inventory on a live Protel (Hitia) and the Opera view before they join the
+  cube (then: `_DIMS` entry + the same gates, no other engine change).
 
 **SUPABASE RETIREMENT — POSTGRES ONLY (2026-10-28, user: "ok lets totally kill supabase, everything should go to postgresql"):**
 Inventory (two Explore agents, 2026-10-28): ~200 touchpoints; Supabase was still the AUTHORITY for briefing publication + push recipients (`cloud_push`), the run log id (`run_log`), the refresh queue (`railway_main` poller, portal Refresh now, the app's refresh button), the intraday "already sent" claim, per-hotel API tokens (`_token_map`), /health stale list + daily audit, admin hotels / usage / feedback names / subscriptions / finance fallback, GoTrue email lookup; the PWA uses `sb` as its demo-mode switch and has a Supabase-only refresh button + push "any left?" read. PG already had every table (live check: subscriptions + watchlist follow-up columns present).
@@ -902,6 +954,7 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 | 2026-10-28 | **Analyst review → two releases; Release 2 (cross-filter engine) ships DARK** — its discoveries are recorded in cards_audit only, no owner sees them until the numbers are reconciled against Hotel Bi per hotel. Release 1 (existing data) ships normally after the Supabase stage-1 mornings are verified | User: "please go with both releases once you decide". A wrong cause in front of an owner is the worst case (safety-first rule); one production change per morning keeps incidents attributable |
 | 2026-10-28 | **Review/investigate-only is enforced in CODE, not just the prompt** — whole-sentence validators on every narrated field + hero, all fallback actions rewritten, directive names that reach Claude renamed; near-full dates keep the 75% gate with honest words ("filling up fast", no rate claim) | The 2026-08-10 action-language rule was only partly implemented: ~11 fallbacks still said "Consider a targeted offer" / "room for a higher rate", and the only check was the first word. User picked "keep 75%, honest words" |
 | 2026-10-28 | **The old prompt-only analyst (`_legacy_generate`) is retired**; word caps stay at the relaxed 2026-09-11 values (the brief's 20/35/25/110 came from the stale §3 table) | Legacy bypassed every validator and fired for any payload with one empty signal field (closed resorts); tightening caps would bring back the near-daily fallbacks the user removed |
+| 2026-10-28 | **"Size is not a cause": a slice (source, night type, booking window…) explains a gap only when it is OVER-represented in it** — ≥ 60% of the gap AND ≥ 20 pts above its share of the volume; applied to the live source attribution, the lead-time split and the new engine | Found while testing the engine: weekdays are ~74% of a month's nights, so they "carried 74%" of an evenly spread gap and were reported as its cause. The same flaw sat in the 2026-09-23 source attribution for big sources. Safety-first: claims only get rarer |
 | 2026-10-28 | **Stricter number check starts WATCH-ONLY** (sign / € / unit compared against the input, logged as `number_watch`) | User chose watch-only so launch week does not suddenly show many fallback cards; switch to enforcing after a week of evidence |
 | 2026-10-28 | **Postgres is the only database; Supabase is retired in stages** — stage 1 makes Postgres the authority for every read and write (Supabase gets a best-effort background echo, switchable with SUPABASE_ECHO=0), stage 1b takes the app off Supabase, stage 2 deletes the Supabase code / env / scripts after ≥ 2 clean mornings, stage 3 deletes the project only with an explicit OK | User: "ok lets totally kill supabase, everything should go to postgresql" (after the two-store trap found while writing the onboarding runbooks). Staged so every step is verified and reversible: the echo keeps a rollback path for a few days and the golden rule (never break a briefing) holds — a Postgres refusal still falls back to the old publish until stage 2 |
 | 2026-10-28 | **One login system: FirstLight's own (`AUTH=own`). Supabase Auth is retired for sign-in and the app no longer falls back to it. Dinos's password is left as it is** | User: "ok move on, please leave dinos pass as it is" after the plan (founder imported with the same uuid → app fix → AUTH=own). Every user was already on our login or moved today, and every app write already went through the API, so Tor saw no change. Rollback = AUTH=dual for 14 days |
@@ -963,7 +1016,8 @@ Potidea old-daemon decommission, Protel real-rooms + season-dates queries.
 
 | Commit | Date | What |
 |---|---|---|
-| (this commit — NOT deployed) | 2026-10-28 | ANALYST REVIEW RELEASE 1 (`cards-v1.11-review`, user: "please go with both releases once you decide"). See §3 "Review 2026-10-28". briefing/analyst.py (signals split into fail-open functions, shape / action / source validators, number watch, legacy retired, report-date anchor, next-year months, mixed + hidden-source cards, lead-time and mix/rate attribution, date runs, honest near-full words, hero leads with news, confidence + drilldown metadata); db/adapters/assemble.py (`report_date_iso`); tests: new test_review_r1.py 195/195; test_leadtime / test_source_attr / test_retry_feedback assertions on the REMOVED directive names / "Consider" opener updated, test_source_attr offsetting-share assertion updated to the new wording, test_novelty stub accepts the new `today` arg. Pre-existing failures unchanged (baseline run on a clean worktree): test_leadtime 2 (October date collision in its fixture), test_retry_feedback 3 (asserts the pre-2026-09-11 caps), test_push (pywebpush not installed locally) |
+| (this commit — NOT deployed) | 2026-10-28 | ANALYST REVIEW RELEASE 2 — cross-filter engine, DARK (§3 "Release 2"). New `briefing/discovery.py`; Protel Q18 `Q_BOOKING_CUBE` + Q19 `Q_CANCEL_DETAIL` (optional, fail-open, same tables / permissions); Opera `compute_pack` builds both from the grain; assemble pass-through (per-row fail-open); contract optional fields + rows_fetched; cloud_push strips both before storing; analyst `_discovery_candidate` / `_fold_discoveries` / dark cards_audit entries / `DISCOVERY_CARDS` switch / fingerprint branch; candidates now carry `stay_year` for pickup + cancellation. Plus the over-representation rule in `_source_attribution` and `_lead_shift_attribution`. Tests: test_discovery.py 95/95, test_review_r1.py 198/198; full suite unchanged vs baseline. No onboarding change (no new tables or grants) |
+| 935fae5 (NOT deployed) | 2026-10-28 | ANALYST REVIEW RELEASE 1 (`cards-v1.11-review`, user: "please go with both releases once you decide"). See §3 "Review 2026-10-28". briefing/analyst.py (signals split into fail-open functions, shape / action / source validators, number watch, legacy retired, report-date anchor, next-year months, mixed + hidden-source cards, lead-time and mix/rate attribution, date runs, honest near-full words, hero leads with news, confidence + drilldown metadata); db/adapters/assemble.py (`report_date_iso`); tests: new test_review_r1.py 195/195; test_leadtime / test_source_attr / test_retry_feedback assertions on the REMOVED directive names / "Consider" opener updated, test_source_attr offsetting-share assertion updated to the new wording, test_novelty stub accepts the new `today` arg. Pre-existing failures unchanged (baseline run on a clean worktree): test_leadtime 2 (October date collision in its fixture), test_retry_feedback 3 (asserts the pre-2026-09-11 caps), test_push (pywebpush not installed locally) |
 | (this commit) | 2026-10-28 | SUPABASE RETIREMENT STAGE 1 — Postgres authority everywhere in the backend (cloud_push, run_log, refresh queue + poller, intraday claim, push recipients, tokens, audit / health, admin endpoints), `db/sb_echo.py` background echo, new app endpoints `/app/hotels/{id}/refresh`, `/app/refresh/{id}`, `/push/any`, migration 005, `scripts/supabase_catchup.py`, NEW test_pg_only.py 65 (real local Postgres). Details: TO-DO "SUPABASE RETIREMENT" |
 | (this commit) | 2026-10-28 | DOCS: onboarding v3 (user: "based on the md file that we have for how to use the superadmin can we also create the onboarding process if its on premises and also onboarding process when its API?"). docs/ONBOARDING.md = start here (journey table, rules, the two-store ⚠, intake, portal Onboarding / Clients steps with exact labels, hotel-row SQL template, season dates, users via USER_ADMIN.md, verify via portal Hotels, merges / pauses, troubleshooting); NEW docs/ONBOARDING_ONPREM.md (Protel + Opera 5: adapters, intake extras, tunnel, read-only login, pre-flight, pms_config, legacy decommission, gotchas, Potidea worksheet) and docs/ONBOARDING_API.md (NOT live: on-prem vs API, PMS radar incl. Mews prior art, qualify → access → discovery → build → backfill → go-live, proposed pms_config). docs/README.md, CLAUDE.md doc rule and skill hotel-onboarding updated. No code change |
 | PWA 7b9ee82 + 5160440 + (config) AUTH=own + (this commit) | 2026-10-28 | LOGIN SWITCH FINISHED. Founder imported (same uuid, platform admin, 5 hotels + Tor portfolio verified through the API); PWA own-login only (no Supabase sign-in fallback, leftover Supabase sessions signed out once; 5160440 = the portal gate too, after the user hit "user store is not reachable"); web service `AUTH=own` set 17:26 UTC, deployed with this commit (Supabase JWTs rejected). Dinos's password untouched (user). Details: TO-DO "LOGIN SWITCH FINISHED" |

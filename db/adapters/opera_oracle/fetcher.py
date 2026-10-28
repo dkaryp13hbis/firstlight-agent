@@ -387,6 +387,38 @@ def compute_pack(rows: list[Row], today: date) -> dict[str, Any]:
     out["consumed"] = [dict(period=k[0], source=k[1], **v)
                        for k, v in sorted(cs.items(), key=lambda kv: (kv[0][0], -kv[1]["revenue"]))]
 
+    # ── Q18: Booking cube — next 90 stay dates × source × booking window, TY
+    # vs the SAME WEEKDAY last year (−364 d) at the same booking stage. The
+    # grain has no room category, so room_cat is None (the engine skips that
+    # dimension). Same restore-cancelled rules as Q10/Q17 (_alive_at/_rn_of).
+    cap364 = today - timedelta(days=364)
+    cube: dict[tuple, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for r in rows:
+        if r.bd is None:
+            continue
+        lead = (r.sd - r.bd).days
+        if r.sg in ACTIVE and today <= r.sd <= horizon:
+            k = (r.sd, r.src, _lead_bucket(lead))
+            cube[k]["rn_ty"] += r.rn; cube[k]["rev_ty"] += r.gross
+        sd_ty = r.sd + timedelta(days=364)
+        if today <= sd_ty <= horizon and r.bd <= cap364 and _alive_at(r, cap364):
+            k = (sd_ty, r.src, _lead_bucket(lead))
+            cube[k]["rn_ly"] += _rn_of(r); cube[k]["rev_ly"] += _rev_of(r)
+    out["booking_cube"] = [dict(stay_date=k[0], source=k[1], room_cat=None, lead_bucket=k[2],
+                                rn_ty=v["rn_ty"], rev_ty=v["rev_ty"],
+                                rn_ly=v["rn_ly"], rev_ly=v["rev_ly"])
+                           for k, v in sorted(cube.items())]
+
+    # ── Q19: Cancellations by cancel date × stay date × source, 8 days ──
+    cx: dict[tuple, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for r in rows:
+        if (r.sg == CANCELLED and r.cd is not None
+                and today - timedelta(days=8) <= r.cd <= yesterday and r.sd >= r.cd):
+            k = (r.cd, r.sd, r.src)
+            cx[k]["cancel_rn"] += r.crn; cx[k]["cancel_rev"] += r.cgross
+    out["cancel_detail"] = [dict(cancel_date=k[0], stay_date=k[1], source=k[2], **v)
+                            for k, v in sorted(cx.items())]
+
     return out
 
 

@@ -176,6 +176,18 @@ print("T6. offsetting sources")
 a = _source_attribution([src(11, "A", 20, 0, 100, 0), src(11, "B", 80, 0, 50, 0)], 11, -50)
 check("A −80 vs net −50: said in words", a["share_txt"] == "more than the whole gap, partly offset by other sources", a["share_txt"])
 
+print("Size is not a cause (over-representation rule)")
+# Big is 75% of last year and falls exactly like Small: it carries 75% of the
+# gap because it is big — never a "source-specific issue"
+a = _source_attribution([src(11, "Big", 210, 0, 300, 0), src(11, "Small", 70, 0, 100, 0)], 11, -120)
+check("an evenly shrinking big source is not 'concentrated'", a and a["spread"] != "concentrated", str(a and a["spread"]))
+a = _source_attribution([src(11, "BK", 100, 0, 180, 0), src(11, "Direct", 220, 0, 220, 0)], 11, -80)
+check("a source over-represented in the gap still is", a and a["spread"] == "concentrated", str(a and a["spread"]))
+even = {(11, 2026, "TY", "A"): {"rn": 70, "lxr": 1400}, (11, 2026, "TY", "B"): {"rn": 30, "lxr": 600},
+        (11, 2026, "LY", "A"): {"rn": 70, "lxr": 2100}, (11, 2026, "LY", "B"): {"rn": 30, "lxr": 900}}
+check("an even booking-timing shift names no source",
+      _lead_shift_attribution(even, 11, 2026, 100, 100, 30.0, -10.0) is None)
+
 # ── T8: December report with next year's January ───────────────────────────
 print("T8. December report → Jan 2027")
 dec_pace = [pace_row(1, 1200, 1100, 180_000, 160_000), pace_row(12, 900, 880, 150_000, 148_000)]

@@ -34,7 +34,7 @@ Hotel servers run ONLY cloudflared — all code, queries, and keys live here.
   `PYTHONIOENCODING=utf-8` (test output contains — and €).
 - Tests are plain scripts, no pytest: `py -3.13 test_contract.py`,
   `test_leadtime.py`, `test_hero.py`, `test_tunnel.py`, `test_review_r1.py`
-  (analyst review gates + validators).
+  (analyst review gates + validators), `test_discovery.py` (cross-filter engine).
 - PowerShell is 5.1: no `&&`; never put double quotes inside `git commit -m`
   here-strings (5.1 mangles embedded quotes passed to native exes).
 - `curl`/`curl.exe` fail with SSL error to Supabase — use `Invoke-RestMethod`.
@@ -52,6 +52,7 @@ Hotel servers run ONLY cloudflared — all code, queries, and keys live here.
 | `db/adapters/` | One folder per PMS (`get_adapter(pms_type)`). `protel_mssql/queries.py` = Q1–Q17, `fetcher.py` = snapshot builder. |
 | `db/tunnel.py` | On-demand `cloudflared access tcp` clients (port pool, caps). |
 | `briefing/analyst.py` | Two layers: deterministic compute (signals 1–6, source/cancellation attribution, gates, scoring, merges, novelty, hero slots) + Claude narration (per card + hero, validators, fallbacks). |
+| `briefing/discovery.py` | Cross-filter engine (Release 2, DARK unless `DISCOVERY_CARDS=1`): which slice (source × night type × booking window × room category) explains a gap — raw numbers only, gates against false discoveries. Input Q18/Q19, stripped before publish. |
 | `briefing/run_log.py` | Fail-open RunLogger → `refresh_runs`. |
 | `briefing/cloud_push.py` | Publish to Supabase (`notify=` controls push). |
 | `templates/` | Jinja2 report + email HTML. |

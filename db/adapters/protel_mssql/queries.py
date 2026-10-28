@@ -943,3 +943,112 @@ FROM (
 GROUP BY stay_month, source
 ORDER BY stay_month, SUM(rn_ty) DESC;
 """.format(fake_rt=_FAKE_RT_EXCLUDE)
+
+
+# ------------------------------------------------------------------
+# Q18: Booking cube — next 90 stay dates × source × room category ×
+# booking window: TY on the books vs the SAME WEEKDAY last year (stay date
+# − 364 days, Q15 convention) at the same booking stage (booked by
+# @today − 364 and still active then; cancelled-later rows restored via the
+# Occupancy CASE — Q17 convention). Weekday-aligned on purpose: Q10 matches
+# CALENDAR dates, so a Friday is compared with a Thursday — no weekday
+# pattern may be read from Q10. LY rows are keyed by their TY-equivalent
+# stay date (+364). Buckets = Q13. Only columns already used by Q4/Q13/
+# Q14/Q17 (date, SystemDate, Canceled, datumbis, Sourcen, katnr, Occupancy,
+# logis). Optional / fail-open — feeds the dark-launched cross-filter engine
+# (briefing/discovery.py, review 2026-10-28). Bounded: 91 + 91 stay dates.
+# ------------------------------------------------------------------
+
+Q_BOOKING_CUBE = """
+DECLARE @today   DATE = CAST(GETDATE() AS DATE);
+DECLARE @horizon DATE = DATEADD(DAY, 90, @today);
+DECLARE @cap_ly  DATE = DATEADD(DAY, -364, @today);
+DECLARE @ly_to   DATE = DATEADD(DAY, -364, @horizon);
+
+SELECT stay_date, source, room_cat, lead_bucket,
+       SUM(rn_ty)  AS rn_ty,
+       SUM(rev_ty) AS rev_ty,
+       SUM(rn_ly)  AS rn_ly,
+       SUM(rev_ly) AS rev_ly
+FROM (
+    SELECT stay_date, source, room_cat,
+           CASE WHEN lead_days <= 3  THEN '0-3'
+                WHEN lead_days <= 7  THEN '4-7'
+                WHEN lead_days <= 15 THEN '8-15'
+                WHEN lead_days <= 30 THEN '16-30'
+                WHEN lead_days <= 60 THEN '31-60'
+                WHEN lead_days <= 90 THEN '61-90'
+                ELSE '90+' END AS lead_bucket,
+           rn_ty, rev_ty, rn_ly, rev_ly
+    FROM (
+        -- TY: active stays in the next 90 days, as booked today
+        SELECT h.date AS stay_date,
+               ISNULL(NULLIF(LTRIM(RTRIM(h.Sourcen)), ''), 'Direct') AS source,
+               h.katnr AS room_cat,
+               DATEDIFF(DAY, CAST(h.SystemDate AS DATE), h.date) AS lead_days,
+               h.Occupancy AS rn_ty,
+               h.logis     AS rev_ty,
+               0           AS rn_ly,
+               0.0         AS rev_ly
+        FROM bidata.proteluser.Hitia h
+        WHERE h.mpehotel = ?
+          AND h.reschar < 2
+          AND {fake_rt}
+          AND h.date BETWEEN @today AND @horizon
+
+        UNION ALL
+
+        -- LY: same weekday 52 weeks earlier, as booked 364 days ago
+        SELECT DATEADD(DAY, 364, h.date),
+               ISNULL(NULLIF(LTRIM(RTRIM(h.Sourcen)), ''), 'Direct'),
+               h.katnr,
+               DATEDIFF(DAY, CAST(h.SystemDate AS DATE), h.date),
+               0,
+               0.0,
+               CASE WHEN h.reschar < 2 THEN h.Occupancy
+                    WHEN CAST(h.datumbis AS DATE) = CAST(h.date AS DATE) THEN 0
+                    ELSE 1 END,
+               h.logis
+        FROM bidata.proteluser.Hitia h
+        WHERE h.mpehotel = ?
+          AND (h.reschar < 2 OR (h.reschar = 2 AND CAST(h.Canceled AS DATE) > @cap_ly))
+          AND {fake_rt}
+          AND h.date BETWEEN @cap_ly AND @ly_to
+          AND CAST(h.SystemDate AS DATE) <= @cap_ly
+    ) u
+) t
+GROUP BY stay_date, source, room_cat, lead_bucket
+ORDER BY stay_date;
+""".format(fake_rt=_FAKE_RT_EXCLUDE)
+
+
+# ------------------------------------------------------------------
+# Q19: Cancellations by cancel date × stay date × source — the 8 days up
+# to yesterday (yesterday + the prior 7, zero-filled in Python). Q14
+# conventions at a finer grain: reschar = 2, day-use rows excluded via
+# datumbis > date, revenue = logis; future stays only (stay date >= cancel
+# date). Optional / fail-open — "which source and which dates" for the
+# cancellation discovery (review 2026-10-28).
+# ------------------------------------------------------------------
+
+Q_CANCEL_DETAIL = """
+DECLARE @today        DATE = CAST(GETDATE() AS DATE);
+DECLARE @window_start DATE = DATEADD(DAY, -8, @today);
+DECLARE @yesterday    DATE = DATEADD(DAY, -1, @today);
+
+SELECT CAST(h.Canceled AS DATE) AS cancel_date,
+       h.date                   AS stay_date,
+       ISNULL(NULLIF(LTRIM(RTRIM(h.Sourcen)), ''), 'Direct') AS source,
+       SUM(CASE WHEN CAST(h.datumbis AS DATE) > CAST(h.date AS DATE)
+                THEN 1 ELSE 0 END) AS cancel_rn,
+       SUM(h.logis)                AS cancel_rev
+FROM bidata.proteluser.Hitia h
+WHERE h.mpehotel = ?
+  AND h.reschar = 2
+  AND {fake_rt}
+  AND CAST(h.Canceled AS DATE) BETWEEN @window_start AND @yesterday
+  AND h.date >= CAST(h.Canceled AS DATE)
+GROUP BY CAST(h.Canceled AS DATE), h.date,
+         ISNULL(NULLIF(LTRIM(RTRIM(h.Sourcen)), ''), 'Direct')
+ORDER BY cancel_date, stay_date;
+""".format(fake_rt=_FAKE_RT_EXCLUDE)

@@ -72,6 +72,11 @@ def _publish_supabase(payload: dict[str, Any]) -> bool:
         return False
 
 
+# Snapshot keys the analyst consumes but the app never reads (Q18/Q19 cube,
+# review 2026-10-28) — dropped before the briefing is stored.
+_ANALYST_ONLY_KEYS = ("booking_cube", "cancel_detail")
+
+
 def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str | None = None,
                   hotel_id: str | None = None, source_run_id: str | None = None,
                   notify: bool = True) -> bool:
@@ -85,6 +90,8 @@ def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str |
 
     # Never persist analyst audit metadata into the customer-facing briefing
     ai = {k: v for k, v in ai.items() if k != "_meta"}
+    # Analyst-only inputs (thousands of rows) never go into the stored briefing
+    data = {k: v for k, v in data.items() if k not in _ANALYST_ONLY_KEYS}
 
     payload = {
         "hotel_id":     hotel_id,

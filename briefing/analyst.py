@@ -204,15 +204,21 @@ def _source_attribution(sources_by_month: list[dict], sm: int, rn_gap: float) ->
     Returns None when the data is absent, too thin, or does not reconcile
     with the pace gap — safety-first: say nothing rather than mis-attribute.
     share = top mover's delta / total gap; spread = concentrated (>= 60% in
-    one source) | broad (< 40% and 3+ sources moving the same way) | mixed."""
+    one source AND >= 20 pts more than its share of last year's volume —
+    review 2026-10-28: a source that is 70% of the business carries ~70% of
+    any even gap; that is its size, not a source-specific cause) | broad
+    (< 40% and 3+ sources moving the same way) | mixed."""
     rows = [r for r in sources_by_month if int(r.get("stay_month", 0)) == sm]
     if not rows or not rn_gap:
         return None
     deltas: dict[str, float] = {}
+    ly_rn: dict[str, float] = {}
     for r in rows:
         name = str(r.get("source") or "Unknown").strip() or "Unknown"
         deltas[name] = deltas.get(name, 0.0) + float(r.get("rn_ty", 0) or 0) - float(r.get("rn_stly", 0) or 0)
+        ly_rn[name] = ly_rn.get(name, 0.0) + float(r.get("rn_stly", 0) or 0)
     total = sum(deltas.values())
+    total_ly = sum(ly_rn.values())
     # Reconcile: the source deltas must add up to the pace gap (±20%, min 3 rn),
     # otherwise the two queries disagree and any attribution would mislead.
     if abs(total - rn_gap) > max(0.20 * abs(rn_gap), 3.0):
@@ -223,7 +229,8 @@ def _source_attribution(sources_by_month: list[dict], sm: int, rn_gap: float) ->
         return None
     top_name, top_delta = movers[0]
     share = abs(top_delta) / abs(rn_gap)
-    if share >= 0.60:
+    weight = ly_rn.get(top_name, 0.0) / total_ly if total_ly else 0.0
+    if share >= 0.60 and share - weight >= 0.20:
         spread = "concentrated"
     elif share < 0.40 and len(movers) >= 3:
         spread = "broad"
@@ -308,6 +315,11 @@ def _lead_shift_attribution(lt_src: dict, sm: int, sy: int, rn_ty: float, rn_ly:
         return None
     share = best["c"] / shift_days
     if share < 0.60 or best["rn_ty"] < 8:
+        return None
+    # a source with 70% of the bookings carries ~70% of an EVEN shift — that
+    # is its size, not a story: it must carry >= 20 pts more of the shift
+    # than its average share of bookings (review 2026-10-28)
+    if share - (best["w_ty"] + best["w_ly"]) / 2.0 < 0.20:
         return None
     if abs(best["within"]) >= abs(best["mix"]):
         if best["rn_ly"] < 8:
@@ -662,6 +674,7 @@ def _signal_pickup(ctx: dict) -> list[dict]:
                 "score":      round(score, 4),
                 "title_hint": fb_headline,
                 "month_num":  sm,
+                "stay_year":  sy,
                 "stake_eur":  rev_at_stake,
                 "insight": {
                     "id": f"pickup_{m_name.lower()}_{sy}",
@@ -1149,6 +1162,218 @@ def _signal_hidden_source(ctx: dict) -> list[dict]:
         })
     cands.sort(key=lambda c: c["score"], reverse=True)
     return cands[:_HIDDEN_MAX_CARDS]
+
+
+# ── Release 2: cross-filter discoveries (briefing/discovery.py) ──────────────
+# DARK by default (user decision 2026-10-28): discoveries are recorded in
+# cards_audit ("discovery:<id>", tag WATCH) and never reach an owner until
+# their numbers have been reconciled against Hotel Bi for each hotel. Set
+# DISCOVERY_CARDS=1 to let them compete as cards; even then a discovery about
+# a month/event that already has a card FOLDS into that card (one story, one
+# card) instead of shipping twice.
+_DISCOVERY_CARDS = _os.getenv("DISCOVERY_CARDS", "0") == "1"
+
+
+def _short_date(d: _date) -> str:
+    return d.strftime("%b %d").replace(" 0", " ")
+
+
+def _slice_desc(dims: dict) -> str:
+    """'BK weekday bookings made 31–60 days ahead' — words only from Layer A
+    values; source codes verbatim (rule 15)."""
+    lead = dims.get("lead_bucket")
+    if lead:
+        lead = "over 90" if lead == "90+" else lead.replace("-", "–")
+    parts = [p for p in (dims.get("source"), dims.get("day_type")) if p]
+    desc = " ".join(parts + ["bookings"])
+    if lead:
+        desc += f" made {lead} days ahead"
+    if dims.get("room_cat"):
+        desc += f" in room category {dims['room_cat']}"
+    return desc
+
+
+def _discovery_candidate(d: dict, ctx: dict) -> dict:
+    """Presentation for one raw discovery: period-scoped facts, a fallback
+    card inside the caps, review language, a fingerprint metric, the score."""
+    today, base = ctx["today"], ctx["daily_rev_baseline"]
+    kind = d["discovery_type"]
+    m_name = _cal.month_abbr[d["month"]]
+    month_label = f"{m_name} {d['year']}"
+    f_from, f_to = _short_date(d["from"]), _short_date(d["to"])
+    span = f"{f_from}–{f_to}" if d["from"] != d["to"] else f_from
+    p_vs = f"stays {span}, vs same weekdays last year"
+    conf = d["confidence"]
+    m_start = _date(d["year"], d["month"], 1)
+    days_to_start = max(0, (max(d["from"], m_start) - today).days)
+
+    if kind == "hidden_day_type":
+        pat, ov = d["pattern"], d["overall"]
+        dt = pat["dims"]["day_type"]
+        nights = "Friday and Saturday nights" if dt == "weekend" else "Sunday to Thursday nights"
+        other = "weekdays" if dt == "weekend" else "weekends"
+        other_delta = ov["delta"] - pat["delta"]
+        f_total, f_cell = _pct_signed(ov["pct"] * 100), _pct_signed(pat["pct"] * 100)
+        f_abs, f_gap, f_other = _pct(abs(pat["pct"]) * 100, 0), _rn_signed(pat["delta"]), _rn_signed(other_delta)
+        facts = {
+            "month_label":       month_label,
+            "bookings_vs_ly":    _fact(f_total, p_vs),
+            "nights":            nights,
+            "nights_vs_ly":      _fact(f_cell, f"{nights}, {p_vs}"),
+            "nights_behind_pct": _fact(f_abs, f"{nights}, {p_vs}"),
+            "nights_rn":         _fact(f"{int(pat['ty']):,} rn vs {int(pat['ly']):,} rn", f"{nights}, {p_vs}"),
+            "nights_gap":        _fact(f_gap, f"{nights}, {p_vs}"),
+            "other_nights_move": _fact(f_other, f"other nights, {p_vs}"),
+        }
+        why = f"The other nights are {f_other}, which hides a {f_gap} gap in the monthly total"
+        action = f"It may be worth checking which {m_name} {dt} dates and sources are behind last year."
+        drv = d.get("driver")
+        if drv:
+            desc = _slice_desc(drv["dims"])
+            facts["driver"] = _fact(desc, f"{nights}, {p_vs}")
+            facts["driver_share"] = _fact(_share_of(drv["share"], "gap"), f"{nights}, {p_vs}")
+            why += f"; {desc} account for {_share_of(drv['share'], 'gap')}"
+            action = f"It may be worth reviewing {desc} for {m_name} {dt} nights."
+        hypo_text = (f"{nights} are {f_cell} vs the same weekdays last year while the other nights "
+                     f"are {f_other} — the monthly total hides it")
+        fb = {
+            "headline": f"{m_name}: {dt} bookings {f_abs} behind, hidden by {other}",
+            "evidence": [
+                {"label": f"BOOKINGS ({span})", "value": f_total, "sub": "vs same weekdays last year"},
+                {"label": "FRI + SAT NIGHTS" if dt == "weekend" else "SUN–THU NIGHTS", "value": f_cell,
+                 "sub": f"{int(pat['ty']):,} rn vs {int(pat['ly']):,} rn"},
+            ],
+            "what_happened": (f"Stays {span} are {f_total} vs the same weekdays last year, "
+                              f"but {nights} are {f_cell}."),
+            "why_it_matters": f"{why} (confidence: {conf}).",
+            "recommended_action": action,
+            "by_when": "Within 7 days.",
+        }
+        slug, metric, ly_vol, magnitude = dt, pat["pct"] * 100, pat["ly"], _magnitude_pct(pat["pct"])
+    elif kind == "gap_driver":
+        pat, ov = d["pattern"], d["overall"]
+        desc = _slice_desc(pat["dims"])
+        f_total, f_total_gap = _pct_signed(ov["pct"] * 100), _rn_signed(ov["delta"])
+        f_gap, f_share = _rn_signed(pat["delta"]), _share_of(d["share"], "gap")
+        f_rest = _pct_signed(d["rest_pct"] * 100)
+        facts = {
+            "month_label":    month_label,
+            "bookings_vs_ly": _fact(f_total, p_vs),
+            "bookings_gap":   _fact(f_total_gap, p_vs),
+            "slice":          _fact(desc, p_vs),
+            "slice_gap":      _fact(f_gap, p_vs),
+            "slice_share":    _fact(f_share, p_vs),
+            "rest_of_month":  _fact(f_rest, f"everything else, {p_vs}"),
+        }
+        rest_txt = (f"the rest of the month is close to last year ({f_rest})" if abs(d["rest_pct"]) < 0.10
+                    else f"the rest of the month is {f_rest}")
+        headline = f"{m_name} gap: mostly {desc}"
+        if len(headline.split()) > _WORD_CAPS["headline"]:
+            headline = f"{m_name}: one slice carries most of the gap"
+        fb = {
+            "headline": headline,
+            "evidence": [
+                {"label": f"BOOKINGS ({span})", "value": f_total, "sub": "vs same weekdays last year"},
+                {"label": "WHERE THE GAP SITS", "value": f_gap, "sub": f_share},
+            ],
+            "what_happened": (f"Stays {span} are {f_total} ({f_total_gap}) vs the same "
+                              f"weekdays last year."),
+            "why_it_matters": f"{desc[0].upper() + desc[1:]} account for {f_share} ({f_gap}); {rest_txt} (confidence: {conf}).",
+            "recommended_action": f"It may be worth checking what changed for {desc} in {m_name}.",
+            "by_when": "Within 7 days.",
+        }
+        hypo_text = f"{desc[0].upper() + desc[1:]} account for {f_share} — {rest_txt}"
+        slug = "_".join(str(v) for v in pat["dims"].values())
+        metric, ly_vol, magnitude = pat["pct"] * 100, pat["ly"], _magnitude_pct(pat["pct"])
+    else:   # cancellation_driver
+        src, top = d["source"], d["top_dates"]
+        consecutive = all((b - a).days == 1 for a, b in zip(top, top[1:]))
+        dates = (f"{_short_date(top[0])}–{_short_date(top[-1])}" if len(top) > 1 and consecutive
+                 else ", ".join(_short_date(x) for x in top[:3]))
+        p_y = "cancelled yesterday"
+        f_share = _share_of(d["share"], "cancellations")
+        f_norm = f"{d['source_prior_avg']:.1f} rn/day"
+        facts = {
+            "month_label":       month_label,
+            "cancelled_yday":    _fact(f"{int(d['total_rn'])} rn", f"{p_y}, all stays"),
+            "source_cancelled":  _fact(f"{src} {int(d['source_rn'])} rn", p_y),
+            "source_share":      _fact(f_share, p_y),
+            "source_normal":     _fact(f_norm, f"{src} cancellations per day, prior 7 days"),
+            "stay_dates":        _fact(dates, f"stays hit by yesterday's {src} cancellations"),
+            "cancelled_rev":     _fact(_eur(d["source_rev"]), f"{src}, {p_y}"),
+        }
+        headline = f"Yesterday's cancellations: mostly {src}, for {dates} stays"
+        if len(headline.split()) > _WORD_CAPS["headline"]:
+            headline = f"Yesterday's cancellations came mostly from {src}"
+        fb = {
+            "headline": headline,
+            "evidence": [
+                {"label": "CANCELLED YESTERDAY", "value": f"{int(d['total_rn'])} rn", "sub": f"{src}: {int(d['source_rn'])} rn"},
+                {"label": "STAY DATES HIT", "value": dates, "sub": f"{src} normal: {f_norm}"},
+            ],
+            "what_happened": (f"{int(d['total_rn'])} room nights were cancelled yesterday; "
+                              f"{int(d['source_rn'])} came from {src}, against a normal {f_norm} from that source."),
+            "why_it_matters": f"{src} accounts for {f_share}, mostly for {dates} stays (confidence: {conf}).",
+            "recommended_action": f"Worth checking yesterday's {src} cancellations for {dates} for a common group or contract.",
+            "by_when": "Today — before the next briefing.",
+        }
+        hypo_text = f"{src} accounts for {f_share} of yesterday's cancellations, mostly for {dates} stays"
+        slug, metric, ly_vol, magnitude = src, d["share"] * 100, d["source_rn"], _magnitude_z(d["z"])
+
+    cid = f"disc_{kind}_{re.sub(r'[^a-z0-9]+', '', str(slug).lower()) or 'x'}_{m_name.lower()}_{d['year']}"
+    facts["value_at_stake"] = _eur(d["exposure_eur"])           # internal only
+    facts["value_at_stake_calc"] = "slice room nights × that slice's own last-year rate"
+    fb.update({"id": cid, "tag": "ALERT"})
+    score = _score_candidate(min(d["exposure_eur"] / base, 1.0), _urgency(days_to_start),
+                             magnitude, C=_confidence(ly_vol))
+    return {
+        "signal": "discovery", "discovery_type": kind, "parent_signal": d["parent_signal"],
+        "tag": "ALERT", "score": round(score, 4), "title_hint": fb["headline"],
+        "month_num": d["month"], "stay_year": d["year"], "stake_eur": d["exposure_eur"],
+        "disc_metric": metric,
+        "insight": {
+            "id": cid, "tag": "ALERT", "score": round(score, 4), "signal": "discovery",
+            "stay_period": {"from": d["from"].isoformat(), "to": d["to"].isoformat(),
+                            "label": f"stays {span}"},
+            "days_to_nearest_arrival": days_to_start,
+            "booking_window_days_left": max(0, (d["to"] - today).days),
+            "facts": facts,
+            "cause_hypotheses": [{"text": hypo_text, "confidence": conf}],
+            "action_directives": {
+                "type": "investigate_cancellations" if kind == "cancellation_driver" else "investigate_gap",
+                "target": fb["recommended_action"],
+                "deadline": fb["by_when"].rstrip("."),
+                "trigger_if_monitor": None,
+            },
+            "history": {"first_raised": None, "previously_advised": None},
+        },
+        "fallback_card": fb,
+        "discovery": {k: v for k, v in d.items() if k not in ("from", "to", "top_dates")},
+    }
+
+
+def _fold_discoveries(candidates: list[dict], discoveries: list[dict]) -> list[dict]:
+    """One story, one card: a discovery about a month that already has a pace
+    card (or about yesterday's cancellations that already have a pickup /
+    cancellation card) folds its facts and leading explanation into that
+    card; otherwise it competes as its own candidate."""
+    for dc in discoveries:
+        if dc["parent_signal"] == "pace":
+            host = next((c for c in candidates if c["signal"] == "pace"
+                         and (c.get("month_num"), c.get("stay_year")) == (dc["month_num"], dc["stay_year"])), None)
+        else:
+            host = next((c for c in candidates if c["signal"] in ("pickup", "cancellation")
+                         and c.get("tag") == "ALERT"
+                         and (c.get("month_num"), c.get("stay_year")) == (dc["month_num"], dc["stay_year"])), None)
+        if host is None:
+            candidates.append(dc)
+            continue
+        for k, v in dc["insight"]["facts"].items():
+            if k != "month_label" and not k.startswith("value_at_stake"):
+                host["insight"]["facts"].setdefault(f"driver_{k}", v)
+        host["insight"]["cause_hypotheses"].insert(0, dc["insight"]["cause_hypotheses"][0])
+        print(f"[analyst] Discovery {dc['insight']['id']} folded into {host['insight']['id']}")
+    return candidates
 
 
 def _signal_lead_time(ctx: dict) -> list[dict]:
@@ -1964,6 +2189,7 @@ def _signal_cancellations(ctx: dict) -> list[dict]:
                 "score":      round(score, 4),
                 "title_hint": fb_headline,
                 "month_num":  sm,
+                "stay_year":  sy,
                 "stake_eur":  c_rev,
                 "insight": {
                     "id": f"cancel_{m_name.lower()}_{sy}",
@@ -2027,6 +2253,27 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             compute_errors.append(f"{merge.__name__}: {type(exc).__name__}: {exc}"[:200])
             print(f"[analyst] {merge.__name__} failed — cards kept unmerged: {exc}")
 
+    # ── Release 2 cross-filter discoveries (DARK unless DISCOVERY_CARDS=1) ───
+    # Computed after the merges so a discovery folds into the FINAL card for
+    # its month / event (one story, one card).
+    discoveries: list[dict] = []
+    try:
+        from briefing import discovery as _disc
+        found, errs = _disc.discover_all(data, today, float(_STAKE_FLOOR_EUR))
+        compute_errors.extend(errs)
+        for d in found:
+            try:
+                discoveries.append(_discovery_candidate(d, ctx))
+            except Exception as exc:
+                compute_errors.append(f"discovery card {d.get('discovery_type')}: {exc}"[:200])
+        if discoveries:
+            print(f"[analyst] Discoveries ({'LIVE' if _DISCOVERY_CARDS else 'dark'}): "
+                  f"{[c['insight']['id'] for c in discoveries]}")
+        if _DISCOVERY_CARDS:
+            candidates = _fold_discoveries(candidates, discoveries)
+    except Exception as exc:
+        compute_errors.append(f"discovery: {type(exc).__name__}: {exc}"[:200])
+
     # ── Fingerprints (2026-09-24): every card carries its state so the gate
     # can tell "same story" from "moved" — with or without a euro stake.
     for c in candidates:
@@ -2070,6 +2317,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
         "demoted":   demoted,     # repeats held back today (open items)
         "headline":  headline,
         "compute_errors": compute_errors,
+        "discoveries": discoveries,   # Release 2 — recorded in cards_audit while dark
     }
 
 
@@ -2301,6 +2549,11 @@ def _fingerprint(c: dict, yesterday_str: str) -> dict:
         metric = _first_signed_number(_fv("vs_ref_band"))
     elif sig == "hidden_source":
         metric = _first_signed_number(_fv("source_vs_stly_pct"))   # the source's own gap
+    elif sig == "discovery":
+        if c.get("discovery_type") == "cancellation_driver":
+            key = f"day:{yesterday_str}"      # a cancellation burst is an event
+        else:
+            metric = c.get("disc_metric")     # the slice's own gap, signed %
     elif sig == "lead_time":
         metric = _first_signed_number(_fv("lead_shift"))
     elif sig in ("soft_dates", "hot_dates"):
@@ -3474,6 +3727,20 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None,
                 "attempts": 0, "fallback_used": False,
                 "validation_problems": computed["compute_errors"],
             })
+        if not _DISCOVERY_CARDS:
+            # Release 2 dark launch: what the engine found, for reconciliation
+            # against Hotel Bi — never shown to the owner
+            for dc in computed.get("discoveries") or []:
+                meta["cards_audit"].append({
+                    "card_id": f"discovery:{dc['insight']['id']}", "signal": "discovery",
+                    "tag": "WATCH", "attempts": 0, "fallback_used": False,
+                    "validation_problems": [], "score": dc["score"],
+                    "headline": dc["fallback_card"]["headline"],
+                    "why": dc["fallback_card"]["why_it_matters"],
+                    "facts": {k: v for k, v in dc["insight"]["facts"].items()
+                              if not k.startswith("value_at_stake")},
+                    "confidence": dc["insight"]["cause_hypotheses"][0]["confidence"],
+                })
         cards: list[dict] = []
         for cand in ranked[:5]:
             if not narrate:

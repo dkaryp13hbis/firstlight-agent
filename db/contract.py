@@ -54,6 +54,12 @@ Signal fields (power the v1.2 analyst; absent → legacy_mode):
   sources_by_month        [ {stay_month, stay_year, source, rn_ty, rev_ty,
                              rn_stly, rev_stly} ]   (optional; Q4 conventions,
                           so per-source deltas add up to the pace gap)
+  booking_cube            [ {stay_date, source, room_cat|None, lead_bucket,
+                             rn_ty, rev_ty, rn_ly, rev_ly} ]   (optional, Q18:
+                          next 90 days; LY = same weekday −364 d at the same
+                          booking stage; analyst-only, stripped on publish)
+  cancel_detail           [ {cancel_date, stay_date, source, cancel_rn,
+                             cancel_rev} ]   (optional, Q19: 8 days to yesterday)
 
 Query windows (adapters MUST stay bounded — stateless aggregates, no full
 history reloads): MTD; next 90 days by date; last 14 days pickup; 12 months
@@ -88,7 +94,9 @@ _SIGNAL_FIELDS = ("pickup_daily", "otb_by_date", "current_month_remaining")
 _SIGNAL_PREFIXES = _SIGNAL_FIELDS + ("pace[].rn_stly", "pace[].rn_final_ly",
                                      "lead_time", "cancel_daily",
                                      "consumed_by_source", "pace_next_year",
-                                     "sources_by_month")
+                                     "sources_by_month",
+                                     # review 2026-10-28, Release 2 (dark)
+                                     "booking_cube", "cancel_detail")
 
 _REQUIRED_YESTERDAY = ("revenue", "revenueLY", "roomNights", "roomNightsLY",
                        "adr", "adrLY", "occupancy", "occupancyLY")
@@ -161,13 +169,17 @@ def build_data_quality(data: dict[str, Any], total_rooms: int | None = None) -> 
         missing.append("consumed_by_source")
     if not data.get("sources_by_month"):
         missing.append("sources_by_month")
+    for opt in ("booking_cube", "cancel_detail"):   # Q18 / Q19 — optional
+        if not data.get(opt):
+            missing.append(opt)
 
     # ── Row counts ────────────────────────────────────────────────────────
     rows_fetched = {
         field: len(data.get(field) or [])
         for field in ("pace", "pickup_daily", "otb_by_date", "topChannels",
                       "next7days", "lead_time", "cancel_daily",
-                      "consumed_by_source", "sources_by_month")
+                      "consumed_by_source", "sources_by_month",
+                      "booking_cube", "cancel_detail")
     }
 
     # ── Sanity checks ─────────────────────────────────────────────────────

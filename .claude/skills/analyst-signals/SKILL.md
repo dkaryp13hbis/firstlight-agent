@@ -53,6 +53,13 @@ Two layers, strictly separated:
   gap/change, partly offset by other sources" (`_share_of`).
 - Soft/hot dates compare the same CALENDAR date last year — never claim a
   weekday pattern from them (needs Release 2 same-weekday data).
+- SIZE IS NOT A CAUSE: a slice explains a gap only when over-represented in it
+  (≥ 60% of the gap AND ≥ 20 pts above its share of volume).
+- CROSS-FILTER ENGINE (`briefing/discovery.py`, Release 2, DARK): raw numbers
+  only (no formatting, no Claude); `_discovery_candidate` in analyst.py does the
+  presentation. `DISCOVERY_CARDS=1` lets discoveries compete — otherwise they
+  are cards_audit `discovery:<id>` WATCH entries only. A new dimension = one
+  `_DIMS` entry + data in Q18; the gates (`explain`) stay as they are.
 - Scoring `_score_candidate(R,U,M,N,C)` = (0.35R + 0.25U + 0.25M + 0.15N)·C;
   ranked = score ≥ 0.08, top 6, narrate top 5.
 - Merges before ranking: same-month pace+projection; pickup ALERT + soft dates.
