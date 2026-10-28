@@ -33,7 +33,8 @@ Hotel servers run ONLY cloudflared — all code, queries, and keys live here.
 - Local Python 3.11 is broken — run tests with `py -3.13`, and set
   `PYTHONIOENCODING=utf-8` (test output contains — and €).
 - Tests are plain scripts, no pytest: `py -3.13 test_contract.py`,
-  `test_leadtime.py`, `test_hero.py`, `test_tunnel.py`.
+  `test_leadtime.py`, `test_hero.py`, `test_tunnel.py`, `test_review_r1.py`
+  (analyst review gates + validators).
 - PowerShell is 5.1: no `&&`; never put double quotes inside `git commit -m`
   here-strings (5.1 mangles embedded quotes passed to native exes).
 - `curl`/`curl.exe` fail with SSL error to Supabase — use `Invoke-RestMethod`.

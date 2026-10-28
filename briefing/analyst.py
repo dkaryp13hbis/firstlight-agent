@@ -34,7 +34,7 @@ import config
 
 _client = None
 _MODEL = "claude-sonnet-4-6"
-_PROMPT_VERSION = "cards-v1.10-novelty"
+_PROMPT_VERSION = "cards-v1.11-review"
 
 # Cost policy (user decision 2026-07-27): every Claude call costs money, so
 # narration gets ONE attempt — a validation miss goes straight to the free
@@ -115,9 +115,12 @@ def _rn_signed(x: float) -> str:
 
 
 def _occ_band(point_pct: float) -> str:
-    """Occupancy projection as a +/-2pt band. The point is never exposed."""
-    lo = max(0, int(round(point_pct)) - 2)
-    hi = min(100, int(round(point_pct)) + 2)
+    """Occupancy projection as a +/-2pt band. The point is never exposed.
+    The point is clamped to 0–100 first: a month on course to beat full
+    occupancy read "108–100%" (review 2026-10-28)."""
+    point = min(100, max(0, int(round(point_pct))))
+    lo = max(0, point - 2)
+    hi = min(100, point + 2)
     return f"{lo}–{hi}%"
 
 
@@ -226,40 +229,283 @@ def _source_attribution(sources_by_month: list[dict], sm: int, rn_gap: float) ->
         spread = "broad"
     else:
         spread = "mixed"
-    if share >= 0.95:
-        share_txt = "nearly all of the gap" if sign < 0 else "nearly all of the lead"
-    else:
-        pct5 = int(round(share * 100 / 5.0) * 5)
-        share_txt = f"about {pct5}% of the {'gap' if sign < 0 else 'lead'}"
+    # above ~100% other sources moved the other way: _share_of says so in
+    # words instead of a misleading "nearly all" (review 2026-10-28)
+    share_txt = _share_of(share, "gap" if sign < 0 else "lead")
     direct = next(((n, d) for n, d in deltas.items() if n.lower() == "direct"), None)
     return {"top_name": top_name, "top_delta": top_delta, "share": share,
             "share_txt": share_txt, "spread": spread, "movers": movers, "direct": direct}
 
 
-# ─── Layer A: main compute function ──────────────────────────────────────────
+def _source_totals(sources_by_month: list[dict], sm: int, name: str) -> tuple[float, float]:
+    """This year's booked room nights + revenue for one source and stay month
+    (same source-name normalisation as _source_attribution)."""
+    rn = rev = 0.0
+    for r in sources_by_month:
+        if int(r.get("stay_month", 0)) != sm:
+            continue
+        if (str(r.get("source") or "Unknown").strip() or "Unknown") == name:
+            rn  += float(r.get("rn_ty", 0) or 0)
+            rev += float(r.get("rev_ty", 0) or 0)
+    return rn, rev
 
-def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
-    """
-    Returns {"ranked": [...], "watchlist": [...], "headline": {...}}.
-    Ranked entries carry the full narration input contract + fallback_card.
-    """
-    today = _date.today()
+
+def _longest_run(entries: list[dict]) -> list[dict]:
+    """Longest block of consecutive stay dates (entries carry a 'date')."""
+    best: list[dict] = []
+    cur: list[dict] = []
+    for e in sorted(entries, key=lambda x: x["date"]):
+        if cur and (e["date"] - cur[-1]["date"]).days == 1:
+            cur.append(e)
+        else:
+            cur = [e]
+        if len(cur) > len(best):
+            best = list(cur)
+    return best
+
+
+def _about_pct(share: float) -> str:
+    return f"about {int(round(share * 100 / 5.0) * 5)}%"
+
+
+def _share_of(share: float, noun: str) -> str:
+    """'about 70% of the change' — or plain words when other parts offset."""
+    if share > 1.05:
+        return f"more than the whole {noun}, partly offset by other sources"
+    if share >= 0.95:
+        return f"nearly all of the {noun}"
+    return f"{_about_pct(share)} of the {noun}"
+
+
+def _lead_shift_attribution(lt_src: dict, sm: int, sy: int, rn_ty: float, rn_ly: float,
+                            lead_ly_avg: float, shift_days: float) -> dict | None:
+    """Which source accounts for a stay month's change in average booking
+    lead (review 2026-10-28). Exact, signed split around last year's average
+    L̄:   c_s = w_ty·(L_ty − L̄) − w_ly·(L_ly − L̄)   and   Σ c_s == shift.
+    Each c_s = within (w_ty·(L_ty − L_ly): that source books earlier/later)
+             + mix    ((w_ty − w_ly)·(L_ly − L̄): more/fewer bookings from it).
+    Safety-first: a source is named only when it carries >= 60% of the shift
+    in the shift's direction with >= 8 rn this year (and >= 8 last year when
+    the story is 'books later/earlier'); otherwise None."""
+    if not rn_ty or not rn_ly or not shift_days:
+        return None
+    best = None
+    for src in {k[3] for k in lt_src if k[0] == sm and k[1] == sy}:
+        a = lt_src.get((sm, sy, "TY", src)) or {"rn": 0.0, "lxr": 0.0}
+        b = lt_src.get((sm, sy, "LY", src)) or {"rn": 0.0, "lxr": 0.0}
+        w_ty, w_ly = a["rn"] / rn_ty, b["rn"] / rn_ly
+        l_ty = a["lxr"] / a["rn"] if a["rn"] else None
+        l_ly = b["lxr"] / b["rn"] if b["rn"] else None
+        c = ((w_ty * (l_ty - lead_ly_avg)) if l_ty is not None else 0.0) \
+            - ((w_ly * (l_ly - lead_ly_avg)) if l_ly is not None else 0.0)
+        within = w_ty * (l_ty - l_ly) if (l_ty is not None and l_ly is not None) else 0.0
+        mix = c - within
+        if best is None or c * shift_days > best["c"] * shift_days:
+            best = {"source": src, "c": c, "within": within, "mix": mix,
+                    "rn_ty": a["rn"], "rn_ly": b["rn"], "w_ty": w_ty, "w_ly": w_ly,
+                    "l_ref": l_ly if l_ly is not None else l_ty}   # new source: its TY lead
+    if not best:
+        return None
+    share = best["c"] / shift_days
+    if share < 0.60 or best["rn_ty"] < 8:
+        return None
+    if abs(best["within"]) >= abs(best["mix"]):
+        if best["rn_ly"] < 8:
+            return None
+        kind = "within"
+        kind_txt = ("its guests now book closer to arrival" if best["within"] < 0
+                    else "its guests now book further ahead")
+    else:
+        kind = "mix"
+        more = "more" if best["w_ty"] > best["w_ly"] else "fewer"
+        rel = "closer to arrival" if best["l_ref"] < lead_ly_avg else "further ahead"
+        kind_txt = f"{more} bookings now come from it, and it books {rel} than other sources"
+    share_txt = _share_of(share, "change")
+    return {"source": best["source"], "share": share, "kind": kind, "share_txt": share_txt,
+            "kind_txt": kind_txt,
+            "sentence": f"{best['source']} accounts for {share_txt}; {kind_txt}."}
+
+
+def _mix_rate_split(sources_by_month: list[dict], sm: int, rn_ty: float, rev_ty: float,
+                    rn_stly: float, rev_stly: float) -> dict | None:
+    """Split a month's average-rate change vs same time last year into
+    'which sources sold' (mix) and 'rates within each source' (rate), using
+    the charts.py ADR bridge on Q17 rows (midpoint weights, exact identity:
+    mix + rate == ADR change). Safety-first — None unless Q17 describes the
+    same bookings as Q4 (room nights within max(3, 2%), revenue within 2%,
+    both periods) and the identity holds. Returns {kind, mix_share, txt}."""
+    from decimal import Decimal as D
+    try:
+        from briefing.charts import _adr_bridge_core
+    except Exception:
+        return None
+    ty: dict = {}
+    ly: dict = {}
+    for r in sources_by_month:
+        if int(r.get("stay_month", 0)) != sm:
+            continue
+        name = str(r.get("source") or "Unknown").strip() or "Unknown"
+        for d, rn_k, rev_k in ((ty, "rn_ty", "rev_ty"), (ly, "rn_stly", "rev_stly")):
+            rn, rev = float(r.get(rn_k) or 0), float(r.get(rev_k) or 0)
+            if rn > 0:
+                a, b = d.get(name, (D(0), D(0)))
+                d[name] = (a + D(str(rn)), b + D(str(rev)))
+    if not ty or not ly:
+        return None
+
+    def _close(a: float, b: float, rel: float, floor: float = 0.0) -> bool:
+        return abs(a - b) <= max(floor, rel * abs(b))
+    tot = lambda d, i: float(sum(v[i] for v in d.values()))   # noqa: E731
+    if not (_close(tot(ty, 0), rn_ty, 0.02, 3.0) and _close(tot(ly, 0), rn_stly, 0.02, 3.0)
+            and _close(tot(ty, 1), rev_ty, 0.02) and _close(tot(ly, 1), rev_stly, 0.02)):
+        return None
+    b = _adr_bridge_core(ly, ty)
+    if abs(b["residual"]) > D("0.01") or b["delta"] == 0:
+        return None
+    mix_share = float(b["mix"]) / float(b["delta"])
+    lw = "lower" if b["delta"] < 0 else "higher"
+    if mix_share >= 0.60:
+        kind = "mix"
+        if mix_share > 1.05:
+            txt = (f"the change in which sources sold explains all of the {lw} average rate; "
+                   f"rates within each source moved the other way")
+        elif mix_share >= 0.95:
+            txt = (f"nearly all of the {lw} average rate comes from a change in which "
+                   f"sources sold, not from rates within each source")
+        else:
+            txt = (f"{_about_pct(mix_share)} of the {lw} average rate comes from a change in "
+                   f"which sources sold; the rest from rates within each source")
+    elif mix_share <= 0.40:
+        kind, rate_share = "rate", 1.0 - mix_share
+        if rate_share >= 0.95:
+            txt = (f"the {lw} average rate comes from {lw} rates within each source, "
+                   f"not from a change in which sources sold")
+        else:
+            txt = (f"{_about_pct(rate_share)} of the {lw} average rate comes from {lw} rates "
+                   f"within each source; the rest from a change in which sources sold")
+    else:
+        kind = "both"
+        txt = (f"the {lw} average rate comes from both a change in which sources sold "
+               f"and {lw} rates within each source")
+    return {"kind": kind, "mix_share": mix_share, "txt": txt}
+
+
+# ─── Layer A: one function per signal ────────────────────────────────────────
+# Review 2026-10-28: the signals used to share one function, so one bad row
+# anywhere (e.g. a malformed stay_date) wiped EVERY card and the hero for the
+# day. Each signal is now its own function and _compute_signals runs each in
+# try/except — a failure drops that signal only (logged + cards_audit).
+
+def _anchor_today(data: dict) -> _date:
+    """The analyst's single 'today' (review 2026-10-28): the day after the
+    PMS report date (`report_date_iso` = yesterday, set by the adapters), so
+    every signal, the novelty window and the hero agree on one calendar.
+    Payloads that predate the field fall back to the server date."""
+    iso = (data or {}).get("report_date_iso")
+    if iso:
+        try:
+            return _date.fromisoformat(str(iso)[:10]) + timedelta(days=1)
+        except ValueError:
+            pass
+    return _date.today()
+
+
+_FORWARD_DAYS_NEXT_YEAR = 183   # next-year months starting within ~6 months
+
+
+def _forward_months(pace: list[dict], pace_next_year: list[dict],
+                    today: _date, total_rooms: int) -> list[dict]:
+    """Stay months the monthly signals (pace, projection) look at, each
+    tagged with its YEAR. This year's months from today's month on (Q4), plus
+    next year's months starting within _FORWARD_DAYS_NEXT_YEAR (Q16) — so
+    Jan–Mar are no longer invisible in Nov/Dec (review 2026-10-28).
+    A next-year month takes its 'final last year' figures from THIS year's
+    same month, which Q4 holds as actuals because that month has passed."""
+    out = [{**p, "year": today.year} for p in pace
+           if int(p.get("month_num") or 0) >= today.month]
+    this_year = {int(p.get("month_num") or 0): p for p in pace}
+    ny = today.year + 1
+    for r in pace_next_year:
+        sm = int(r.get("month_num") or 0)
+        if not 1 <= sm < today.month:
+            continue          # later months are > 6 months out (or invalid)
+        if (_date(ny, sm, 1) - today).days > _FORWARD_DAYS_NEXT_YEAR:
+            continue
+        ly = this_year.get(sm) or {}
+        inv = total_rooms * _cal.monthrange(ny, sm)[1] if total_rooms else 0
+        rn, rn_stly = float(r.get("rn") or 0), float(r.get("rn_stly") or 0)
+        rev, rev_stly = float(r.get("rev") or 0), float(r.get("rev_stly") or 0)
+        rn_fly, rev_fly = float(ly.get("rn") or 0), float(ly.get("rev") or 0)
+        occ, occ_stly = (rn / inv, rn_stly / inv) if inv else (0.0, 0.0)
+        out.append({
+            "month": _cal.month_abbr[sm], "month_num": sm, "year": ny,
+            "rn": int(rn), "rn_stly": int(rn_stly), "rn_final_ly": int(rn_fly),
+            "rev": rev, "rev_stly": rev_stly, "rev_final": rev_fly,
+            "adr": rev / rn if rn else 0.0,
+            "adr_stly": rev_stly / rn_stly if rn_stly else 0.0,
+            "adr_final_ly": rev_fly / rn_fly if rn_fly else 0.0,
+            "occ": occ, "stly": occ_stly,
+            "final": float(ly.get("occ") or 0),   # this year's actual occupancy
+            # same rule as assemble._pace_status (±5% vs same time last year)
+            "status": ("on_track" if not occ_stly else
+                       "ahead" if (occ - occ_stly) / occ_stly >= 0.05 else
+                       "behind" if (occ - occ_stly) / occ_stly <= -0.05 else "on_track"),
+            "next_year": True,
+        })
+    return out
+
+
+def _month_row(ctx: dict, sm: int, sy: int) -> dict | None:
+    """The forward-month row for (month, year), else this year's Q4 row for
+    that month when sy is this year (past months keep their old lookup)."""
+    for p in ctx["months"]:
+        if int(p.get("month_num") or 0) == sm and p.get("year") == sy:
+            return p
+    if sy == ctx["today"].year:
+        return next((p for p in ctx["pace"] if p.get("month_num") == sm), None)
+    return None
+
+
+def _signal_context(data: dict) -> dict:
+    """Inputs shared by every signal, read once."""
+    today = _anchor_today(data)
     yesterday = today - timedelta(days=1)
-    total_rooms = config.TOTAL_ROOMS
+    pace = [p for p in (data.get("pace") or []) if isinstance(p, dict)]
+    pace_next_year = [p for p in (data.get("pace_next_year") or []) if isinstance(p, dict)]
+    try:
+        rev_final_ly_total = sum(float(p.get("rev_final", 0) or 0) for p in pace)
+    except (TypeError, ValueError):
+        rev_final_ly_total = 0.0
+    try:
+        months = _forward_months(pace, pace_next_year, today, int(config.TOTAL_ROOMS or 0))
+    except Exception as exc:   # never lose this year's months over Q16
+        print(f"[analyst] next-year months skipped: {exc}")
+        months = [{**p, "year": today.year} for p in pace
+                  if int(p.get("month_num") or 0) >= today.month]
+    return {
+        "months":             months,
+        "data":               data,
+        "today":              today,
+        "yesterday":          yesterday,
+        "yesterday_str":      yesterday.isoformat(),
+        "total_rooms":        config.TOTAL_ROOMS,
+        "pace":               pace,
+        "cm":                 data.get("current_month_remaining") or {},
+        "mtd":                data.get("mtd") or {},
+        "cancel_daily":       data.get("cancel_daily") or [],       # Q14, optional
+        "sources_by_month":   data.get("sources_by_month") or [],   # Q17, optional
+        "pickup_daily":       data.get("pickup_daily") or [],
+        "daily_rev_baseline": max(rev_final_ly_total / 365.0, 1.0),
+    }
 
-    pace = data.get("pace", [])
-    cm   = data.get("current_month_remaining", {})
-    mtd  = data.get("mtd", {})
-    cancel_daily     = data.get("cancel_daily") or []       # Q14, optional
-    sources_by_month = data.get("sources_by_month") or []   # Q17, optional
-    yesterday_str    = yesterday.isoformat()
-    rev_final_ly_total = sum(p.get("rev_final", 0) for p in pace)
-    daily_rev_baseline = max(rev_final_ly_total / 365.0, 1.0)
 
+def _signal_pickup(ctx: dict) -> list[dict]:
+    today, yesterday = ctx["today"], ctx["yesterday"]
+    cancel_daily, daily_rev_baseline = ctx["cancel_daily"], ctx["daily_rev_baseline"]
     candidates: list[dict] = []
 
     # ── Signal 1: Pickup z-score by stay month (hard gate: |z| >= 2) ─────────
-    pickup_daily = data.get("pickup_daily", [])
+    pickup_daily = ctx["pickup_daily"]
     if pickup_daily:
         yesterday_str = yesterday.isoformat()
         month_groups: dict[tuple, list] = {}
@@ -299,7 +545,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             days_to_start  = max(0, (m_start - today).days)
             window_left    = max(0, (m_end - today).days)
 
-            pace_m = next((p for p in pace if p.get("month_num") == sm), None)
+            pace_m = _month_row(ctx, sm, sy)
             adr_ly = pace_m.get("adr_final_ly", 150.0) if pace_m else 150.0
             gap_per_day  = abs(yday_rn - mean_rn)
             rev_at_stake = gap_per_day * adr_ly * 7
@@ -351,14 +597,14 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             else:
                 hypo = [{"text": f"Demand for {month_label} is rising fast — possibly a campaign, event, or group coming through", "confidence": "Low"}]
                 directive = {
-                    "type": "rate_review_up",
-                    "target": f"open {month_label} nights while demand is strong",
+                    "type": "review_rates",
+                    "target": f"what is driving the extra {month_label} bookings, and whether current rates still fit",
                     "deadline": "within 2 days",
                     "trigger_if_monitor": None,
                 }
                 fb_headline = f"{month_label} new bookings running well above recent average"
                 fb_why = "Demand may be rising fast — possibly a campaign, event, or group coming through (confidence: Low)."
-                fb_action = f"There may be room for a higher rate on open {month_label} nights."
+                fb_action = f"It may be worth reviewing what is driving the extra {month_label} bookings, and whether current rates still fit."
                 fb_by_when = "Within 2 days, while demand is strong."
 
             ev2 = {"label": "REVENUE IMPACT", "value": f_yday_rev,
@@ -432,18 +678,26 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 },
                 "fallback_card": fallback_card,
             })
+    return candidates
+
+
+def _signal_pace(ctx: dict) -> list[dict]:
+    today, cm, total_rooms = ctx["today"], ctx["cm"], ctx["total_rooms"]
+    sources_by_month, daily_rev_baseline = ctx["sources_by_month"], ctx["daily_rev_baseline"]
+    candidates: list[dict] = []
 
     # ── Signal 2: Pace vs STLY by month (hard gate: |gap| >= 10%) ────────────
-    for p in pace:
+    # ctx["months"]: this year's months from today on + next year's within
+    # ~6 months, each with its own year (December no longer hides January).
+    for p in ctx["months"]:
         sm = p.get("month_num", 0)
-        if sm < today.month:
-            continue
+        sy = p["year"]
 
-        days_in = _cal.monthrange(today.year, sm)[1]
-        m_start, m_end = _month_bounds(today.year, sm)
+        days_in = _cal.monthrange(sy, sm)[1]
+        m_start, m_end = _month_bounds(sy, sm)
         days_to_start  = max(0, (m_start - today).days)
         window_left    = max(0, (m_end - today).days)
-        current_month  = (sm == today.month)
+        current_month  = (sm == today.month and sy == today.year)
 
         rn_ty   = p["rn"]
         rn_stly = p.get("rn_stly", 0)
@@ -491,12 +745,20 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
         C = _confidence(rn_stly)
         score = _score_candidate(R, U, M, C=C)
 
-        month_label  = f"{m_name} {today.year}"
+        month_label  = f"{m_name} {sy}"
         p_full       = f"{m_name} full month"
         p_vs_stly    = f"{m_name} full month, vs same time last year"
         p_finish     = f"{m_name} month-end finish"
         ahead        = rn_gap > 0
         adr_dilution = ahead and adr_gap < -5
+        # More rooms but LESS revenue than same time last year (review
+        # 2026-10-28): the old "ahead" card labelled −€3,000 a REVENUE LEAD and
+        # hinted at higher rates. It is its own story — the booking mix or the
+        # rates changed — and needs a real revenue shortfall (stake floor).
+        mixed        = ahead and rev_delta <= -_STAKE_FLOOR_EUR
+        # Q17 rows carry this year's months only: never attribute next year
+        attr         = (None if p.get("next_year")
+                        else _source_attribution(sources_by_month, sm, rn_gap))
 
         f_pct_gap   = _pct_signed(pct_gap * 100)
         f_rev_delta = _eur_signed(rev_delta)
@@ -511,7 +773,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
         facts = {
             "month_label":     month_label,
             "pace_vs_stly":    _fact(f_pct_gap, p_vs_stly),
-            ("rev_lead" if ahead else "rev_gap"): _fact(f_rev_delta, p_vs_stly),
+            ("rev_lead" if rev_delta >= 0 else "rev_gap"): _fact(f_rev_delta, p_vs_stly),
             "rn_otb":          _fact(f"{rn_ty:,} rn", p_full),
             "rn_stly":         _fact(f"{rn_stly:,} rn", f"{m_name}, same time last year"),
             "rn_gap":          _fact(f_rn_gap, p_vs_stly),
@@ -523,7 +785,85 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             "open_room_nights": _fact(f_open_rn, period_open),
         }
 
-        if adr_dilution:
+        if mixed:
+            tag = "ALERT"
+            # Revenue = rooms × average rate, so the three changes vs same time
+            # last year reconcile exactly: (1 + rooms%)(1 + rate%) = 1 + revenue%.
+            # All are ratios of real PMS figures — no derived euro is shown.
+            adr_stly_calc = rev_stly / rn_stly          # rn_stly > 0 (gated above)
+            adr_ty_calc   = rev_ty / rn_ty              # rn_ty > rn_stly > 0 (ahead)
+            f_rev_pct  = _pct_signed(rev_delta / rev_stly * 100) if rev_stly else f_rev_delta
+            f_adr_pct  = _pct_signed((adr_ty_calc / adr_stly_calc - 1) * 100)
+            f_adr_stly = _eur(adr_stly_calc)
+            f_adr_ty   = _eur(adr_ty_calc)
+            facts["rev_vs_stly_pct"] = _fact(f_rev_pct, p_vs_stly)
+            facts["adr_vs_stly_pct"] = _fact(f_adr_pct, p_vs_stly)
+            facts["adr_booked"]      = _fact(f_adr_ty, f"{m_name}, booked so far")
+            facts["adr_stly"]        = _fact(f_adr_stly, f"{m_name}, same time last year")
+            f_stake = _eur(abs(rev_delta))
+            f_calc  = f"revenue booked {f_rev_delta} vs same time last year"
+            facts["value_at_stake"]      = f_stake
+            facts["value_at_stake_calc"] = f_calc
+            confidence = "Medium"
+            hypo = [{"text": f"The extra {m_name} rooms are coming in at a lower average rate than last year — a change in where bookings come from or which rate plans sell may explain it", "confidence": "Low"}]
+            why    = (f"The extra rooms are coming in at a lower average rate: {f_adr_ty} "
+                      f"against {f_adr_stly} at the same time last year (confidence: Medium).")
+            action = f"It may be worth checking which sources and rate plans the extra {m_name} rooms come from."
+            # Mix vs rate (the charts.py ADR bridge on Q17): is the lower average
+            # rate a change in WHICH sources sold, or lower rates within sources?
+            split = None if p.get("next_year") else _mix_rate_split(
+                sources_by_month, sm, rn_ty, rev_ty, rn_stly, rev_stly)
+            if split:
+                facts["rate_change_explained_by"] = _fact(split["txt"], p_vs_stly)
+                hypo = [{"text": split["txt"][0].upper() + split["txt"][1:], "confidence": "Medium"}]
+                why = split["txt"][0].upper() + split["txt"][1:] + " (confidence: Medium)."
+            # Name the source only when Q17 reconciles with the room-night lead
+            if attr:
+                top_name = attr["top_name"]
+                f_top_rn = _rn_signed(attr["top_delta"])
+                src_rn, src_rev = _source_totals(sources_by_month, sm, top_name)
+                cheaper = src_rn >= 10 and src_rev / src_rn < adr_stly_calc
+                if cheaper:
+                    facts["biggest_source_rate"] = _fact(_eur(src_rev / src_rn),
+                                                         f"{top_name}, {m_name} booked so far")
+                if attr["spread"] == "concentrated":
+                    # three independent measurements agree → High: the extra
+                    # rooms sit with one source, it sells below last year's
+                    # average, and the bridge says the mix drove the rate
+                    if cheaper and split and split["kind"] == "mix":
+                        confidence = "High"
+                    rate_txt = f" at an average rate of {_eur(src_rev / src_rn)}, against {f_adr_stly} for the month last year" if cheaper else ""
+                    hypo = [{"text": f"Most of the extra rooms come from {top_name} ({f_top_rn} vs same time last year){rate_txt} — the booking mix has changed", "confidence": confidence}]
+                    why = (f"Most of the extra rooms come from {top_name} ({f_top_rn} vs same time last year)"
+                           + (rate_txt if cheaper else f"; the average rate booked is {f_adr_ty} against {f_adr_stly} last year")
+                           + f" (confidence: {confidence}).")
+                    action = f"It may be worth reviewing which {top_name} rate plans the extra {m_name} rooms are booked on."
+                elif not split and attr["spread"] == "broad":
+                    why = (f"The extra rooms are spread across {len(attr['movers'])} sources; the average rate "
+                           f"booked is {f_adr_ty} against {f_adr_stly} last year (confidence: Low).")
+                elif not split:
+                    why = (f"{top_name} brings the most extra rooms ({attr['share_txt']}); the average rate "
+                           f"booked is {f_adr_ty} against {f_adr_stly} last year (confidence: Low).")
+            directive = {
+                "type": "investigate_mix",
+                "target": f"which sources and rate plans the extra {m_name} rooms come from",
+                "deadline": "this week",
+                "trigger_if_monitor": None,
+            }
+            fb = {
+                "headline": f"{m_name}: more rooms booked than last year, but less revenue",
+                "evidence": [
+                    {"label": f"ROOMS BOOKED ({p_full})", "value": f_pct_gap, "sub": "vs same time last year"},
+                    {"label": "REVENUE BOOKED", "value": f_rev_pct,
+                     "sub": f"average rate {f_adr_pct} ({f_adr_ty} vs {f_adr_stly})"},
+                ],
+                "what_happened": f"{m_name} rooms booked are {f_pct_gap} vs the same time last year, but revenue booked is {f_rev_pct}.",
+                "why_it_matters": why,
+                "recommended_action": action,
+                "by_when": "This week.",
+                "at_stake": {"value": f_stake, "calc": f_calc},
+            }
+        elif adr_dilution:
             tag   = "OPPORTUNITY"
             stake = open_rn * abs(adr_gap)
             f_stake = _eur(stake)
@@ -532,8 +872,8 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             facts["value_at_stake_calc"] = f_calc
             hypo = [{"text": "Early-season discounted rate plans may still be open even though demand is strong", "confidence": "Medium"}]
             directive = {
-                "type": "rate_review_up",
-                "target": f"lowest open rate plans, {period_open}",
+                "type": "review_rates",
+                "target": f"whether the lowest rate plans still need to be open, {period_open}",
                 "deadline": "this week",
                 "trigger_if_monitor": None,
             }
@@ -551,10 +891,10 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             }
         elif ahead:
             tag = "OPPORTUNITY"
-            hypo = [{"text": "Demand is running above last year — the remaining rooms may be priced too low for this demand", "confidence": "Medium"}]
+            hypo = [{"text": "Demand is running above last year — the remaining rooms are selling into stronger demand", "confidence": "Medium"}]
             directive = {
-                "type": "rate_review_up",
-                "target": f"{m_name} open nights — lowest rate plans and peak nights",
+                "type": "review_rates",
+                "target": f"whether {m_name} rates on the busiest nights still fit this demand",
                 "deadline": "next 2–3 days",
                 "trigger_if_monitor": None,
             }
@@ -562,11 +902,13 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 "headline": f"{m_name} bookings {f_pct_gap} ahead of same time last year",
                 "evidence": [
                     {"label": f"BOOKINGS ({p_full})", "value": f_pct_gap, "sub": "vs same time last year"},
-                    {"label": "REVENUE LEAD", "value": f_rev_delta, "sub": "vs same time last year"},
+                    # a small revenue dip under the stake floor stays here — never call it a lead
+                    {"label": "REVENUE LEAD" if rev_delta >= 0 else "REVENUE vs LAST YEAR",
+                     "value": f_rev_delta, "sub": "vs same time last year"},
                 ],
                 "what_happened": f"{m_name} revenue booked so far is {f_rev_delta} vs same time last year.",
-                "why_it_matters": "Demand is running above last year; the remaining rooms may be priced too low for this level of demand (confidence: Medium).",
-                "recommended_action": f"There may be room for a higher rate on {m_name} peak nights.",
+                "why_it_matters": "Demand is running above last year, so the remaining rooms are selling into stronger demand (confidence: Medium).",
+                "recommended_action": f"It may be worth reviewing whether {m_name} rates on the busiest nights still fit this demand.",
                 "by_when": "Next 2–3 days.",
             }
         else:
@@ -578,8 +920,8 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             facts["value_at_stake_calc"] = f_calc
             hypo = [{"text": "Weaker demand, or bookings coming from different sources than last year — a source-by-source comparison would show which", "confidence": "Low"}]
             directive = {
-                "type": "open_promo",
-                "target": f"{m_name} nights with low bookings",
+                "type": "investigate_gap",
+                "target": f"which {m_name} dates and sources are behind last year",
                 "deadline": "within 7 days",
                 "trigger_if_monitor": None,
             }
@@ -591,7 +933,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 ],
                 "what_happened": f"{m_name} bookings so far stand {f_rn_gap} behind same time last year.",
                 "why_it_matters": "Weaker demand, or bookings coming from different sources, may explain the gap; a source-by-source comparison would show which (confidence: Low).",
-                "recommended_action": f"Consider a targeted offer on {m_name} nights with low bookings if the gap persists.",
+                "recommended_action": f"It may be worth checking which {m_name} dates and sources are behind last year.",
                 "by_when": "Within 7 days.",
                 "at_stake": {"value": f_stake, "calc": f_calc},
             }
@@ -599,7 +941,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
         # Attribution (2026-09-23): Q17 says WHICH source moved. The card used
         # to suggest "a source-by-source comparison would show which" — now it
         # shows it. Only when the source deltas reconcile with the pace gap.
-        attr = _source_attribution(sources_by_month, sm, rn_gap)
+        # (attr is computed above; the mixed card tells its own source story.)
         if attr:
             top_name  = attr["top_name"]
             f_top_rn  = _rn_signed(attr["top_delta"])
@@ -610,7 +952,11 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             facts["sources_moving_same_way"] = _fact(f"{n_movers} sources", p_vs_stly)
             if attr["direct"]:
                 facts["direct_bookings_move"] = _fact(f"Direct {_rn_signed(attr['direct'][1])}", p_vs_stly)
-            if not ahead:
+            if attr["spread"] == "concentrated":
+                facts["biggest_source"] = top_name    # named driver (drill-down filter)
+            if mixed:
+                pass
+            elif not ahead:
                 fb["evidence"][1] = {"label": "BIGGEST MOVER", "value": f_top,
                                      "sub": f"{attr['share_txt']} vs same time last year"}
                 if attr["spread"] == "concentrated":
@@ -632,9 +978,11 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             elif attr["spread"] == "concentrated":
                 hypo.insert(0, {"text": f"{top_name} is driving most of the lead ({f_top_rn} vs same time last year)", "confidence": "Medium"})
                 if not adr_dilution:
-                    fb["why_it_matters"] = f"{top_name} is driving most of the lead, {f_top_rn} vs same time last year; the remaining rooms may be priced too low for this level of demand (confidence: Medium)."
+                    fb["why_it_matters"] = f"{top_name} is driving most of the lead, {f_top_rn} vs same time last year; the remaining rooms are selling into stronger demand (confidence: Medium)."
 
-        fb["id"]  = f"pace_{m_name.lower()}_{today.year}"
+        # the mixed card gets its own id: same month, different story (novelty
+        # must not read it as a repeat of yesterday's "bookings ahead" card)
+        fb["id"]  = f"pace_{'mix_' if mixed else ''}{m_name.lower()}_{sy}"
         fb["tag"] = tag
 
         candidates.append({
@@ -643,6 +991,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             "score":      round(score, 4),
             "title_hint": fb["headline"],
             "month_num":  sm,
+            "stay_year":  sy,
             "stake_eur":  facts.get("value_at_stake") and _parse_eur(facts["value_at_stake"]) or 0,
             "insight": {
                 "id": fb["id"],
@@ -660,6 +1009,152 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             },
             "fallback_card": fb,
         })
+    return candidates
+
+
+# Hidden underperformance by source (review 2026-10-28). Subgroups are
+# noisier than whole months, so the source must clear stricter gates itself.
+_HIDDEN_MIN_STLY_RN = 20      # the source had real volume at this point last year
+_HIDDEN_MIN_GAP_RN  = 10
+_HIDDEN_MIN_PCT     = 0.20    # vs the 10% month gate
+_HIDDEN_MAX_CARDS   = 2
+
+
+def _signal_hidden_source(ctx: dict) -> list[dict]:
+    """A month that looks steady overall (within ±10% of same time last
+    year, so no pace card) while ONE source is far behind and the other
+    sources together are ahead — the total hides it. Gates on the source
+    itself: >= 20 rn last year, >= 10 rn and >= 20% behind, stake (its rn
+    gap × its own same-time-last-year rate) >= €1,000. Q17 must describe the
+    same bookings as Q4 (totals within max(3 rn, 2%)) or it stays silent.
+    This year's months only (Q17 has no next-year rows)."""
+    today, sbm, base = ctx["today"], ctx["sources_by_month"], ctx["daily_rev_baseline"]
+    cands: list[dict] = []
+    if not sbm:
+        return cands
+    for p in ctx["months"]:
+        if p.get("next_year"):
+            continue
+        sm, sy = p["month_num"], p["year"]
+        rn_ty, rn_stly = float(p.get("rn") or 0), float(p.get("rn_stly") or 0)
+        if not rn_stly:
+            continue
+        total_pct = (rn_ty - rn_stly) / rn_stly
+        if abs(total_pct) >= 0.10:
+            continue          # the pace card already tells this month's story
+        m_start, m_end = _month_bounds(sy, sm)
+        if m_end < today:
+            continue
+        by: dict[str, list[float]] = {}
+        for r in sbm:
+            if int(r.get("stay_month", 0)) != sm:
+                continue
+            name = str(r.get("source") or "Unknown").strip() or "Unknown"
+            v = by.setdefault(name, [0.0, 0.0, 0.0, 0.0])
+            v[0] += float(r.get("rn_ty", 0) or 0)
+            v[1] += float(r.get("rev_ty", 0) or 0)
+            v[2] += float(r.get("rn_stly", 0) or 0)
+            v[3] += float(r.get("rev_stly", 0) or 0)
+        q17_ty = sum(v[0] for v in by.values())
+        q17_ly = sum(v[2] for v in by.values())
+        if (abs(q17_ty - rn_ty) > max(3.0, 0.02 * rn_ty)
+                or abs(q17_ly - rn_stly) > max(3.0, 0.02 * rn_stly)):
+            continue          # Q17 and Q4 disagree — never attribute
+        best = None
+        for name, (s_ty, _s_rev, s_ly, s_rev_ly) in by.items():
+            gap = s_ty - s_ly
+            if s_ly < _HIDDEN_MIN_STLY_RN or gap > -_HIDDEN_MIN_GAP_RN:
+                continue
+            pct = gap / s_ly
+            if pct > -_HIDDEN_MIN_PCT:
+                continue
+            stake = -gap * (s_rev_ly / s_ly)
+            if stake < _STAKE_FLOOR_EUR:
+                continue
+            if best is None or stake > best[5]:
+                best = (name, s_ty, s_ly, gap, pct, stake)
+        if not best:
+            continue
+        name, s_ty, s_ly, gap, pct, stake = best
+        offset = (rn_ty - rn_stly) - gap      # every other source combined
+        if offset <= 0:
+            continue          # others are not covering it — nothing is hidden
+
+        m_name      = _cal.month_abbr[sm]
+        month_label = f"{m_name} {sy}"
+        p_full      = f"{m_name} full month"
+        p_vs        = f"{m_name} full month, vs same time last year"
+        f_total     = _pct_signed(total_pct * 100)
+        f_src_pct   = _pct_signed(pct * 100)
+        f_src_abs   = _pct(abs(pct) * 100, 0)
+        f_gap       = _rn_signed(gap)
+        f_offset    = _rn_signed(offset)
+        days_to_start = max(0, (m_start - today).days)
+        window_left   = max(0, (m_end - today).days)
+        facts = {
+            "month_label":         month_label,
+            "bookings_vs_stly":    _fact(f_total, p_vs),
+            "source":              name,
+            "source_move":         _fact(f"{name} {f_gap}", p_vs),
+            "source_vs_stly_pct":  _fact(f_src_pct, f"{name}, {p_vs}"),
+            "source_behind_pct":   _fact(f_src_abs, f"{name}, {p_vs}"),
+            "source_rn":           _fact(f"{int(s_ty):,} rn vs {int(s_ly):,} rn", f"{name}, {p_vs}"),
+            "other_sources_move":  _fact(f_offset, f"all other sources combined, {p_vs}"),
+            "value_at_stake":      _eur(stake),
+            "value_at_stake_calc": f"{abs(int(gap))} rn × {name} same-time-last-year rate",
+        }
+        hypo = [{"text": (f"{name} is {f_src_pct} vs same time last year while the other sources "
+                          f"together are {f_offset} — the monthly total hides a source-specific gap"),
+                 "confidence": "High"}]
+        fb = {
+            "id": f"hidden_src_{re.sub(r'[^a-z0-9]+', '', name.lower()) or 'unknown'}_{m_name.lower()}_{sy}",
+            "tag": "ALERT",
+            "headline": f"{m_name} steady overall, but {name} is {f_src_abs} behind",
+            "evidence": [
+                {"label": f"BOOKINGS ({p_full})", "value": f_total, "sub": "vs same time last year"},
+                {"label": "ONE SOURCE BEHIND", "value": f"{name} {f_gap}",
+                 "sub": f"{f_src_pct}; other sources {f_offset}"},
+            ],
+            "what_happened": (f"{m_name} bookings overall are {f_total} vs same time last year, "
+                              f"but {name} is {f_gap} ({f_src_pct})."),
+            "why_it_matters": (f"The other sources together are {f_offset}, so the monthly total "
+                               f"hides this gap (confidence: High)."),
+            "recommended_action": (f"It may be worth checking what changed with {name} for "
+                                   f"{m_name} — availability, rates or a paused connection."),
+            "by_when": "Within 7 days.",
+            "at_stake": {"value": facts["value_at_stake"], "calc": facts["value_at_stake_calc"]},
+        }
+        score = _score_candidate(min(stake / base, 1.0), _urgency(days_to_start),
+                                 _magnitude_pct(pct), C=_confidence(s_ly))
+        cands.append({
+            "signal": "hidden_source", "tag": "ALERT", "score": round(score, 4),
+            "title_hint": fb["headline"], "month_num": sm, "stay_year": sy, "stake_eur": stake,
+            "insight": {
+                "id": fb["id"], "tag": "ALERT", "score": round(score, 4), "signal": "hidden_source",
+                "stay_period": {"from": max(m_start, today).isoformat(), "to": m_end.isoformat(),
+                                "label": month_label},
+                "days_to_nearest_arrival": days_to_start,
+                "booking_window_days_left": window_left,
+                "facts": facts,
+                "cause_hypotheses": hypo,
+                "action_directives": {
+                    "type": "investigate_source",
+                    "target": f"what changed with {name} for {m_name} — availability, rates or a paused connection",
+                    "deadline": "within 7 days",
+                    "trigger_if_monitor": None,
+                },
+                "history": {"first_raised": None, "previously_advised": None},
+            },
+            "fallback_card": fb,
+        })
+    cands.sort(key=lambda c: c["score"], reverse=True)
+    return cands[:_HIDDEN_MAX_CARDS]
+
+
+def _signal_lead_time(ctx: dict) -> list[dict]:
+    data, today, pace = ctx["data"], ctx["today"], ctx["pace"]
+    daily_rev_baseline = ctx["daily_rev_baseline"]
+    candidates: list[dict] = []
 
     # ── Signal 3: Booking lead time by stay month (hard gate: |shift| >= 10%) ─
     # Compares avg lead of bookings made in the last 28 days vs the same window
@@ -721,8 +1216,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             days_to_start = max(0, (m_start - today).days)
             window_left   = max(0, (m_end - today).days)
             shrinking     = shift_days < 0          # guests book closer-in than LY
-            pace_m        = next((p for p in pace if p.get("month_num") == sm), None) \
-                            if sy == today.year else None
+            pace_m        = _month_row(ctx, sm, sy)
             pace_status   = pace_m.get("status") if pace_m else None
             behind        = pace_status == "behind"
 
@@ -777,14 +1271,14 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 if behind:
                     hypo = [{"text": f"Guests are booking {month_label} closer to arrival than last year — the booking gap may be timing, not lost demand", "confidence": "Medium"}]
                     fb_why = "The booking gap may be timing rather than lost demand — bookings are simply arriving later than last year (confidence: Medium)."
-                    fb_action = f"It may be worth holding rates and delaying any {month_label} discounts — bookings appear to be arriving later, not disappearing."
+                    fb_action = f"Worth monitoring {month_label} new bookings before reading the gap as lost demand — they appear to be arriving later."
                 else:
                     hypo = [{"text": f"Guests are booking later for {month_label} — last-minute bookings are carrying the month", "confidence": "Medium"}]
-                    fb_why = "Last-minute bookings are carrying the month; discounting early would give money away to guests who book late anyway (confidence: Medium)."
-                    fb_action = f"Current prices look supported by late bookings — early {month_label} discounts may be unnecessary."
+                    fb_why = "Last-minute bookings are carrying the month, more than they did last year (confidence: Medium)."
+                    fb_action = f"Worth monitoring whether last-minute bookings keep coming for {month_label} as they do now."
                 directive = {
-                    "type": "hold_rates",
-                    "target": f"open {month_label} nights — guests book closer to arrival than last year",
+                    "type": "monitor_timing",
+                    "target": f"{month_label} new bookings — guests book closer to arrival than last year",
                     "deadline": "recheck in 7 days",
                     "trigger_if_monitor": f"{month_label} new bookings slowing while guests keep booking late",
                 }
@@ -807,15 +1301,27 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 tag = "OPPORTUNITY" if pace_status == "ahead" else "MONITOR"
                 hypo = [{"text": f"Guests book {month_label} earlier than last year — demand looks stronger", "confidence": "Medium"}]
                 directive = {
-                    "type": "rate_review_up",
-                    "target": f"open {month_label} nights — early bookings support higher rates",
+                    "type": "review_rates",
+                    "target": f"whether {month_label} rates still fit, with guests booking earlier than last year",
                     "deadline": "within 3 days",
                     "trigger_if_monitor": None,
                 }
-                fb_why = "Guests booking earlier usually means stronger demand, which can support higher prices (confidence: Medium)."
-                fb_action = f"There may be room for higher rates on open {month_label} nights."
+                fb_why = "Guests booking earlier usually means stronger demand for the month (confidence: Medium)."
+                fb_action = f"It may be worth reviewing whether {month_label} rates still fit, with guests booking earlier than last year."
                 fb_headline = f"{month_label} guests book {_days_word(abs(shift_i))} earlier than last year"
                 fb_by_when = "Within 3 days."
+
+            # Which source accounts for the shift (review 2026-10-28) — an
+            # exact, signed split; named only when one source carries >= 60%.
+            lead_attr = _lead_shift_attribution(lt_src, sm, sy, ty_a["rn"], ly_a["rn"],
+                                                wavg_ly, shift_days)
+            if lead_attr:
+                p_src = f"{p_ty} vs same window last year"
+                facts["shift_source"]       = _fact(lead_attr["source"], p_src)
+                facts["shift_source_share"] = _fact(lead_attr["share_txt"], f"of the change, {p_src}")
+                facts["shift_source_how"]   = _fact(lead_attr["kind_txt"], p_src)
+                hypo.insert(0, {"text": lead_attr["sentence"].rstrip("."), "confidence": "Medium"})
+                fb_why = f"{lead_attr['sentence']} {fb_why}"
 
             fallback_card = {
                 "id": f"leadtime_{m_name.lower()}_{sy}",
@@ -869,6 +1375,13 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
         # At most 2 lead-time cards per day — keep the sharpest stories
         lt_cands.sort(key=lambda c: c["score"], reverse=True)
         candidates.extend(lt_cands[:2])
+    return candidates
+
+
+def _signal_dates(ctx: dict) -> list[dict]:
+    data, today, pace, total_rooms = ctx["data"], ctx["today"], ctx["pace"], ctx["total_rooms"]
+    daily_rev_baseline = ctx["daily_rev_baseline"]
+    candidates: list[dict] = []
 
     # ── Signal 4: Soft / Hot dates in next 90 days ───────────────────────────
     otb_by_date = data.get("otb_by_date", [])
@@ -887,8 +1400,13 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             occ_gap  = occ_ty - occ_stly
             pct_gap  = occ_gap / occ_stly if occ_stly > 0 else 0.0
 
-            stay_date = _date.fromisoformat(row["stay_date"])
+            try:
+                stay_date = _date.fromisoformat(str(row["stay_date"])[:10])
+            except (KeyError, TypeError, ValueError):
+                continue  # one malformed row is skipped, never the whole signal
             days_out  = (stay_date - today).days
+            if not 0 <= days_out <= 90:
+                continue  # Q10 already returns today..+90; guard anyway (review 2026-10-28)
 
             entry = {
                 "date":       stay_date,
@@ -918,7 +1436,8 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
 
             months = [d["date"].month for d in top_soft]
             major_month = max(set(months), key=months.count)
-            pace_m  = next((p for p in pace if p.get("month_num") == major_month), None)
+            major_year = next(d["date"].year for d in top_soft if d["date"].month == major_month)
+            pace_m  = _month_row(ctx, major_month, major_year)
             adr_ref = (pace_m.get("adr", 0) or pace_m.get("adr_final_ly", 130.0)) if pace_m else 130.0
 
             stake = gap_rn_total * adr_ref
@@ -963,10 +1482,23 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                     ],
                     "what_happened": f"{len(top_soft)} stay dates between {first_lbl} and {last_lbl} average {f_avg_gap} vs same time last year.",
                     "why_it_matters": "These dates have fewer bookings than last year at this point; if the gap persists the shortfall grows (confidence: Medium).",
-                    "recommended_action": f"A lower rate or a package could help {date_range} if the trend continues.",
+                    "recommended_action": f"It may be worth checking whether last year had an event or group on {date_range} that has not repeated.",
                     "by_when": "Within 7 days — time is running out.",
                     "at_stake": {"value": f_stake, "calc": f_calc},
                 }
+                # Date cluster (review 2026-10-28): consecutive low nights are
+                # one block — a missing event or group shows up as a run, not
+                # as scattered dates. Calendar-date comparison, like the rest
+                # of this signal (same-weekday alignment needs Release 2 data).
+                run = _longest_run(top_soft)
+                if len(run) >= 3:
+                    run_range = f"{run[0]['label']}–{run[-1]['label']}"
+                    f_run = f"{len(run)} nights in a row ({run_range})"
+                    facts["consecutive_nights"] = _fact(f_run, "vs same time last year")
+                    fb["headline"] = f"{f_run} behind last year"
+                    fb["why_it_matters"] = ("Several nights in a row are behind, which may point to "
+                                            "an event or group last year that has not repeated "
+                                            "(confidence: Low).")
                 candidates.append({
                     "signal":     "soft_dates",
                     "tag":        "ALERT",
@@ -985,8 +1517,8 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                         "facts": facts,
                         "cause_hypotheses": [{"text": "Weaker demand on these specific dates — check for last-year events or groups that have not repeated", "confidence": "Medium"}],
                         "action_directives": {
-                            "type": "rate_review_down",
-                            "target": f"low-booking dates {date_range}, largest gaps first",
+                            "type": "investigate_dates",
+                            "target": f"whether last year had an event or group on {date_range} that has not repeated",
                             "deadline": "within 7 days",
                             "trigger_if_monitor": None,
                         },
@@ -1017,18 +1549,23 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 "nearest_occ":        _fact(_pct(nearest["occ_ty"], 0), f"stay date {nearest['label']}, OTB now"),
                 "nearest_rooms_left": _fact(str(nearest["rooms_left"]), f"stay date {nearest['label']}"),
             }
+            # Honest words (user 2026-10-28, threshold stays 75%): a 75%-booked
+            # night is filling up, not "near sell-out", and we hold no rate
+            # history for these dates — so no claim about rates at all.
+            f_near_occ = _pct(nearest["occ_ty"], 0)
             fb = {
                 "id": "hot_dates_near_full",
                 "tag": "OPPORTUNITY",
-                "headline": f"{date_range} near sell-out, last rooms at everyday rates",
+                "headline": f"{date_range} filling up fast, ahead of last year",
                 "evidence": [
-                    {"label": f"{nearest['label'].upper()} ({nearest['dow'].upper()})", "value": f"{_pct(nearest['occ_ty'], 0)} occ", "sub": f"{nearest['rooms_left']} rooms left"},
-                    {"label": "NEAR-FULL DATES", "value": " · ".join(_pct(d["occ_ty"], 0) for d in top_hot), "sub": date_range},
+                    {"label": f"{nearest['label'].upper()} ({nearest['dow'].upper()})", "value": f"{f_near_occ} booked", "sub": f"{nearest['rooms_left']} rooms left"},
+                    {"label": "FILLING UP FAST", "value": " · ".join(_pct(d["occ_ty"], 0) for d in top_hot), "sub": date_range},
                 ],
-                "what_happened": f"{len(top_hot)} nights ({date_range}) are close to selling out at unchanged rates.",
-                "why_it_matters": "These dates are filling up fast, so the remaining rooms would likely sell at a higher price (confidence: High).",
-                "recommended_action": f"There may be room for a higher rate on {date_range}; worth reviewing open discounts.",
-                "by_when": f"Today — {nearest['label']} is {nearest['days_out']} days out.",
+                "what_happened": (f"{len(top_hot)} nights ({date_range}) are filling up fast; {nearest['label']} "
+                                  f"is {f_near_occ} booked with {nearest['rooms_left']} rooms left."),
+                "why_it_matters": "Bookings on these dates are well ahead of the same time last year, so demand looks strong for the rooms that are left (confidence: High).",
+                "recommended_action": f"It may be worth reviewing the rates and discounts still open on {date_range}.",
+                "by_when": f"Today — {nearest['label']} is {_days_word(nearest['days_out'])} out.",
             }
             candidates.append({
                 "signal":     "hot_dates",
@@ -1046,17 +1583,24 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                     "days_to_nearest_arrival": nearest["days_out"],
                     "booking_window_days_left": nearest["days_out"],
                     "facts": facts,
-                    "cause_hypotheses": [{"text": "Dates filling up fast — demand is higher than the rooms left on these dates", "confidence": "High"}],
+                    "cause_hypotheses": [{"text": "Dates filling up fast — bookings well ahead of the same time last year", "confidence": "High"}],
                     "action_directives": {
-                        "type": "close_discounts",
-                        "target": f"remaining rooms on {date_range}",
-                        "deadline": f"today — {nearest['label']} is {nearest['days_out']} days out",
+                        "type": "review_rates",
+                        "target": f"rates and discounts still open on {date_range}",
+                        "deadline": f"today — {nearest['label']} is {_days_word(nearest['days_out'])} out",
                         "trigger_if_monitor": None,
                     },
                     "history": {"first_raised": None, "previously_advised": None},
                 },
                 "fallback_card": fb,
             })
+    return candidates
+
+
+def _signal_projection_current(ctx: dict) -> list[dict]:
+    today, pace, cm, mtd = ctx["today"], ctx["pace"], ctx["cm"], ctx["mtd"]
+    total_rooms, daily_rev_baseline = ctx["total_rooms"], ctx["daily_rev_baseline"]
+    candidates: list[dict] = []
 
     # ── Signal 5: Month-end revenue projection (gate: >= 10% deviation) ──────
     if cm:
@@ -1121,8 +1665,8 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                     facts["value_at_stake_calc"] = f_calc
                 hypo = [{"text": "Bookings for the rest of the month are running below last year's last-minute bookings", "confidence": "Medium"}]
                 directive = {
-                    "type": "open_promo",
-                    "target": f"remaining {month_name} nights",
+                    "type": "investigate_gap",
+                    "target": f"which remaining {month_name} dates are furthest behind last year",
                     "deadline": "within 2–3 days",
                     "trigger_if_monitor": None,
                 }
@@ -1134,7 +1678,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                     ],
                     "what_happened": f"Month-end revenue is expected to land {f_vs_band} vs {ref_label}.",
                     "why_it_matters": "Bookings for the rest of the month may be running below last year's last-minute bookings (confidence: Medium).",
-                    "recommended_action": f"Consider a last-minute offer on remaining {month_name} nights.",
+                    "recommended_action": f"It may be worth checking which remaining {month_name} dates are furthest behind last year.",
                     "by_when": f"Within 2–3 days; {days_left} days left.",
                 }
                 if "value_at_stake" in facts:
@@ -1170,6 +1714,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 "score":      round(score, 4),
                 "title_hint": fb["headline"],
                 "month_num":  today.month,
+                "stay_year":  today.year,
                 "stake_eur":  _parse_eur(facts.get("value_at_stake", "")),
                 "insight": {
                     "id": fb["id"],
@@ -1186,11 +1731,19 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 },
                 "fallback_card": fb,
             })
+    return candidates
 
-    # Future months projection (gate: >= 10% deviation)
-    for p in pace:
+
+def _signal_projection_future(ctx: dict) -> list[dict]:
+    today, daily_rev_baseline = ctx["today"], ctx["daily_rev_baseline"]
+    candidates: list[dict] = []
+
+    # Future months projection (gate: >= 10% deviation) — every forward month
+    # after the current one, next year's included (each row carries its year)
+    for p in ctx["months"]:
         sm = p.get("month_num", 0)
-        if sm <= today.month:
+        sy = p["year"]
+        if (sy, sm) <= (today.year, today.month):
             continue
 
         rev_ty       = p["rev"]
@@ -1212,11 +1765,11 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
         if abs(vs_pct) < 10:
             continue
 
-        m_start, m_end = _month_bounds(today.year, sm)
+        m_start, m_end = _month_bounds(sy, sm)
         days_to_start  = max(0, (m_start - today).days)
         window_left    = max(0, (m_end - today).days)
         m_name = _cal.month_abbr[sm]
-        month_label = f"{m_name} {today.year}"
+        month_label = f"{m_name} {sy}"
         behind = vs_pct < 0
         tag    = "ALERT" if behind else "OPPORTUNITY"
 
@@ -1250,8 +1803,8 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 facts["value_at_stake_calc"] = f"{ref_label} {_eur(ref)} − upper projection {_eur(band_hi)} = {_eur(stake)}"
             hypo = [{"text": "Bookings behind last year — group or contract business may not have come back", "confidence": "Low"}]
             directive = {
-                "type": "open_promo",
-                "target": f"{month_label} offer to build bookings",
+                "type": "investigate_gap",
+                "target": f"whether last year's group or contract business for {month_label} is coming back",
                 "deadline": "within 7 days",
                 "trigger_if_monitor": None,
             }
@@ -1263,7 +1816,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 ],
                 "what_happened": f"{m_name} is expected to land {f_vs_band} vs {ref_label}.",
                 "why_it_matters": "Bookings are behind last year; group or contract business may not have come back (confidence: Low).",
-                "recommended_action": f"If the trend continues, an offer to build {m_name} bookings is an option.",
+                "recommended_action": f"It may be worth checking whether last year's group or contract business for {m_name} is coming back.",
                 "by_when": f"Within 7 days; {days_to_start} days to month start.",
             }
             if "value_at_stake" in facts:
@@ -1271,8 +1824,8 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
         else:
             hypo = [{"text": "Rooms booked ahead of last year — early minimum rates will set the final average rate", "confidence": "Medium"}]
             directive = {
-                "type": "rate_review_up",
-                "target": f"{month_label} minimum rates",
+                "type": "review_rates",
+                "target": f"{month_label} minimum rates while demand runs ahead",
                 "deadline": "this week",
                 "trigger_if_monitor": None,
             }
@@ -1287,7 +1840,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 "recommended_action": f"It may be worth reviewing {m_name} minimum rates while demand runs ahead.",
                 "by_when": "This week.",
             }
-        fb["id"]  = f"proj_{m_name.lower()}_{today.year}"
+        fb["id"]  = f"proj_{m_name.lower()}_{sy}"
         fb["tag"] = tag
         candidates.append({
             "signal":     "projection",
@@ -1295,6 +1848,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             "score":      round(score, 4),
             "title_hint": fb["headline"],
             "month_num":  sm,
+            "stay_year":  sy,
             "stake_eur":  _parse_eur(facts.get("value_at_stake", "")),
             "insight": {
                 "id": fb["id"],
@@ -1311,6 +1865,14 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             },
             "fallback_card": fb,
         })
+    return candidates
+
+
+def _signal_cancellations(ctx: dict) -> list[dict]:
+    today, yesterday, yesterday_str = ctx["today"], ctx["yesterday"], ctx["yesterday_str"]
+    cancel_daily, pickup_daily = ctx["cancel_daily"], ctx["pickup_daily"]
+    daily_rev_baseline = ctx["daily_rev_baseline"]
+    candidates: list[dict] = []
 
     # ── Signal 6: Cancellation spike by stay month (hard gate: z >= 2) ───────
     # Q14 ships the cancel side of Q9's net pickup as its own series, so a
@@ -1421,21 +1983,63 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
         # At most 2 cancellation cards per day — keep the sharpest stories
         cx_cands.sort(key=lambda c: c["score"], reverse=True)
         candidates.extend(cx_cands[:2])
+    return candidates
+
+
+_SIGNALS = (
+    ("pickup",             _signal_pickup),
+    ("pace",               _signal_pace),
+    ("hidden_source",      _signal_hidden_source),
+    ("lead_time",          _signal_lead_time),
+    ("dates",              _signal_dates),
+    ("projection_current", _signal_projection_current),
+    ("projection_future",  _signal_projection_future),
+    ("cancellation",       _signal_cancellations),
+)
+
+
+def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
+    """
+    Returns {"ranked": [...], "watchlist": [...], "demoted": [...],
+             "headline": {...}, "compute_errors": [...]}.
+    Ranked entries carry the full narration input contract + fallback_card.
+    Every step is fail-open: a signal (or merge) that raises is skipped and
+    reported in compute_errors; the rest of the briefing carries on.
+    """
+    ctx = _signal_context(data)
+    today, yesterday_str, mtd = ctx["today"], ctx["yesterday_str"], ctx["mtd"]
+
+    candidates: list[dict] = []
+    compute_errors: list[str] = []
+    for name, fn in _SIGNALS:
+        try:
+            candidates.extend(fn(ctx))
+        except Exception as exc:
+            compute_errors.append(f"{name}: {type(exc).__name__}: {exc}"[:200])
+            print(f"[analyst] Signal '{name}' failed and was skipped "
+                  f"(other signals continue): {type(exc).__name__}: {exc}")
 
     # ── Merge gates (spec C1/C2.4): same story or same dates → one card ──────
-    candidates = _merge_cancel_into_pickup(candidates)
-    candidates = _merge_same_month_story(candidates)
-    candidates = _merge_pickup_soft(candidates)
+    for merge in (_merge_cancel_into_pickup, _merge_same_month_story, _merge_pickup_soft):
+        try:
+            candidates = merge(candidates)
+        except Exception as exc:
+            compute_errors.append(f"{merge.__name__}: {type(exc).__name__}: {exc}"[:200])
+            print(f"[analyst] {merge.__name__} failed — cards kept unmerged: {exc}")
 
     # ── Fingerprints (2026-09-24): every card carries its state so the gate
     # can tell "same story" from "moved" — with or without a euro stake.
     for c in candidates:
-        c["novelty"] = _fingerprint(c, yesterday_str)
+        try:
+            c["novelty"] = _fingerprint(c, yesterday_str)
+        except Exception as exc:
+            c["novelty"] = {"metric": None, "key": None, "days_out": 0}
+            compute_errors.append(f"fingerprint {c.get('insight', {}).get('id')}: {exc}"[:200])
 
     # ── Novelty gate: a repeat without news → watchlist (cards are news) ─────
     demoted: list[dict] = []
     if hotel_id:
-        candidates, demoted = _novelty_gate(candidates, hotel_id)
+        candidates, demoted = _novelty_gate(candidates, hotel_id, today)
 
     # ── Global ranking — top 5-6 across ALL periods, no per-month quota ──────
     candidates.sort(key=lambda c: c["score"], reverse=True)
@@ -1448,10 +2052,28 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
     # than _QUIET_DAY_CARDS fresh cards, the highest-scoring open ALERT ships
     # ONCE as a "Still open" card (max one repeat per day, never on busy days).
     # Everything else stays on the watchlist.
-    ranked, demoted = _pin_open_alert(ranked, demoted, today)
+    try:
+        ranked, demoted = _pin_open_alert(ranked, demoted, today)
+    except Exception as exc:
+        compute_errors.append(f"pin_open_alert: {exc}"[:200])
     watchlist = [c for c in candidates if c not in ranked] + demoted
 
-    # ── Headline KPIs ─────────────────────────────────────────────────────────
+    try:
+        headline = _headline_kpis(data, mtd)
+    except Exception as exc:
+        headline = {}
+        compute_errors.append(f"headline: {exc}"[:200])
+
+    return {
+        "ranked":    ranked,
+        "watchlist": watchlist,
+        "demoted":   demoted,     # repeats held back today (open items)
+        "headline":  headline,
+        "compute_errors": compute_errors,
+    }
+
+
+def _headline_kpis(data: dict, mtd: dict) -> dict:
     yd = data.get("yesterday", {})
     pu = data.get("pickup", {})
 
@@ -1463,7 +2085,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
     rev_mtd_ly = float(mtd.get("revenueLY", 0))
     mtd_var    = round((rev_mtd - rev_mtd_ly) / rev_mtd_ly * 100, 1) if rev_mtd_ly else None
 
-    headline = {
+    return {
         "report_date":         data.get("report_date", ""),
         "hotel_name":          data.get("hotel_name", ""),
         "yday_rev":            round(rev_yd, 0),
@@ -1481,13 +2103,6 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
         "net_pickup_yday_rn":  int(pu.get("last1d", {}).get("roomNights", 0)),
         "net_pickup_yday_rev": round(float(pu.get("last1d", {}).get("revenue", 0)), 0),
         "cancellations_yday":  int(pu.get("cancellations1d", 0)),
-    }
-
-    return {
-        "ranked":    ranked,
-        "watchlist": watchlist,
-        "demoted":   demoted,     # repeats held back today (open items)
-        "headline":  headline,
     }
 
 
@@ -1549,13 +2164,13 @@ def _merge_cancel_into_pickup(candidates: list[dict]) -> list[dict]:
 def _merge_same_month_story(candidates: list[dict]) -> list[dict]:
     """Pace + projection for the same month tell one story — merge into the
     higher-scored candidate, folding in the other's key facts."""
-    by_month: dict[int, dict] = {}
+    by_month: dict[tuple, dict] = {}
     result: list[dict] = []
     month_level = [c for c in candidates if c["signal"] in ("pace", "projection")]
     others      = [c for c in candidates if c["signal"] not in ("pace", "projection")]
 
     for c in month_level:
-        m = c.get("month_num")
+        m = (c.get("month_num"), c.get("stay_year"))   # Jan 2027 ≠ Jan 2026
         if m in by_month:
             keep, drop = (by_month[m], c) if by_month[m]["score"] >= c["score"] else (c, by_month[m])
             prefix = drop["signal"]
@@ -1611,8 +2226,8 @@ def _merge_pickup_soft(candidates: list[dict]) -> list[dict]:
         ],
         "what_happened": f"{month_label} new bookings were {pf['yday_net_rn']['value']} yesterday and {sf['count']} stay dates trail same time last year.",
         "why_it_matters": "Two separate signals point at the same dates, so this looks like genuinely weaker demand rather than a one-off (confidence: Medium).",
-        "recommended_action": f"Worth checking {m_short} cancellations for a common source; a targeted offer is an option.",
-        "by_when": "Investigate today; offer decision within 3–4 days.",
+        "recommended_action": f"Worth checking {m_short} cancellations and the low-booking dates for a common source.",
+        "by_when": "Today — then recheck in 3–4 days.",
         "at_stake": {"value": sf["value_at_stake"], "calc": sf["value_at_stake_calc"]},
     }
     merged = {
@@ -1634,8 +2249,8 @@ def _merge_pickup_soft(candidates: list[dict]) -> list[dict]:
             "cause_hypotheses": [{"text": "Cancellations and the booking gap point at the same dates — demand is genuinely getting weaker, not a one-off", "confidence": "Medium"}],
             "action_directives": {
                 "type": "investigate_cancellations",
-                "target": f"{month_label} cancellations by source and rate plan; targeted offer on low-booking dates if widespread",
-                "deadline": "investigate today; offer decision within 3–4 days",
+                "target": f"{month_label} cancellations and low-booking dates by source and rate plan",
+                "deadline": "today, then recheck in 3–4 days",
                 "trigger_if_monitor": None,
             },
             "history": {"first_raised": None, "previously_advised": None},
@@ -1680,9 +2295,12 @@ def _fingerprint(c: dict, yesterday_str: str) -> dict:
     if sig in ("pickup", "cancellation", "softening"):
         key = f"day:{yesterday_str}"          # a spike is an event: always news
     elif sig == "pace":
-        metric = _first_signed_number(_fv("rn_gap"))
+        # the mixed card (more rooms, less revenue) moves with its revenue gap
+        metric = _first_signed_number(_fv("rev_vs_stly_pct") or _fv("rn_gap"))
     elif sig == "projection":
         metric = _first_signed_number(_fv("vs_ref_band"))
+    elif sig == "hidden_source":
+        metric = _first_signed_number(_fv("source_vs_stly_pct"))   # the source's own gap
     elif sig == "lead_time":
         metric = _first_signed_number(_fv("lead_shift"))
     elif sig in ("soft_dates", "hot_dates"):
@@ -1796,15 +2414,18 @@ def _novelty_decide(candidates: list[dict], prior_rows: list[dict],
     return kept, demoted
 
 
-def _novelty_gate(candidates: list[dict], hotel_id: str) -> tuple[list[dict], list[dict]]:
+def _novelty_gate(candidates: list[dict], hotel_id: str,
+                  today: _date | None = None) -> tuple[list[dict], list[dict]]:
     """Reads the prior 7 days of shipped cards (PG-first, Supabase fallback)
     and applies `_novelty_decide`. Fails open on any error (all candidates
     kept). Compares against PRIOR report dates only, never the current one —
-    a same-day manual refresh must not suppress its own cards (2026-07-23)."""
+    a same-day manual refresh must not suppress its own cards (2026-07-23).
+    `today` is the analyst's report-date anchor (server date if omitted)."""
     import os
     import requests as _req
-    current_report = str(_date.today() - timedelta(days=1))
-    since = str(_date.today() - timedelta(days=8))   # 7-day memory window
+    today = today or _date.today()
+    current_report = str(today - timedelta(days=1))
+    since = str(today - timedelta(days=8))   # 7-day memory window
     rows: list[dict] = []
     try:
         from db import store as _store
@@ -1830,7 +2451,7 @@ def _novelty_gate(candidates: list[dict], hotel_id: str) -> tuple[list[dict], li
             )
             r.raise_for_status()
             rows = r.json()
-        return _novelty_decide(candidates, rows, _date.today())
+        return _novelty_decide(candidates, rows, today)
     except Exception as exc:
         print(f"[analyst] Novelty gate skipped (lookup failed): {exc}")
         return candidates, []
@@ -1891,10 +2512,16 @@ STRICT RULES
    Everyday hotel words are fine: occupancy, room nights, average rate,
    revenue, cancellations, same time last year.
 10. Language: write in English.
-11. Actions are light suggestions. Never use imperative verbs (change,
-    remove, increase, decrease, cut, raise, close, open, act) as the
-    instruction itself. Use: "Consider...", "It may be worth...",
-    "The position could support...". Vary openers across cards.
+11. recommended_action names something to REVIEW, CHECK, INVESTIGATE or
+    MONITOR — never a commercial move. Never suggest raising, lowering,
+    holding or cutting rates or prices, and never suggest an offer,
+    promotion, package, discount or restriction — not even softly
+    ("consider a targeted offer", "there may be room for a higher rate").
+    There is no market or competitor rate data here; pricing decisions
+    belong to management. Never open with an imperative verb (change,
+    remove, increase, decrease, cut, raise, close, open, act). Good
+    openers: "It may be worth reviewing...", "Worth checking...",
+    "Worth monitoring...". Vary openers across cards.
 12. LENGTH CAPS ARE HARD LIMITS — outputs over cap are REJECTED. Before
     submitting, count the words in every field. Target ~80% of each cap:
     headline ~9 words (max 12); what_happened ~22 (max 28); why_it_matters
@@ -1960,6 +2587,143 @@ _NUM_TOKEN = re.compile(r"\d(?:[\d,\.]*\d)?")
 
 _BANNED_IMPERATIVES = {"change", "remove", "increase", "decrease", "cut",
                        "raise", "close", "open", "act", "lower", "lift"}
+
+# ── Action-language contract (user rule 2026-08-10, enforced 2026-10-28) ─────
+# Cards suggest only what to review / check / investigate / monitor — never a
+# commercial move, not even softly. The first-word imperative check above
+# missed "Consider a targeted offer" and "There may be room for a higher
+# rate", so the whole sentence is checked. Two strengths:
+#   _COMMERCIAL_ANY    — unambiguous advice, checked in every prose field and
+#                        the hero ("raising rates", "room for a higher rate")
+#   _COMMERCIAL_ACTION — also checked in recommended_action / by_when only,
+#                        where "a lower rate" or "a targeted offer" can only be
+#                        advice (in why_it_matters "a lower average rate than
+#                        last year" is a fact and must stay allowed)
+_PRICING_OBJ = (r"(?:rates?|prices?|pricing|discounts?|offers?|promotions?|promos?|"
+                r"packages?|restrictions?|rate\s+plans?|availability|minimum\s+stays?)")
+_COMMERCIAL_ANY = re.compile(
+    r"\b(?:"
+    r"(?:rais|lower|increas|decreas|cutt|dropp|hold|open|clos|withdraw|restrict|remov|"
+    r"discount|push|protect)ing\s+(?:\w+\s+){0,2}?" + _PRICING_OBJ +
+    r"|room\s+for\s+(?:a\s+)?(?:higher|lower|firmer|softer)"
+    r"|(?:targeted|last-minute|special|early-bird)\s+(?:offer|promotion|promo|deal|discount)s?"
+    r"|priced\s+too\s+(?:low|high)"
+    r"|consider(?:ing)?\s+(?:a|an)\s+(?:\w+\s+)?(?:offer|promotion|promo|package|discount|deal)"
+    r")\b", re.IGNORECASE)
+_COMMERCIAL_ACTION = re.compile(
+    r"\b(?:"
+    r"(?:raise|lower|increase|decrease|cut|drop|hold|close|withdraw|restrict|remove|push|protect)"
+    r"\s+(?:the\s+|your\s+|its\s+|their\s+|any\s+)?(?:\w+\s+){0,2}?" + _PRICING_OBJ +
+    r"|(?:higher|lower|firmer|softer)\s+(?:rates?|prices?|pricing)"
+    r"|(?:a|an)\s+(?:\w+\s+){0,2}?(?:offer|promotion|promo|package|discount|deal)"
+    r")\b", re.IGNORECASE)
+_ACTION_FIELDS = ("recommended_action", "by_when")
+
+
+def _action_violations(card: dict) -> list[str]:
+    """Commercial-move advice anywhere in a card (English only)."""
+    v = []
+    for field in ("headline", "what_happened", "why_it_matters", "recommended_action", "by_when"):
+        text = str(card.get(field) or "")
+        m = _COMMERCIAL_ANY.search(text) or (
+            _COMMERCIAL_ACTION.search(text) if field in _ACTION_FIELDS else None)
+        if m:
+            v.append(f"{field} suggests a commercial move ('{m.group(0)}') — "
+                     f"only review / check / investigate / monitor")
+    return v
+
+
+# ── Card shape (review 2026-10-28) ───────────────────────────────────────────
+# The tool schema asks for every field, but a response that skips one used to
+# pass every validator and then crash the legacy mapping — wiping ALL cards
+# and the hero for the hotel that day. Now it fails validation for that card
+# only, which ships its deterministic fallback.
+_TEXT_FIELDS = ("headline", "what_happened", "why_it_matters", "recommended_action", "by_when")
+
+
+def _shape_problems(card: Any) -> list[str]:
+    if not isinstance(card, dict):
+        return ["card is not an object"]
+    v = [f"missing or empty field: {f}" for f in _TEXT_FIELDS
+         if not isinstance(card.get(f), str) or not card[f].strip()]
+    ev = card.get("evidence")
+    if not isinstance(ev, list) or len(ev) != 2:
+        v.append("evidence must be exactly 2 items")
+    else:
+        for i, e in enumerate(ev):
+            if (not isinstance(e, dict)
+                    or not all(isinstance(e.get(k), str) and e[k].strip() for k in ("label", "value"))
+                    or not isinstance(e.get("sub", ""), str)):
+                v.append(f"evidence[{i}] needs label / value / sub text")
+    return v
+
+
+# ── Number watch (review 2026-10-28, WATCH-ONLY) ─────────────────────────────
+# _bad_numbers only checks that the digits occur SOMEWHERE in the input, so
+# "−20%" → "+20%" and "80%" → "€80" pass. This stricter check compares whole
+# numbers with their sign, € and unit against the input. It never rejects a
+# card yet: findings go to cards_audit["number_watch"] so a week of real runs
+# shows its false-positive rate before it is switched on (ENGINEERING_LOG).
+_NUM_EXPR = re.compile(
+    r"(?:(?<![\w.,])(?P<sign>[+\-−]))?(?P<cur>€)?(?P<num>\d[\d,]*(?:\.\d+)?)"
+    r"(?P<unit>%|\s?pts\b)?")
+
+
+def _num_kind(m: re.Match) -> str:
+    if m.group("cur"):
+        return "€"
+    unit = (m.group("unit") or "").strip()
+    return unit or "plain"
+
+
+def _number_watch(texts: list[str], haystack: str) -> list[str]:
+    allowed: dict[str, set[tuple[str, str]]] = {}
+    for m in _NUM_EXPR.finditer(haystack):
+        sign = (m.group("sign") or "").replace("-", "−")
+        allowed.setdefault(m.group("num"), set()).add((sign, _num_kind(m)))
+    issues: list[str] = []
+    for text in texts:
+        for m in _NUM_EXPR.finditer(str(text or "")):
+            num, kind = m.group("num"), _num_kind(m)
+            sign = (m.group("sign") or "").replace("-", "−")
+            variants = allowed.get(num)
+            shown = m.group(0).strip()
+            if not variants:
+                issues.append(f"'{shown}' is not a number in the input")
+                continue
+            if kind != "plain" and kind not in {k for _, k in variants}:
+                issues.append(f"'{shown}' — the input has {num} only as "
+                              f"{', '.join(sorted(k for _, k in variants))}")
+                continue
+            if sign and sign not in {s for s, k in variants if kind == "plain" or k == kind}:
+                issues.append(f"'{shown}' — sign differs from the input")
+    return sorted(set(issues))
+
+
+# ── Source-code fidelity (rule 15, enforced 2026-10-28) ──────────────────────
+# Claude once expanded the hotel's code "BK" into "Booking.com". Number checks
+# cannot see that, so any well-known channel brand in the output that is NOT
+# in the input is a rejection (the hotel's own codes are copied verbatim).
+_CHANNEL_BRANDS = re.compile(
+    r"(?<![\w.])(?:booking\.com|expedia|airbnb|agoda|hotels\.com|trip\.com|hrs|"
+    r"hotelbeds|jet2(?:holidays)?|tui|lastminute(?:\.com)?|kayak|trivago)(?![\w])",
+    re.IGNORECASE)
+
+
+def _source_violations(texts: list[str], haystack: str) -> list[str]:
+    seen = {m.group(0).lower() for m in _CHANNEL_BRANDS.finditer(haystack)}
+    out = {m.group(0) for t in texts for m in _CHANNEL_BRANDS.finditer(str(t or ""))
+           if m.group(0).lower() not in seen}
+    return [f"source name '{b}' is not in the input — copy source codes exactly as given"
+            for b in sorted(out)]
+
+
+def _card_texts(card: dict) -> list[str]:
+    texts = [str(card.get(f) or "") for f in _TEXT_FIELDS]
+    for e in card.get("evidence") or []:
+        if isinstance(e, dict):
+            texts += [str(e.get(k) or "") for k in ("label", "value", "sub")]
+    return texts
 
 # ── Word-limit contract (canonical — see ENGINEERING_LOG §3) ─────────────────
 # Every text the briefing ships obeys these caps, on EVERY path:
@@ -2093,7 +2857,7 @@ def _style_violations(card: dict) -> list[str]:
             v.append(f"{field} is {len(text.split())} words (max {cap})")
     first = card.get("recommended_action", "").strip().split(" ")[0].lower().strip(",.:;")
     if first in _BANNED_IMPERATIVES:
-        v.append(f"recommended_action starts with imperative '{first}' — use a soft opener (Consider…, It may be worth…)")
+        v.append(f"recommended_action starts with imperative '{first}' — use a soft opener (It may be worth reviewing…, Worth checking…)")
     return v
 
 
@@ -2145,7 +2909,7 @@ def _retry_feedback(card: dict, bad_nums: list[str], style: list[str],
                 f'"recommended_action" opens with a banned imperative. You wrote:\n'
                 f'      "{card.get("recommended_action", "")}"\n'
                 f'    Rephrase the same content with a soft opener '
-                f'("Consider…", "It may be worth…").')
+                f'("It may be worth reviewing…", "Worth checking…").')
         else:
             fixes.append(p)
     if bad_nums:
@@ -2214,11 +2978,22 @@ def _narrate_card(wrapper: dict, fallback_card: dict, meta: dict | None = None,
             audit["validation_problems"].append(f"api_error: {str(exc)[:200]}")
             continue
 
-        bad_nums = _bad_numbers(card, haystack)
-        style    = _style_violations(card)
-        if lang != "en":  # imperative-opener list is English-only
-            style = [v for v in style if "imperative" not in v]
-        period   = _period_violations(card, facts)
+        shape = _shape_problems(card)
+        if shape:   # incomplete response → this card's fallback, nothing else
+            bad_nums, style, period = [], shape, []
+        else:
+            bad_nums = _bad_numbers(card, haystack)
+            style    = _style_violations(card)
+            if lang == "en":  # both wording checks are English-only
+                style += _action_violations(card)
+            else:
+                style = [v for v in style if "imperative" not in v]
+            style += _source_violations(_card_texts(card), haystack)   # any language
+            period   = _period_violations(card, facts)
+            watch = _number_watch(_card_texts(card), haystack)
+            if watch:   # watch-only: recorded, never rejected (see _NUM_EXPR)
+                audit["number_watch"] = watch
+                print(f"[analyst] Card '{wrapper['insight']['id']}' number watch: {watch}")
         problems = [f"invented number: {t}" for t in bad_nums] + style + period
         if not problems:
             result_card = _harden_card(card, wrapper)
@@ -2240,10 +3015,7 @@ def _narrate_card(wrapper: dict, fallback_card: dict, meta: dict | None = None,
     if result_card is None:
         print(f"[analyst] Card '{wrapper['insight']['id']}': validation failed — using free templated fallback (no retry, cost policy).")
         audit["fallback_used"] = True
-        result_card = dict(fallback_card)
-        if lang == "en":
-            result_card, _ = _plainify_card(result_card)
-        result_card = _enforce_caps(result_card)
+        result_card = _deterministic_card(fallback_card, lang)
 
     audit["latency_ms"] = int((_time.monotonic() - t0) * 1000)
     if meta is not None:
@@ -2315,7 +3087,8 @@ def _closed_season_slots(data: dict) -> dict | None:
     rn_stly  = sum(float(p.get("rn_stly") or 0) for p in pnx)
     rev      = sum(float(p.get("rev") or 0) for p in pnx)
     rev_stly = sum(float(p.get("rev_stly") or 0) for p in pnx)
-    ny, ty = _date.today().year + 1, _date.today().year
+    ty = _anchor_today(data).year
+    ny = ty + 1
     top = sorted(pnx, key=lambda p: float(p.get("rn") or 0), reverse=True)[:2]
     slot = {
         "status": (f"closed for the season — comparing {ny} on the books "
@@ -2384,6 +3157,11 @@ def _hero_violations(text: str, greeting: str = "Good morning") -> list[str]:
             v.append(f"sentence starts with imperative '{first}' — use a soft opener")
     if "!" in text:
         v.append("no exclamation marks")
+    if greeting == "Good morning":   # action-language check is English-only
+        m = _COMMERCIAL_ANY.search(text)
+        if m:
+            v.append(f"hero suggests a commercial move ('{m.group(0)}') — "
+                     f"only what is worth reviewing or watching")
     return v
 
 
@@ -2445,7 +3223,10 @@ def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
     fallback = _hero_fallback(slots, cards)
     if lang == "el":
         fallback = greeting + "." + fallback[len("Good morning."):]
-    digest = [{"tag": c["tag"], "headline": c["headline"]} for c in cards[:3]]
+    # "status" lets the hero lead with what is NEW (review 2026-10-28); a
+    # quiet-day pinned repeat is "still open", never presented as news
+    digest = [{"tag": c["tag"], "headline": c["headline"],
+               "status": "still open" if c.get("_pinned") else "new"} for c in cards[:3]]
     haystack = (json.dumps(slots, ensure_ascii=False)
                 + json.dumps(digest, ensure_ascii=False))
     if "closed_season" in slots:
@@ -2460,9 +3241,10 @@ def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
         order_text = (
             "(1) yesterday's result and what drove it "
             "— occupancy vs rate, per the driver hints; (2) the month-to-date position; "
-            "(3) then the most important forward-looking points from TOP INSIGHTS, each "
-            "compressed to one clause or short sentence, mentioning the at-stake value only "
-            "for the single most important one"
+            "(3) then the most important NEW finding from TOP INSIGHTS (status \"new\") in "
+            "one short sentence that says what it reveals, not just which number moved; any "
+            "other new insight in one clause; an insight with status \"still open\" at most "
+            "as \"still open\", never as news"
         )
     if slots.get("pulse"):
         order_text += (
@@ -2484,7 +3266,9 @@ def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
         "bookings' not 'pickup', 'bookings vs last year' not 'pace', 'average rate' "
         "not 'ADR', 'last-minute' not 'close-in'). "
         "Soft advisory tone, no imperatives, no "
-        "exclamation marks. Never invent causes (nationalities, room types, events, "
+        "exclamation marks. Never suggest a pricing or offer move (higher or lower "
+        "rates, offers, promotions, discounts) — only what is worth reviewing or "
+        "watching. Never invent causes (nationalities, room types, events, "
         "weather) — only what the data shows. Every number must appear verbatim in the "
         "data above."
     )
@@ -2512,11 +3296,12 @@ def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
             if meta is not None:
                 _usage_add(meta["usage"], response.usage)
             hero = next(b for b in response.content if b.type == "tool_use").input.get("hero", "")
-            problems = _hero_violations(hero, greeting)
+            problems = _hero_violations(hero, greeting) + _source_violations([hero], haystack)
             bad = _bad_numbers({"h": hero}, haystack)
             if bad:
                 problems.append(f"numbers not in input data: {', '.join(bad[:5])}")
             if hero and not problems:
+                watch = _number_watch([hero], haystack)   # watch-only
                 if lang == "en":
                     hero, jargon = _plainify_text(hero)
                     if jargon:
@@ -2528,6 +3313,7 @@ def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
                         "attempts": attempts, "fallback_used": False,
                         "latency_ms": int((_time.time() - t0) * 1000),
                         "validation_problems": [],
+                        **({"number_watch": watch} if watch else {}),
                     })
                 return hero
         except Exception as exc:
@@ -2579,6 +3365,10 @@ def _card_to_insight(card: dict, priority: int) -> dict:
         # fingerprint (internal): what tomorrow's novelty gate compares against
         **({"_novelty": card["_novelty"]} if card.get("_novelty") else {}),
         **({"_first_seen": card["_first_seen"]} if card.get("_first_seen") else {}),
+        # Layer A metadata (2026-10-28): confidence of the leading explanation
+        # and deterministic filters for a future BI drill-down
+        **({"confidence": card["_confidence"]} if card.get("_confidence") else {}),
+        **({"drilldown": card["_drilldown"]} if card.get("_drilldown") else {}),
         # Legacy fields (current PWA)
         "priority": priority,
         "type":     _TAG_TO_TYPE.get(card["tag"], "observation"),
@@ -2593,6 +3383,44 @@ def _card_to_insight(card: dict, priority: int) -> dict:
     }
 
 
+def _drilldown(cand: dict) -> dict:
+    """Deterministic filters describing what a card is about — stay period,
+    signal, and the source when a Layer A attribution named one. Metadata
+    only: no BI deep-link contract exists yet (ENGINEERING_LOG TO-DO)."""
+    ins   = cand.get("insight") or {}
+    facts = ins.get("facts") or {}
+    sp    = ins.get("stay_period") or {}
+    d: dict[str, Any] = {"signal": ins.get("signal"),
+                         "stay_from": sp.get("from"), "stay_to": sp.get("to")}
+    shift = facts.get("shift_source")
+    src = (facts.get("source") or facts.get("biggest_source")
+           or (shift.get("value") if isinstance(shift, dict) else None))
+    if src:
+        d["source"] = src
+    return {k: v for k, v in d.items() if v}
+
+
+def _cards_to_insights(cards: list[dict]) -> list[dict]:
+    """Map each card to the payload shape; one card that cannot be mapped is
+    dropped (logged) instead of failing the whole briefing."""
+    out: list[dict] = []
+    for c in cards:
+        try:
+            out.append(_card_to_insight(c, len(out) + 1))
+        except Exception as exc:
+            print(f"[analyst] Card '{c.get('id', '?')}' could not be mapped — dropped: {exc}")
+    return out
+
+
+def _deterministic_card(fallback_card: dict, lang: str = "en") -> dict:
+    """The templated card, through the same plain-language pass and word-cap
+    clamp as narrated cards (AI-off hotels used to skip both)."""
+    card = dict(fallback_card)
+    if lang == "en":
+        card, _ = _plainify_card(card)
+    return _enforce_caps(card)
+
+
 _STUB = {"executive_summary": "", "insights": []}
 
 
@@ -2602,24 +3430,24 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None,
                       lang: str = "en", narrate: bool = True) -> dict[str, Any]:
     """narrate=False (per-entity AI toggle, 2026-09-11): every card ships its
     deterministic fallback and the hero is skipped — ZERO Claude tokens; the
-    briefing still publishes with full data and computed signals."""
-    if not config.ANTHROPIC_API_KEY:
-        print("[analyst] No ANTHROPIC_API_KEY — skipping AI insights.")
-        return _STUB
+    briefing still publishes with full data and computed signals.
+
+    Review 2026-10-28: the old prompt-only analyst (_legacy_generate) is no
+    longer routed to. It bypassed every validator, ignored narrate=False and
+    fired whenever ONE signal field was empty — e.g. a closed resort with no
+    stays in the next 90 days. A payload without signal fields now computes
+    what it supports (often a quiet, hero-only day). A missing API key means
+    deterministic cards, not an empty briefing. One card that fails in any
+    way ships its fallback; the others are untouched."""
+    if narrate and not config.ANTHROPIC_API_KEY:
+        print("[analyst] No ANTHROPIC_API_KEY — deterministic cards only.")
+        narrate = False
 
     try:
-        # v4 path needs the new SQL payload fields; old-fetcher payloads → legacy.
-        # The contract's data_quality block is authoritative when present.
         dq = data.get("data_quality") or {}
-        if dq:
-            has_new_data = not dq.get("legacy_mode", False)
-        else:
-            has_new_data = bool(data.get("pickup_daily") or data.get("otb_by_date")
-                                or data.get("current_month_remaining"))
-        if not has_new_data:
-            print("[analyst] Payload has no new signal data (old fetcher on hotel server) "
-                  "— using legacy prompt.")
-            return _legacy_generate(data)
+        if dq.get("legacy_mode"):
+            print("[analyst] Some signal fields are empty (legacy_mode) — computing what "
+                  "the payload supports (the old prompt analyst is retired).")
 
         if hotel_id is None:
             import os
@@ -2635,32 +3463,51 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None,
             print("[analyst] No new signals today — hero-only briefing.")
 
         hotel_name = data.get("hotel_name", config.HOTEL_NAME)
-        briefing_date = _date.today().isoformat()
+        briefing_date = _anchor_today(data).isoformat()
 
         meta: dict[str, Any] = {"cards_audit": [], "usage": _usage_zero(),
                                 "model": _MODEL, "prompt_version": _PROMPT_VERSION}
+        if computed.get("compute_errors"):
+            # visible in refresh_runs.cards_audit (ops-monitoring) and ai_stats
+            meta["cards_audit"].append({
+                "card_id": "compute_errors", "signal": "compute", "tag": "SYSTEM",
+                "attempts": 0, "fallback_used": False,
+                "validation_problems": computed["compute_errors"],
+            })
         cards: list[dict] = []
         for cand in ranked[:5]:
             if not narrate:
-                card = dict(cand["fallback_card"])
+                card = _deterministic_card(cand["fallback_card"], lang)
                 meta["cards_audit"].append({
                     "card_id": card.get("id") or f"card_{len(cards) + 1}",
                     "fallback_used": True, "attempts": 0,
                     "validation_problems": ["ai_disabled_for_entity"],
                 })
-                card["_novelty"] = cand.get("novelty")
-                card["_first_seen"] = cand.get("first_seen_iso")
-                cards.append(card)
-                continue
-            wrapper = {
-                "property":       hotel_name,
-                "briefing_date":  briefing_date,
-                "capacity_rooms": config.TOTAL_ROOMS,
-                "insight":        cand["insight"],
-            }
-            card = _narrate_card(wrapper, cand["fallback_card"], meta=meta, lang=lang)
+            else:
+                wrapper = {
+                    "property":       hotel_name,
+                    "briefing_date":  briefing_date,
+                    "capacity_rooms": config.TOTAL_ROOMS,
+                    "insight":        cand["insight"],
+                }
+                try:
+                    card = _narrate_card(wrapper, cand["fallback_card"], meta=meta, lang=lang)
+                except Exception as exc:
+                    print(f"[analyst] Card '{cand['insight']['id']}' narration crashed "
+                          f"— shipping its fallback: {exc}")
+                    card = _deterministic_card(cand["fallback_card"], lang)
+                    meta["cards_audit"].append({
+                        "card_id": cand["insight"]["id"], "fallback_used": True, "attempts": 0,
+                        "validation_problems": [f"narration_crash: {str(exc)[:200]}"],
+                    })
             card["_novelty"] = cand.get("novelty")
             card["_first_seen"] = cand.get("first_seen_iso")
+            card["_pinned"] = bool(cand.get("pinned_repeat"))
+            # Layer A's confidence + filter metadata for a future drill-down
+            # (no BI navigation contract yet — data only, the PWA ignores it)
+            hyps = cand["insight"].get("cause_hypotheses") or []
+            card["_confidence"] = hyps[0].get("confidence") if hyps else None
+            card["_drilldown"] = _drilldown(cand)
             cards.append(card)
             print(f"[analyst] Card {len(cards)}: [{card['tag']}] {card['headline'][:60]}")
 
@@ -2669,13 +3516,21 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None,
                        "first_flagged": c["insight"]["facts"].get("first_flagged"),
                        "first_flagged_iso": c.get("first_seen_iso")}
                       for c in computed.get("demoted", [])]
-        hero_slots = _build_hero_slots(data)
+        try:
+            hero_slots = _build_hero_slots(data)
+        except Exception as exc:
+            print(f"[analyst] Hero slots failed — hero falls back to card headlines: {exc}")
+            hero_slots = {}
         if not cards or open_items:
             fresh = sum(1 for cand in ranked[:5] if not cand.get("pinned_repeat"))
             hero_slots["pulse"] = {"new_items": str(fresh),
                                    "open_items": str(len(open_items))}
-        summary = "" if not narrate else \
-            _narrate_hero(hotel_name, hero_slots, cards, meta=meta, lang=lang)
+        summary = ""
+        if narrate:
+            try:
+                summary = _narrate_hero(hotel_name, hero_slots, cards, meta=meta, lang=lang)
+            except Exception as exc:
+                print(f"[analyst] Hero failed — briefing ships without it: {exc}")
         if not narrate:
             print(f"[analyst] AI narration OFF for this hotel — "
                   f"{len(cards)} deterministic cards, zero tokens")
@@ -2688,7 +3543,7 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None,
             # stamp lets the UI label the narrative with ITS time, so small
             # drifts vs the live KPI cards read as timing, not as errors.
             "generated_at": _display_hhmm(),
-            "insights": [_card_to_insight(c, i + 1) for i, c in enumerate(cards)],
+            "insights": _cards_to_insights(cards),
             # Open items = repeats held back today; the app's watchlist is the
             # memory, this list lets it label them without re-computing.
             "open_items": open_items,
@@ -2768,7 +3623,8 @@ _LEGACY_TOOL: dict[str, Any] = {
 
 
 def _legacy_generate(data: dict[str, Any]) -> dict[str, Any]:
-    """Original prompt-based approach — used as fallback until new queries deploy."""
+    """Original prompt-based approach. NOT CALLED since 2026-10-28 (it bypassed
+    every validator) — kept only until the post-Xenia cleanup deletes it."""
     import calendar as _cal2
     from datetime import date as _d2
 
@@ -2894,7 +3750,11 @@ def load_cached_insights() -> dict:
     from pathlib import Path
     cache = Path("ai_cache.json")
     if cache.exists():
-        result = json.loads(cache.read_text(encoding="utf-8"))
+        try:
+            result = json.loads(cache.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:   # corrupt cache → cloud fallback
+            print(f"[analyst] ai_cache.json unreadable, ignoring it: {exc}")
+            result = {}
         if result.get("insights"):
             return result
 

@@ -150,7 +150,7 @@ out = _compute_signals(data)
 check("candidates carry a fingerprint", all("novelty" in c for c in out["ranked"]) and out["ranked"], str(out["ranked"][:1]))
 check("compute returns demoted list", "demoted" in out)
 _orig = A._novelty_gate
-A._novelty_gate = lambda cands, hid: ([], list(cands))      # every card is a repeat
+A._novelty_gate = lambda cands, hid, *_: ([], list(cands))  # every card is a repeat (*_: report-date anchor)
 try:
     out = _compute_signals(data, hotel_id="hotel-x")
     # 2026-09-28: quiet day → the single top open ALERT is pinned as "Still open"

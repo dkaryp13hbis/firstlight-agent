@@ -46,7 +46,7 @@ check("names the cap and a target",
       "the cap is 20" in fb and "target 18" in fb, fb[:400])
 check("quotes the imperative action text",
       "Raise the August rates" in fb)
-check("suggests soft openers", "Consider" in fb)
+check("suggests soft openers", "It may be worth" in fb)   # was "Consider" (2026-10-28)
 check("lists invented numbers", "99,999" in fb and "forbidden" in fb)
 check("carries period violations through", "period problem X" in fb)
 check("instructs unchanged fields stay verbatim",

@@ -34,6 +34,25 @@ Two layers, strictly separated:
   overall (Medium); ONLY when the source deltas reconcile with the pace gap
   (±20%) — otherwise say nothing. Both are fail-open: no Q14/Q17 → the
   original Low hypotheses ship unchanged.
+- REVIEW 2026-10-28 (`cards-v1.11-review`, ENGINEERING_LOG §3): every signal is
+  its own function `_signal_<name>(ctx)` registered in `_SIGNALS` and run
+  fail-open by `_compute_signals` (errors → cards_audit `compute_errors`).
+  `ctx["today"]` comes from `report_date_iso` (`_anchor_today`) — never call
+  `date.today()` in a signal. Monthly signals iterate `ctx["months"]` (this
+  year from today + next year within 183 days, each row has `year`; use
+  `_month_row(ctx, m, y)`), never `pace` by month number. Q17 has no year:
+  never attribute next-year months.
+- MIXED (`pace_mix_*`): rooms ≥ +10% but revenue ≤ −€1,000 vs same time last
+  year → ALERT with rooms % / average-rate % / revenue % (they reconcile) and
+  `_mix_rate_split` (charts.py ADR bridge on Q17, only when Q17 ≈ Q4 within 2%).
+- HIDDEN SOURCE (`hidden_src_*`): month within ±10% overall, one source ≥ 20%
+  and ≥ 10 rn behind (≥ 20 rn last year, stake ≥ €1,000), other sources
+  together ahead, Q17 totals ≈ Q4; max 2/day.
+- Lead time: `_lead_shift_attribution` names a source only at ≥ 60% of the
+  shift (exact signed split). Shares above 100% read "more than the whole
+  gap/change, partly offset by other sources" (`_share_of`).
+- Soft/hot dates compare the same CALENDAR date last year — never claim a
+  weekday pattern from them (needs Release 2 same-weekday data).
 - Scoring `_score_candidate(R,U,M,N,C)` = (0.35R + 0.25U + 0.25M + 0.15N)·C;
   ranked = score ≥ 0.08, top 6, narrate top 5.
 - Merges before ranking: same-month pace+projection; pickup ALERT + soft dates.
@@ -67,13 +86,25 @@ Two layers, strictly separated:
 - Numeric validator: any number in card output must appear VERBATIM in the
   narration input (`_bad_numbers`). Compute exact display strings in Layer A.
 - WORD-LIMIT CONTRACT (canonical: `_WORD_CAPS` + `_HERO_WORD_CAP`; table in
-  ENGINEERING_LOG §3): headline 12 / what 20 / why 35 / action 25 / by_when 10
-  / hero 110. Enforced on EVERY path: schema descriptions (~80% targets) →
+  ENGINEERING_LOG §3): headline 12 / what 33 / why 46 / action 36 / by_when 10
+  / hero 132 (relaxed 2026-09-05 and 2026-09-11 by the user — do not tighten
+  without a fresh yes). Enforced on EVERY path: schema descriptions (~80% targets) →
   validator (SINGLE attempt, cost policy — `NARRATION_ATTEMPTS` re-enables
   retries) → fallback templates test-proven within caps (any new fallback
   template MUST add the cap check to its test) → `_enforce_caps()` runtime
   clamp last resort (a CAP CLAMP log line = template bug, fix the template).
 - Soft language, no imperative openers (`_BANNED_IMPERATIVES`).
+- REVIEW / INVESTIGATE ONLY, enforced in code (2026-10-28): `_action_violations`
+  (`_COMMERCIAL_ANY` on every field + hero, `_COMMERCIAL_ACTION` on action /
+  by_when) rejects commercial advice anywhere in a sentence ("consider a
+  targeted offer", "room for a higher rate", "lowering rates"). Fallbacks and
+  directive names (`review_rates`, `investigate_gap`, `monitor_timing`,
+  `investigate_dates`, `investigate_source`, `investigate_mix`) must pass it —
+  test with `template_ok` in test_review_r1.py.
+- Card shape (`_shape_problems`) and source fidelity (`_source_violations`:
+  no channel brand that is not in the input) reject → that card's fallback.
+- `_number_watch` (sign / € / unit vs input) is WATCH-ONLY → cards_audit
+  `number_watch`; `_bad_numbers` is still the enforcing number check.
 - PLAIN LANGUAGE (user rule 2026-08-24): the reader is a hotel owner, not a
   revenue manager. Short sentences, everyday words, no jargon when a simpler
   phrase exists (pickup → new bookings, pace → bookings vs last year, OTB →
@@ -90,16 +121,18 @@ Two layers, strictly separated:
 ## Hero (top of app, `executive_summary` field)
 
 `_build_hero_slots` (yesterday + MTD with occupancy-vs-rate driver via
-`_driver_hint`) → `_narrate_hero` (previews top cards, at-stake only for the
-lead story, must start "Good morning.", ≤ 110 words) → `_hero_fallback`
-deterministic. Audit entry `card_id: "hero"` in cards_audit.
+`_driver_hint`) → `_narrate_hero` (previews top cards — each marked `new` or
+`still open`, leads with the newest finding, never an at-stake € — must start
+"Good morning.", ≤ 132 words) → `_hero_fallback` deterministic. Audit entry
+`card_id: "hero"` in cards_audit.
 
 ## Checklist: new signal → card
 
-1. Layer A block in `_compute_signals` (copy the Signal 3 `lead_time` block):
-   gates → facts (formatted, period-scoped) → hypotheses/directive (soft) →
-   fallback_card (2 evidence rows) → score → candidate dict with unique
-   `insight.id` (novelty gate keys on it).
+1. A `_signal_<name>(ctx) -> list[dict]` function added to `_SIGNALS` (copy
+   `_signal_hidden_source`): gates → facts (formatted, period-scoped) →
+   hypotheses/directive (review language) → fallback_card (2 evidence rows) →
+   score → candidate dict with unique `insight.id` (novelty gate keys on it),
+   `month_num` + `stay_year`, and a `_fingerprint` branch.
 2. Tags: ALERT / OPPORTUNITY / MONITOR only (schema-enforced).
 3. Cap cards per signal if it can fire for many months.
 4. No prompt changes needed — narration is generic over the insight wrapper.

@@ -95,7 +95,8 @@ if cards:
     check("share ~30%", f.get("biggest_source_share", {}).get("value") == "about 30% of the gap", str(f.get("biggest_source_share")))
     h = c["insight"]["cause_hypotheses"][0]
     check("hypothesis: spread across 4 sources, Medium", "spread across 4 sources" in h["text"] and h["confidence"] == "Medium", str(h))
-    check("directive stays open_promo", c["insight"]["action_directives"]["type"] == "open_promo")
+    # renamed 2026-10-28 (was open_promo — a commercial instruction to Claude)
+    check("directive stays investigate_gap", c["insight"]["action_directives"]["type"] == "investigate_gap")
     check("no direct fact when no Direct source", "direct_bookings_move" not in f)
     caps_ok(c["fallback_card"])
 
@@ -142,7 +143,9 @@ check("zero gap → None", _source_attribution([src("A", 10, 10)], NM, 0) is Non
 check("thin mover (< 5 rn) → None", _source_attribution([src("A", 96, 100)], NM, -4) is None)
 check("wrong month → None", _source_attribution([src("A", 50, 100)], NM + 1 if NM < 12 else 1, -50) is None)
 check("nearly all", _source_attribution([src("A", 50, 100), src("B", 52, 50)], NM, -48)["share_txt"] == "nearly all of the gap")
-check("share cap: other sources offsetting → nearly all", _source_attribution([src("A", 20, 100), src("B", 80, 50)], NM, -50)["share_txt"] == "nearly all of the gap")
+# 2026-10-28 (review, offsetting sources): A is −80 against a −50 net gap
+# because B is +30 — "nearly all" understated it; say it plainly instead
+check("offsetting sources → more than the whole gap", _source_attribution([src("A", 20, 100), src("B", 80, 50)], NM, -50)["share_txt"] == "more than the whole gap, partly offset by other sources")
 
 print(f"\n{PASS} passed, {FAIL} failed")
 raise SystemExit(1 if FAIL else 0)

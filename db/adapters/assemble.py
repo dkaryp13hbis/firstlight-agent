@@ -458,6 +458,9 @@ def assemble_snapshot(rows: dict[str, Any], hotel_ctx: dict[str, Any],
     payload = {
         "hotel_name": hotel_name,
         "report_date": f"{yesterday.strftime('%A, %B')} {yesterday.day}, {yesterday.year}",
+        # machine-readable twin of report_date: the analyst's single date
+        # anchor (review 2026-10-28) — every signal derives "today" from it
+        "report_date_iso": yesterday.isoformat(),
         "generated_at": _display_now().strftime("%H:%M"),
 
         "yesterday": {

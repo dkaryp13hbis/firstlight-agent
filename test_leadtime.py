@@ -126,8 +126,10 @@ if lt:
         n = len(str(fb.get(field, "")).split())
         check(f"fallback {field} within cap ({n}<={cap})", n <= cap,
               str(fb.get(field, "")))
-    check("directive is hold_rates",
-          ins["action_directives"]["type"] == "hold_rates",
+    # renamed 2026-10-28: directive names reach Claude, so they must be
+    # review/monitor language (was hold_rates)
+    check("directive is monitor_timing",
+          ins["action_directives"]["type"] == "monitor_timing",
           ins["action_directives"]["type"])
 
 # City profile: close buckets tighten to ≤7d → share drops to 0/0 for case A
