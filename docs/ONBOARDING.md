@@ -1,29 +1,40 @@
-# FirstLight — New Client Onboarding Runbook (v2)
+# Onboarding a new client — start here
 
-v1 was written 2026-08-04 from the Pome pilot + tunnel migration and first
-run on Potidea 2026-08-10. **v2 (2026-09-10)** reflects four user
-decisions: our own PostgreSQL on Railway (no Supabase), our own login
-system, no email channel at all (push + app only), and the tenancy
-hierarchy **Group → Company (unique VAT) → Hotel**. The public app address
-is **https://firstlight.hbis.io**.
+**Audience:** HBIS engineering / operations. **Owner:** whoever changes the
+onboarding flow, the superadmin portal (`/superadmin-control` → Onboarding,
+Clients, Hotels) or the hotel tables.
+**Keep it current:** a change to those screens, the hotel columns or the
+platform rules below updates this file in the same commit (CLAUDE.md).
+Last verified against backend `ec96996` and PWA `5160440` — 2026-10-28.
 
-Target state: the hotel's server runs **ONLY cloudflared** (a Windows
-service). No code, no keys, no scheduled tasks on site. Everything else is
-rows in our Postgres; all queries run from Railway through the tunnel.
+This page is the journey every client goes through. The PMS connection is
+the only part that depends on where the PMS runs; it has its own runbook:
 
-Estimated effort: **~1–1.5 h total** — 15 min intake, 30 min Cloudflare +
-server, 15 min database + users, 15 min verification (plus one overnight
-check).
+| The hotel's PMS runs… | Examples | Runbook | Status |
+|---|---|---|---|
+| on a server **at the hotel** (or the group's own server) | Protel (SQL Server), Opera 5 (Oracle) | [ONBOARDING_ONPREM.md](ONBOARDING_ONPREM.md) | **live** — Pome, Potidea (Protel), City / Excelsior / ON Residence (Opera) |
+| in the **vendor's cloud**, reachable by API | Opera Cloud, Hotelizer, Mews | [ONBOARDING_API.md](ONBOARDING_API.md) | **not live** — no cloud adapter yet |
 
-> **TODAY vs TARGET.** Until Phase C3 (own auth) and C4 (tenancy) ship —
-> see [PHASE_C_RUNBOOK.md](PHASE_C_RUNBOOK.md) — Steps 2 and 3 still run
-> against Supabase exactly as v1 did (hotels row + pms_config +
-> hotel_users, Supabase Auth user). Keep the v2 intake answers (VAT, group,
-> user list) in the client file so they load the day the tables go live.
+How to tell: "Is there a PMS server your IT can log into (RDP)?" Yes →
+on-premises. "We log in to the PMS in a browser and there is no server" →
+cloud / API.
 
 ---
 
-## The hierarchy (read once)
+## The journey at a glance
+
+| Step | What | Who | Where | Time |
+|---|---|---|---|---|
+| 0 | Intake | sales / ops | intake sheet (this page) | 15 min |
+| 1 | Client record (group, company, contract) | ops | portal → **Onboarding** | 5 min |
+| 2 | PMS connection | engineering + hotel IT | path runbook | 30 min on-premises · weeks for a new cloud PMS |
+| 3 | Hotel row | engineering | SQL, **two stores today** (⚠ below) | 10 min |
+| 4 | Season dates (resorts only) | engineering | SQL | 5 min |
+| 5 | Users | ops | portal → **Users** ([USER_ADMIN.md](USER_ADMIN.md)) | 5 min |
+| 6 | Verify and go live | engineering | portal → **Hotels** + the app | 15 min + next morning |
+| 7 | Hand-over | ops | phone call | 10 min |
+
+## The rules (read once)
 
 | Level | Table | Key | Who sits here |
 |---|---|---|---|
@@ -32,179 +43,179 @@ check).
 | Hotel | `hotels` | id / slug | The property. Briefings, runs, feedback, watchlists all hang off this id. |
 | User | `users` + `memberships` | email | A membership at ANY level grants every hotel below it (view `hotel_access`). |
 
-Rules:
 - **One company = one VAT.** Same VAT already exists → attach the new hotel
-  to that company; never create a duplicate.
-- **Same people own two companies** → create a `groups` row, point both
-  companies' `group_id` at it, give the owners a group-level membership.
-  They see every hotel of every company in one login.
-- **A hotel changes hands** → `update hotels set org_id = <new company>`.
-  Briefing history stays on the hotel id; nothing is deleted or copied.
-- **Roles:** `owner` (company or group level) and `viewer` (hotel level —
-  GM, revenue manager). HBIS staff = `users.is_platform_admin`, not a
-  membership.
-- **No email, ever.** Initial passwords are handed over by phone or in
-  person; the app forces a password change on first login.
+  to that company; never create a duplicate. Same VAT, different trading
+  name = same company: ask for the VAT first, the brand second.
+- **Same people own two companies** → one group; both companies point at it;
+  owners get a group-level membership and see every hotel in one login.
+- **A hotel changes hands** → move it to the new company (Step 8). History
+  stays on the hotel id; nothing is deleted or copied.
+- **No email, ever.** Passwords go by phone or in person (USER_ADMIN.md).
+- **Nothing runs at the hotel** except, for on-premises PMSs, the
+  cloudflared connector. All code, queries and keys live on our side.
+- **No guest-level data in our cloud.** Only stays, nights, revenue,
+  sources and dates — never names, contacts, documents or cards.
 
-## Step 0 — Intake (ask the client, 15 min) — MANDATORY
+> ⚠ **Two stores, today.** The move from Supabase to our Postgres is not
+> finished for hotels. Until it is (TO-DO in ENGINEERING_LOG):
+> 1. **Publishing writes Supabase first** (`briefing/cloud_push.py`). If the
+>    hotel is missing there, the briefing is not published at all.
+> 2. **"Refresh now" goes through Supabase** (`refresh_commands`), which
+>    needs the hotel there too.
+> 3. **A nightly copy overwrites Postgres with Supabase**
+>    (`scripts/mirror_to_pg.ps1`, Task Scheduler `FirstLightMirror`, 08:40
+>    Athens on the founder's laptop) for `organizations`, `hotels` and other
+>    tables. A value that differs between the two (or is empty in Supabase)
+>    is replaced in Postgres the next morning.
+>
+> So: **create every hotel in both stores with the same id and identical
+> values, and make every later change in both.** Demo twins (HBIS City /
+> Boutique / Grand) are the exception: Postgres only, by design.
 
-Collect before touching anything:
+## Step 0 — Intake (15 min) — mandatory
+
+Collect before touching anything. Path-specific questions (PMS server, API
+access) are in the path runbook.
 
 | # | Question | Goes to | Why |
 |---|---|---|---|
-| 0.1 | **Company legal name + VAT number** (+ country) | `organizations` | Unique key. Existing VAT = existing company; the new hotel attaches to it. |
-| 0.2 | **Same owners as another client of ours?** | `groups` | Decides whether a group row is created/reused so owners see all their hotels in one login. |
-| 0.3 | **Real sellable inventory** (room count) | `hotels.total_rooms` | Never trust the PMS room list — out-of-order, dummy rooms and fake room types inflate it. All occupancy math divides by this. |
-| 0.4 | **Season opening/closing dates, LAST year + THIS year** (seasonal hotels; city hotels = open all year → null) | `hotels.season_settings` jsonb (`docs/sql/2026-08-04_season_settings.sql`) | Correct occupancy over months that straddle opening/closing; powers the closed-season briefing (next-year OTB vs STLY). |
-| 0.5 | **Hotel type**: `resort` or `city` | `pms_config.hotel_type` | Selects the lead-time bucket profile for Signal 3. |
-| 0.6 | **App users**: name, email, level (owner at company/group, viewer at hotel) | `users` + `memberships` | Individual accounts, never shared credentials. Email is the login name only — nothing is sent to it. |
-| 0.7 | **Briefing language**: EN or Greek | `users.language` + `hotel_prefs` (app can change it later) | Narration language for cards + hero. |
-| 0.8 | PMS type + version (today: Protel MSSQL) | `hotels.pms_type` | Adapter selection (`get_adapter`). |
-| 0.9 | **SQL Server details**: LAN IP, port (1433), database name (`bidata`), and the **mpehotel id** of this property | `pms_config.sql` | Multi-property Protel DBs hold several hotels — `pms_hotel_id` (mpehotel) selects the right one. Verify with a COUNT query per mpehotel against known bookings. |
-| 0.10 | IT contact who can RDP the PMS server | — | Needed for Step 1 + the read-only login. |
+| 0.1 | **Company legal name + VAT number** (+ country) | company (Step 1) | Unique key. Existing VAT = existing company. |
+| 0.2 | **Same owners as another client of ours?** | group (Step 1) | Owners see all their hotels in one login, plus the portfolio view. |
+| 0.3 | **Real sellable room count** | `hotels.total_rooms` | Never trust the PMS room list (out-of-order, dummy rooms, fake room types). All occupancy maths divides by it. |
+| 0.4 | **Season dates** — opening and first closed night, LAST + THIS (+ NEXT once known) year. City hotels: open all year. | `hotels.season_settings` (Step 4) | Load-bearing: closed nights are legitimate zeros, never compared with open ones. |
+| 0.5 | **Hotel type**: resort or city | `pms_config.hotel_type` | Booking lead-time profile. |
+| 0.6 | **App users**: name, email, level (owner at company / group, viewer at one hotel) | Step 5 | Individual accounts, never shared. Email = login name only. |
+| 0.7 | **Briefing language**: EN or Greek | `pms_config.language` + users | Narration language (the app can change it per hotel later). |
+| 0.8 | **Contract**: trial or paid, start date, rate | company (Step 1) | Finance reports per company. |
+| 0.9 | **PMS** (name + version) and an **IT / PMS-admin contact** | path runbook | Picks the path. |
 
-Gone from v1: GM recipient email. `hotels.recipient_email` /
-`recipient_name` are deprecated columns — leave them empty.
+## Step 1 — Client record (portal → Onboarding, 5 min)
 
-## Step 1 — Hotel server: cloudflared + read-only SQL login (30 min, remote w/ IT)
+1. **https://firstlight.hbis.io/superadmin-control** → **Onboarding**.
+2. Same VAT already a client? Stop here and edit it under **Clients**
+   instead (row → form at the bottom → **Save changes**).
+3. In **New client** fill:
+   - **Group (owner umbrella, optional)** — pick one, or type a name in
+     **… or create a group** and press **+ Group**. Only when 0.2 = yes.
+   - **Company (trading name)** \* · **Legal name** · **VAT** (e.g.
+     `EL123456789`) · **Country** (2 letters, `GR`).
+   - **Contact person** · **Contact phone**.
+   - **Contract status** (Trial / Active / Suspended / Ended) · **Start date**
+     · **Rate € / month** · **Rate € / year** · **Notes**.
+   - **Hotels in this company** — the new hotel does not exist yet; tick it
+     after Step 3 (Clients → company row → tick → **Save changes**).
+4. **Create client** → "Saved".
 
-1. **Cloudflared tunnel** (skip if the site already has one — a second hotel
-   on the same SQL server reuses the existing tunnel):
-   - Zero Trust → Tunnels → create named tunnel `FL_<hotel>`; install as a
-     **Windows service** on a machine that can reach the SQL server.
-   - Public hostname: `sql-<hotel>.hbis.io` → `tcp://<sql-lan-ip>:1433`.
-   - Access → Applications → self-hosted app for that hostname; policy
-     Action = **Service Auth** (NOT Allow); create service token
-     `railway-<hotel>-sql`; save Client ID + Secret.
-2. **Read-only SQL login** (never ship `sa` beyond a pilot):
-   ```sql
-   CREATE LOGIN firstlight_ro WITH PASSWORD = '<strong-pw>';
-   USE bidata;  CREATE USER firstlight_ro FOR LOGIN firstlight_ro;
-                GRANT SELECT ON SCHEMA::proteluser TO firstlight_ro;
-   USE protel;  CREATE USER firstlight_ro FOR LOGIN firstlight_ro;
-                GRANT SELECT ON SCHEMA::proteluser TO firstlight_ro;
-   ```
-3. Nothing else goes on the hotel server. No repo clone, no .env, no tasks.
+Under **Clients** the same form also has **AI insights (all hotels of this
+company)**: Inherit (default on) / On / Off — Off publishes deterministic
+cards at zero AI cost (useful for long trials).
 
-**Opera 5 / Oracle variant (first run: Tor group, 2026-09-11):** route
-`sql-<group>.hbis.io → tcp://<oracle-ip>:1521` (ONE tunnel + token for the
-whole multiproperty server); read-only Oracle account with a non-expiring
-profile (`CREATE PROFILE ... PASSWORD_LIFE_TIME UNLIMITED`) and SELECT on the
-OPERA views; check `USE_SHARED_SOCKET` on the 19c home only if the tunnel
-connect hangs (Tor: not needed). Pre-flight from the laptop:
-`ORA_PW=... py -3.13 scripts/validate_opera.py [host:port]` — expect
-`complete=True`, yesterday == `RESERVATION_STAT_DAILY`, full-year revenue ==
-the group's Hotel BI table. One `hotels` row per RESORT code (Step 2).
+## Step 2 — PMS connection
 
-## Step 2 — Database + users (15 min) — our Postgres on Railway
+Follow the path runbook, then come back here with the `pms_type` and the
+`pms_config` block it produces:
+[on-premises](ONBOARDING_ONPREM.md) · [API / cloud](ONBOARDING_API.md).
 
-**TODAY (until C3/C4):** Supabase, as v1 — `hotels` row + `pms_config`,
-Supabase Auth user, `hotel_users` mapping. Skip the group/company/VAT
-rows; keep the answers.
+## Step 3 — Hotel row (engineering, 10 min)
 
-**TARGET:** one admin script, `scripts/onboard_hotel.py` (TO-DO), takes
-the intake sheet and does the following in one transaction. Manual SQL
-recipes for each line are at the bottom of
-`docs/sql/pg/2026-09-10_tenancy_auth.sql`.
+Today hotels are created by engineering (the portal's Onboarding screen
+says so: "hotels are provisioned by engineering, then registered to their
+company here"). Copy this into a dated file `docs/sql/pg/<date>_<hotel>.sql`,
+fill it, and run it as the database owner:
+`powershell -ExecutionPolicy Bypass -File scripts\pg_migrate.ps1 docs\sql\pg\<file>.sql`.
+Never commit the filled-in secrets: commit the file with `<placeholders>`.
 
-1. **Company:** look up `organizations` by (country, vat_number) → reuse;
-   else insert name, legal_name, vat_number, country, slug.
-2. **Group** (only if 0.2 = yes): reuse or insert `groups`; set
-   `organizations.group_id` on every company involved.
-3. **Hotel:** insert `hotels` (org_id, name, slug, total_rooms from 0.3,
-   timezone, pms_type, season_settings from 0.4, `api_token` = 32 random
-   bytes, pms_config):
-   ```jsonc
-   {
-     "fetch_mode": "tunnel",
-     "tunnel_hostname": "sql-<hotel>.hbis.io",
-     "cf_access_client_id": "<token id>",
-     "cf_access_client_secret": "<token secret>",
-     "hotel_type": "resort",              // from 0.5
-     "language": "en",                    // from 0.7
-     "sql": { "database": "bidata", "user": "firstlight_ro",
-              "password": "<...>", "pms_hotel_id": <mpehotel> }
-   }
-   ```
-4. **Users** — follow **[USER_ADMIN.md](USER_ADMIN.md)** (portal Users
-   screen, step by step; CLI fallback). In short: for each person in 0.6 → `users` row (email lower-cased,
-   scrypt hash of a generated initial password (`scripts/users.py create`, run via `railway ssh -s web`),
-   `must_change_password = true`, language) + a `memberships` row at the
-   right level (`org`/`group` + `owner`, or `hotel` + `viewer`). Existing
-   email → membership only.
-5. **Handover sheet** (printed by the script, never emailed): hotel id,
-   app address https://firstlight.hbis.io, one initial password per user.
-   Read the passwords out by phone; do not paste them into chats that
-   persist.
+```sql
+insert into hotels (id, org_id, name, slug, total_rooms, timezone, pms_type,
+                    active, season_settings, api_token, pms_config)
+select gen_random_uuid(), o.id, '<Hotel name>', '<hotel-slug>', <rooms 0.3>,
+       'Europe/Athens', '<pms_type from Step 2>',
+       false,                                   -- activated in Step 6
+       null,                                    -- Step 4 (resorts)
+       encode(gen_random_bytes(32), 'hex'),     -- per-hotel API token
+       '<pms_config JSON from Step 2>'::jsonb
+  from organizations o where o.vat_number = '<VAT from 0.1>'   -- or o.name = '<trading name>' while the VAT is pending
+returning id, name;
+```
 
-## Step 3 — Verify (15 min + overnight)
+Then **the same row in Supabase** (⚠ above): same `id` as returned,
+same name, total_rooms, pms_type, active, season_settings, api_token and
+pms_config — pasted in the Supabase SQL editor (the founder does this).
+Finally tick the hotel under Clients (Step 1.3).
 
-1. Insert a `refresh_commands` row for the new hotel (see `ops-monitoring`;
-   TODAY Supabase, TARGET Postgres where LISTEN/NOTIFY picks it up).
-   Expect in `refresh_runs`: `status: success`, `fetch_path: "tunnel"`,
-   `data_quality.complete: true`, `rows_fetched` populated **including
-   signal fields** (pickup_daily, cancel_daily, lead_time,
-   consumed_by_source, pace_next_year).
-2. Log in at **https://firstlight.hbis.io** as one of the NEW users, not
-   your admin account: forced password change works; the hotel appears in
-   the picker (an owner also sees every other hotel of the company/group);
-   the briefing renders; numbers eyeballed against the PMS (yesterday
-   revenue, month OTB).
-3. Reconciliation spot-check: Pickup boxes == butterfly totals; hero numbers
-   == KPI cards (manual refreshes reuse the day's AI, so run one).
-4. Enable push on the user's phone (bell) → `POST /push/test` arrives.
-5. Next 03:30 UTC scheduled run: exactly ONE push arrives and NO email;
-   check `cards_audit` (attempts=1, no validation problems, fallback rate
-   low).
+## Step 4 — Season dates (resorts only, 5 min)
 
-## Step 4 — Merges and moves (admin, any time)
+`hotels.season_settings` in **both** stores, e.g.
+`{"2025": {"open": "2025-04-25", "close": "2025-10-20"}, "2026": {"open": "2026-04-30", "close": "2026-10-14"}}`
+where `close` is the **first closed night**. Template with checks:
+`docs/sql/pg/2026-10-26_pome_season_settings.sql`. City hotels stay `null`.
 
-| Situation | Action | Data impact |
+> The season release (built 2026-10-26, **not deployed**) adds the
+> season-aware publication gate and lets the hotel owner enter these dates
+> in the app (Settings → Season dates). Until it ships, a resort onboarded
+> while **closed** will not publish — its zero nights fail the safety gate,
+> exactly what keeps Pome / Potidea frozen today.
+
+## Step 5 — Users (portal → Users)
+
+Follow [USER_ADMIN.md](USER_ADMIN.md) §3. Owner of the company (or group)
+→ **Owner**; hotel staff → **One hotel** + **Viewer**.
+
+## Step 6 — Verify and go live (portal → Hotels, 15 min + next morning)
+
+1. **Hotels** → filter by name → click the row. The grey line on the right
+   must read `tunnel <hostname> · credentials ✓` (on-premises).
+2. **Activate** (new hotels are created paused). The scheduler and
+   "Refresh now" only see active hotels.
+3. **Refresh now** → "refresh queued". After 1–2 minutes close and reopen
+   the row. The newest run must show **Type** manual, **Status** success
+   (degraded = fallback cards, acceptable), **Path** tunnel, **Rows**
+   filled (hover = per-query counts), no **Error**.
+4. Sign in to **https://firstlight.hbis.io** as one of the NEW users (not
+   an admin) and compare with the PMS: yesterday's revenue and room nights,
+   this month's booked revenue. A wrong property id gives plausible but
+   wrong numbers — check one known figure.
+5. Spot-check: the Pickup boxes equal the butterfly totals; the narrated
+   paragraph's numbers equal the KPI cards.
+6. Their phone: bell on for the hotel (iPhone: from the home-screen app).
+7. **Next morning** (03:30 UTC run; 05:00 Athens for hotels on the early
+   slot): exactly ONE push, no email; Hotels row → **Last briefing** =
+   yesterday, **Result** success, **AI cost 30d** a few cents.
+
+## Step 7 — Hand-over (phone)
+
+Read out the passwords (USER_ADMIN.md §5), walk them through installing the
+app and the bell, and tell them the first briefing arrives tomorrow
+morning. Contract status in Clients: Trial or Active.
+
+## Step 8 — Merges, moves, pauses (any time)
+
+| Situation | Portal | Behind it |
 |---|---|---|
-| Two companies, same owners | insert `groups`; set `group_id` on both; owners get a `group` membership | none — hotels keep their company + history |
-| Hotel sold / moved to another company | `update hotels set org_id = <new>` | briefings, runs, feedback, watchlists stay on the hotel id |
-| Two companies turn out to be ONE legal entity (same VAT) | move hotels (`org_id`) and memberships to the surviving company; set the other `organizations.active = false` | never delete the losing row |
-| User leaves | `users.active = false`; delete their `sessions` | feedback / watchlist rows keep the user id |
+| Two companies, same owners | Clients → each company → **Group** → Save | `organizations.group_id`; owners get a group membership (Users) |
+| Hotel sold / moved | Clients → new company → tick the hotel → Save | `hotels.org_id`; briefings, runs, feedback stay on the hotel id |
+| Two companies are one legal entity (same VAT) | move the hotels, then set the loser's contract to Ended | never delete the losing row |
+| Pause a hotel (unpaid, closed for good) | Hotels → row → **Pause** (reason required) | `hotels.active = false` — no runs, no briefings; history kept |
+| Contract ends | Clients → **Contract status** Ended; Users → **Deactivate** each user | users signed out everywhere |
 
-## Step 5 — Decommission legacy (migrating hotels only)
+Hotel-row edits (`active`, `pms_config`, `org_id`, rooms) must also reach
+Supabase while the ⚠ two-store rule holds.
 
-Kill the old daemon process; disable Task Scheduler tasks ("FirstLight
-Morning Briefing", "FirstLight Refresh Daemon"); keep the code folder ~1 week
-as rollback, then delete. RDP rule: **Disconnect, never Sign out** (sign-out
-kills manually started processes — caused a real incident).
+## Troubleshooting
 
-## Gotchas (earned the hard way)
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| "Refresh now" queues but no run appears | hotel still paused, or missing in Supabase | Step 6.2; ⚠ two stores |
+| Run **failed** with `yesterday_nonzero` | resort closed (Step 4 note), or wrong property id | season release; check the PMS id in the path runbook |
+| A setting "came back" the next day | the nightly copy restored Supabase's value | change it in Supabase too |
+| Numbers too high / occupancy too low | `total_rooms` wrong, fake rooms counted | 0.3; path runbook gotchas |
+| App: "Data may be out of date" | no briefing since that date | Hotels → row → runs → Error column |
+| Owner sees no portfolio entry | fewer than 2 of the group's hotels in their access | USER_ADMIN.md §9 |
 
-- Multi-property DBs: wrong `pms_hotel_id` = silently plausible wrong data.
-  Validate with a known number (e.g. yesterday's room nights) before go-live.
-- Check you're on the right machine before touching processes; stray repo
-  copies have confused sessions before.
-- The tunnel path runs the FULL query pack (Q1–Q16) even if the hotel's old
-  bridge never did — first refresh may reveal PMS data quirks (fake room
-  types, comp bookings). `_FAKE_RT_EXCLUDE` handles the known ones.
-- Same VAT, different trading name = same company. Ask for the VAT first,
-  the brand second.
-- Full incident history: `ENGINEERING_LOG.md` §6.
+## Change history
 
----
-
-## Potidea Palace — worksheet (first run of v1, 2026-08-10)
-
-Facts (verified 2026-08-04, onboarded tunnel-direct 2026-08-10):
-- OWN SQL Server: `192.20.10.8`, database `BiData`, **mpehotel = 1**
-  (user-confirmed; each server numbers its own properties — the old .env's
-  `HOTEL_ID=2` was the zero-data incident). Old login `sa` → replace with
-  `firstlight_ro`.
-- Cloudflared tunnel ALREADY runs on the hotel server (serves
-  `potidea-data.hbis.io`) → TCP public hostname `sql-potidea.hbis.io` →
-  `tcp://192.20.10.8:1433` + Access Service Auth token `railway-potidea-sql`.
-- Supabase row exists (236 rooms), users mapped in `hotel_users`,
-  `recipient_email` empty (now permanently irrelevant — no email channel).
-- NOT in Pome's DB (Pome's bidata holds only its own mpehotel=1).
-
-Still to collect: real sellable inventory (236?) ✚ season dates 2025+2026
-✚ company VAT + legal name ✚ whether Pome and Potidea share owners (group?)
-✚ firstlight_ro password.
-
-Also fix while in there (both hotels): swap Pome's `sql.user` from `sa` to
-`firstlight_ro` (Step 1.2) — long-standing security must-fix.
+| Date | Change | Commit |
+|---|---|---|
+| 2026-08-04 | v1 from the Pome pilot + tunnel migration | — |
+| 2026-09-10 | v2: own Postgres, own login, no email, Group → Company → Hotel | — |
+| 2026-10-28 | v3: split into start-here + [on-premises](ONBOARDING_ONPREM.md) + [API](ONBOARDING_API.md); portal Onboarding / Clients / Hotels steps with exact labels; the two-store rule; season-release caveat | (this commit) |

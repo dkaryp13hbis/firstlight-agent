@@ -19,9 +19,11 @@ Hotel servers run ONLY cloudflared — all code, queries, and keys live here.
   This is a user-mandated living document.
 - **Update [docs/USER_ADMIN.md](docs/USER_ADMIN.md) in the same commit
   whenever the superadmin portal (`/superadmin-control`), the login flow,
-  roles or `scripts/users.py` change** (user-mandated 2026-10-28). Internal
-  engineering docs live in `docs/` — index [docs/README.md](docs/README.md);
-  docs change with the code.
+  roles or `scripts/users.py` change** (user-mandated 2026-10-28) — and
+  [docs/ONBOARDING.md](docs/ONBOARDING.md) (+ `_ONPREM` / `_API`) when the
+  portal Onboarding / Clients / Hotels screens, the hotel columns or an
+  adapter change. Internal engineering docs live in `docs/` — index
+  [docs/README.md](docs/README.md); docs change with the code.
 - Supabase schema changes = SQL file in `docs/sql/` + the user pastes it in the
   Supabase SQL editor (no migration tooling). Code must tolerate the column
   not existing yet (schema-tolerant writes, see `briefing/run_log.py`).

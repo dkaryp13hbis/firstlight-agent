@@ -5,20 +5,31 @@ description: Adding a new hotel or migrating an existing one to the tunnel-direc
 
 # Hotel onboarding / tunnel migration
 
-**Canonical runbook: `docs/ONBOARDING.md` (v2, 2026-09-10)** — intake
-form → cloudflared → database + users → verify → merges → decommission,
-with the Potidea worksheet. This skill holds the condensed task knowledge;
-the runbook is what you follow.
+**Canonical runbooks (v3, 2026-10-28):** `docs/ONBOARDING.md` = start here
+(intake → portal Onboarding client record → hotel row → season dates →
+users via `docs/USER_ADMIN.md` → verify in portal Hotels → merges/pauses);
+`docs/ONBOARDING_ONPREM.md` = tunnel path (Protel, Opera 5; Potidea
+worksheet); `docs/ONBOARDING_API.md` = cloud PMS path (NOT live — no API
+adapter yet). This skill holds the condensed task knowledge; the runbooks
+are what you follow, and they must be updated with any portal / hotel-column
+/ adapter change (CLAUDE.md).
+
+**TWO STORES TODAY (verified 2026-10-28):** publication writes Supabase
+FIRST and stops if that fails (`briefing/cloud_push.py`); "Refresh now"
+goes through Supabase `refresh_commands`; the nightly `FirstLightMirror`
+task (08:40 Athens, founder's laptop) upserts Supabase `organizations` +
+`hotels` over Postgres. → Every hotel must exist in BOTH stores with the
+same id and identical values (incl. `pms_config`), and every later edit
+goes to both. Demo twins are Postgres-only by design.
 
 Target state: hotel server runs ONLY cloudflared (Windows service). No code,
 no keys, no scheduled tasks. Everything else is rows in OUR Postgres on
 Railway. Public app: **https://firstlight.hbis.io**. No email channel —
 push + app only.
 
-**TODAY vs TARGET:** until Phase C3 (own auth) + C4 (tenancy) ship
-(`docs/PHASE_C_RUNBOOK.md`), the database step still runs in Supabase
-(hotels row + pms_config + `users`/`memberships` via `railway ssh -s web -- python scripts/users.py create …`; a Supabase Auth user + hotel_users only for accounts not yet moved). Collect the
-v2 intake answers anyway.
+Login: ONE system since 2026-10-28 (`AUTH=own`); users only through the
+portal Users screen / `scripts/users.py` (docs/USER_ADMIN.md). Companies and
+groups: portal Onboarding / Clients. Hotels: engineering SQL (both stores).
 
 ## 0. Tenancy (decided 2026-09-10)
 

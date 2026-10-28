@@ -13,7 +13,9 @@ runbook for the task in front of you.
 | Doc | Use it when | Keep current when |
 |---|---|---|
 | [USER_ADMIN.md](USER_ADMIN.md) | creating users, giving access, resets, leavers, the demo account | **anything changes in the superadmin portal (`/superadmin-control`), the login flow, roles or `scripts/users.py`** |
-| [ONBOARDING.md](ONBOARDING.md) | adding a hotel / company / group, connecting a PMS through the tunnel | the onboarding steps, `pms_config` shape or tenancy change |
+| [ONBOARDING.md](ONBOARDING.md) | **start here** for a new client: intake, client record (portal Onboarding / Clients), hotel row, season dates, users, verify in portal Hotels, merges and pauses | the portal Onboarding / Clients / Hotels screens, the hotel columns, or the two-store rule change |
+| [ONBOARDING_ONPREM.md](ONBOARDING_ONPREM.md) | the PMS runs on a server at the hotel (Protel, Opera 5): tunnel, read-only login, pre-flight, `pms_config` | an on-premises adapter or the tunnel set-up changes |
+| [ONBOARDING_API.md](ONBOARDING_API.md) | the PMS is cloud-only (Opera Cloud, Hotelizer, Mews): qualify, access, discovery, build, backfill — **not live yet** | the first cloud adapter ships, or a vendor's access model changes |
 | [PHASE_C_RUNBOOK.md](PHASE_C_RUNBOOK.md) | the Supabase → Postgres migration steps (C1–C5), DB migrations as the builder role | a migration step is done or changes |
 | [SECURITY_CHECKS.md](SECURITY_CHECKS.md) | the quarterly 10-minute security self-check (next: Dec 2026) | a check is added or the stack changes |
 | `.claude/skills/` | task knowledge for Claude Code: `pms-queries`, `analyst-signals`, `ops-monitoring`, `hotel-onboarding` | the area they describe changes |
