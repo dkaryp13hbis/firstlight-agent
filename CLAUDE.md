@@ -17,6 +17,11 @@ Hotel servers run ONLY cloudflared — all code, queries, and keys live here.
 - **Update [docs/ENGINEERING_LOG.md](docs/ENGINEERING_LOG.md) after every
   step, incident, or decision** — release history, decision log, TO-DO list.
   This is a user-mandated living document.
+- **Update [docs/USER_ADMIN.md](docs/USER_ADMIN.md) in the same commit
+  whenever the superadmin portal (`/superadmin-control`), the login flow,
+  roles or `scripts/users.py` change** (user-mandated 2026-10-28). Internal
+  engineering docs live in `docs/` — index [docs/README.md](docs/README.md);
+  docs change with the code.
 - Supabase schema changes = SQL file in `docs/sql/` + the user pastes it in the
   Supabase SQL editor (no migration tooling). Code must tolerate the column
   not existing yet (schema-tolerant writes, see `briefing/run_log.py`).
@@ -48,6 +53,7 @@ Hotel servers run ONLY cloudflared — all code, queries, and keys live here.
 | `briefing/cloud_push.py` | Publish to Supabase (`notify=` controls push). |
 | `templates/` | Jinja2 report + email HTML. |
 | `docs/ENGINEERING_LOG.md` | Architecture, migration tracker, decisions, incidents, releases, TO-DO. Read this first for context. |
+| `docs/README.md` | Index of the internal engineering docs (runbooks, living records, plans). `docs/USER_ADMIN.md` = users & access runbook. |
 
 ## Skills
 

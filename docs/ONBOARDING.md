@@ -126,7 +126,8 @@ recipes for each line are at the bottom of
               "password": "<...>", "pms_hotel_id": <mpehotel> }
    }
    ```
-4. **Users:** for each person in 0.6 → `users` row (email lower-cased,
+4. **Users** — follow **[USER_ADMIN.md](USER_ADMIN.md)** (portal Users
+   screen, step by step; CLI fallback). In short: for each person in 0.6 → `users` row (email lower-cased,
    scrypt hash of a generated initial password (`scripts/users.py create`, run via `railway ssh -s web`),
    `must_change_password = true`, language) + a `memberships` row at the
    right level (`org`/`group` + `owner`, or `hotel` + `viewer`). Existing
