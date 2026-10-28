@@ -280,6 +280,35 @@ rule), and changing test assertions beyond the three that check removed names.
 - ⬜ **Deploy Release 1 AFTER the 2026-10-29 morning runs verify Supabase stage 1** (one
   change per morning). Then verify: `GET /health` → `prompt_version: cards-v1.11-review`,
   next morning's cards_audit (fallback rate, `number_watch`, `compute_errors`).
+- ✅ **Action-language check validated on the real export** (`fl_pulse_ALL_hotels.csv`,
+  1,428 cards Jun 13–Oct 27): the first version would have rejected 97 of 360 October
+  cards but let 74 more through ("pulling discounted rate plans", "keeping discounted
+  rate plans active gives away revenue", "discounts may be unnecessary"). Patterns
+  extended from those exact phrasings → 168 / 360 (47%) October cards rejected; every
+  distinct matched phrase reviewed — no false positives; the only commercial-sounding
+  leftovers are allowed review language. ~140 of the 168 came from the old fallback
+  templates Release 1 rewrote. Expect a higher fallback rate in the first mornings
+  until the new prompt settles (fallbacks are now clean templates).
+- ⬜ **FL Pulse audit 2026-10-28 (external, checked against the export) — open items:**
+  (1) pickup attribution has two outcomes; with cancellations up but < half the swing it
+  says "in line with the normal 0.0" (Potidea 2026-10-15: 7 vs 0.0; City 2026-09-28: 4 vs
+  0.0) → three outcomes (cancellations / new bookings / both) with the exact split
+  swing = drop in bookings before cancellations + extra cancellations;
+  (2) offset story: TEL −236 rn vs a −58 rn November (Excelsior Oct 14–20), TRV −476 vs
+  −185 (City Oct 20) still open with "Most of the gap sits with…" → lead with "TEL alone
+  is −236 rn; other sources together +178";
+  (3) repetition 46% of October cards (pace 47, lead time 47, projection 29, dates 24):
+  the novelty "moved ≥ 10%" rule fires on small numbers (3.0 → 3.4 days) → absolute
+  floors per metric; attributed pace cards should fingerprint the top source's move;
+  (4) 49 October cards say "confidence: High" on hedged wording (hot-dates and projection
+  templates still carry High on an interpretation) → High only for measured facts +
+  validator: narrated confidence must equal Layer A's;
+  (5) two "first flagged" clocks: followup.py `flagged_date` = the day the month joined
+  the watchlist (can be a week after the card's `_first_seen`) → label "watching since";
+  (6) ranking: ON Residence 2026-10-27 €8,015 November cancellation ranked 3rd — the
+  volume-based confidence factor (19 rn → 0.7) caps cancellation spikes → needs the
+  user's OK (scoring contract). Not an issue: "181 overlong cards" — 0 exceed the caps
+  the code enforces; the audit used the stale §3 table.
 - ⬜ **Number watch → enforcing** after ~7 days of cards_audit evidence: count
   `number_watch` hits per card, read each, fix false positives, then make it reject.
 - ⬜ **Greek fallback templates** (brief §17): every fallback is English, so a Greek-

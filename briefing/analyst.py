@@ -2862,6 +2862,20 @@ _COMMERCIAL_ANY = re.compile(
     r"|(?:targeted|last-minute|special|early-bird)\s+(?:offer|promotion|promo|deal|discount)s?"
     r"|priced\s+too\s+(?:low|high)"
     r"|consider(?:ing)?\s+(?:a|an)\s+(?:\w+\s+)?(?:offer|promotion|promo|package|discount|deal)"
+    # 2026-10-28, from the real October FL Pulse export: phrasings the first
+    # version let through ("pulling discounted rate plans", "keeping discounted
+    # rate plans active gives away revenue", "discounts may be unnecessary")
+    r"|(?:pull(?:ing)?|switch(?:ing)?\s+off|turn(?:ing)?\s+off|scal(?:e|ing)\s+back|tighten(?:ing)?|"
+    r"trim(?:ming)?|withdraw(?:ing)?|remov(?:e|ing)|clos(?:e|ing))\s+(?:back\s+)?(?:any\s+|the\s+|all\s+)?"
+    r"(?:\w+\s+){0,2}?(?:discount\w*|offers?|promotions?|promos?|packages?|rate\s+plans?)"
+    r"|keep(?:ing)?\s+(?:\w+\s+){0,3}?(?:discount\w*|offers?|promotions?|rate\s+plans?)\s+"
+    r"(?:active|open|live|running|on)"
+    r"|giv(?:e|es|ing|en)\s+(?:money|revenue)\s+away|giv(?:e|es|ing)\s+away\s+(?:money|revenue)"
+    r"|money\s+on\s+the\s+table|revenue\s+you\s+don.t\s+need"
+    r"|discount\w*\s+(?:\w+\s+){0,3}?(?:(?:may|might)\s+be|are|is|seem)\s+(?:no\s+longer\s+)?"
+    r"(?:unnecessary|needed|necessary)"
+    r"|(?:little|no)\s+reason\s+to\s+(?:offer|keep|open|close|discount)"
+    r"|offer(?:ing)?\s+discount\w*"
     r")\b", re.IGNORECASE)
 _COMMERCIAL_ACTION = re.compile(
     r"\b(?:"
@@ -2869,6 +2883,7 @@ _COMMERCIAL_ACTION = re.compile(
     r"\s+(?:the\s+|your\s+|its\s+|their\s+|any\s+)?(?:\w+\s+){0,2}?" + _PRICING_OBJ +
     r"|(?:higher|lower|firmer|softer)\s+(?:rates?|prices?|pricing)"
     r"|(?:a|an)\s+(?:\w+\s+){0,2}?(?:offer|promotion|promo|package|discount|deal)"
+    r"|(?:stronger|best\s+available|full)\s+(?:rates?|prices?)"
     r")\b", re.IGNORECASE)
 _ACTION_FIELDS = ("recommended_action", "by_when")
 
