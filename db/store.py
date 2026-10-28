@@ -771,6 +771,30 @@ def set_ai_enabled(scope: str, entity_id: str, value: bool | None) -> bool:
     return bool(_safe("set_ai_enabled", go))
 
 
+# ── Demo twins (2026-10-28) ──────────────────────────────────────────────────
+# A demo hotel is a row with pms_config.demo_of = <real hotel id>. It stays
+# active=false (the scheduler, audit and /health never touch it) but the app
+# treats it as a live hotel: memberships resolve it and portfolios include it.
+
+_VISIBLE = "(h.active or coalesce(h.pms_config ? 'demo_of', false))"
+
+
+def demo_twins() -> list[dict]:
+    """Every demo hotel with its source hotel and the [real, demo] text pairs
+    briefing/demo_sync.py applies. PG-only; [] when PG is off."""
+    def go():
+        rows = _exec(
+            "select h.id, h.pms_config->>'demo_of', h.pms_config->'replace' "
+            "from hotels h where h.pms_config ? 'demo_of'", fetch=True)
+        out = []
+        for hid, src, rep in rows:
+            pairs = [(str(p[0]), str(p[1])) for p in (rep or [])
+                     if isinstance(p, (list, tuple)) and len(p) == 2 and p[0]]
+            out.append({"id": str(hid), "source_id": str(src), "replace": pairs})
+        return out
+    return _safe("demo_twins", go) or []
+
+
 # ── Multi-property portfolio (2026-09-12) ────────────────────────────────────
 
 def portfolio_groups(hotel_ids: list[str]) -> list[dict]:
@@ -784,7 +808,7 @@ def portfolio_groups(hotel_ids: list[str]) -> list[dict]:
             "select g.id, g.name, count(h.id) from groups g "
             "join organizations o on o.group_id = g.id "
             "join hotels h on h.org_id = o.id "
-            "where g.active and h.active and h.id = any(%s::uuid[]) "
+            f"where g.active and {_VISIBLE} and h.id = any(%s::uuid[]) "
             "group by g.id, g.name having count(h.id) >= 2 order by g.name",
             (hotel_ids,), fetch=True)
         return [_row(cols, r) for r in rows]
@@ -802,7 +826,7 @@ def portfolio_group_hotels(group_id: str, hotel_ids: list[str]) -> tuple[str | N
         rows = _exec(
             "select h.id, h.name, h.total_rooms, h.season_settings, h.pms_config "
             "from hotels h join organizations o on o.id = h.org_id "
-            "where o.group_id = %s and h.active and h.id = any(%s::uuid[]) order by h.name",
+            f"where o.group_id = %s and {_VISIBLE} and h.id = any(%s::uuid[]) order by h.name",
             (group_id, hotel_ids), fetch=True)
         return (g[0][0], [_row(cols, r) for r in rows])
     return _safe("portfolio_group_hotels", go) or (None, [])
@@ -983,7 +1007,7 @@ def hotel_access_ids(user_id: str) -> list[str] | None:
     def go():
         rows = _exec(
             "select distinct a.hotel_id from hotel_access a join hotels h on h.id = a.hotel_id "
-            "where a.user_id = %s and h.active", (user_id,), fetch=True)
+            f"where a.user_id = %s and {_VISIBLE}", (user_id,), fetch=True)
         return [str(r[0]) for r in rows]
     return _safe("hotel_access_ids", go)
 

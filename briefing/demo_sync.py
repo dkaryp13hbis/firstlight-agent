@@ -1,61 +1,76 @@
 """
-Demo mirror sync (2026-08-16): clones the latest briefing of each real hotel
-onto its anonymized demo twin, applying the name replacements. Runs daily
-after the morning pipeline (scheduled in api.py) — FAIL-OPEN: any error is
-logged and swallowed; the real pipeline must never notice.
+Demo mirror sync: clones the briefings of real hotels onto their anonymized
+demo twins. Runs after the morning pipeline and after the 17:00 data-only run
+(scheduled in api.py) — FAIL-OPEN: any error is logged and swallowed; the real
+pipeline must never notice.
+
+v2 (2026-10-28, demo switched to the Tor group twins — user: "lets switch the
+demo to the tor hotel group, so we will have both multi and standalone
+properties with full data"):
+- twins are DATA, not code: every hotel row whose pms_config carries
+  "demo_of": "<real hotel id>" and "replace": [[real text, demo text], ...]
+  (docs/sql/pg/2026-10-28_demo_tor_twins.sql). Twins stay active=false so the
+  scheduler never fetches them; db/store treats them as visible.
+- Postgres in and out (the app reads PG first since STORAGE=pg; v1 wrote to
+  Supabase only, which the app no longer reads).
+- keeps the last HISTORY_DAYS report days, so the day strip, "since
+  yesterday" and the watchlist trend work from the first sync. Days the twin
+  already has are skipped, except the newest one (the 17:00 data-only run
+  refreshes it).
 """
-import os
+import json
+import re
+from datetime import date, timedelta
 
-import requests
+HISTORY_DAYS = 14
+_COLS = ["report_date", "data", "ai_insights", "kpi_summary"]
 
-# real hotel id -> (demo hotel id)
-DEMO_MAP = {
-    "0b83ecdc-5216-4c53-ba96-3ddb67e1e253": "beaed5c5-3af6-4dde-b0b9-ade606951978",  # Pome -> Azure Bay
-    "08b4b6f3-ce6d-4b7d-ba02-e48aec3d213f": "18dd1171-f66f-401c-af77-3132bb9b52a4",  # Potidea -> Thalassa
-}
 
-# ORDER MATTERS: full phrases before their substrings.
-REPLACEMENTS = [
-    ("Pomegranate Wellness Spa Hotel", "Azure Bay Resort"),
-    ("Pomegranate", "Azure Bay"),
-    ("Potidea Palace", "Thalassa Palace Resort"),
-    ("Potidea", "Thalassa"),
-    ("Tompoulidis Apollon", "Partner Agency"),
-    ("Tompoulidis", "Partner"),
-    ("Apollon", "Agency"),
-]
+def anonymize(text: str, pairs: list[tuple[str, str]]) -> str:
+    """ONE pass, longest phrase first: 'City Hotel Thessaloniki' wins over
+    'City Hotel', and a demo name that contains a real one ('Aurora City
+    Hotel') is never rewritten again (chained str.replace did exactly that)."""
+    table = {real: demo for real, demo in pairs if real}
+    if not table:
+        return text
+    pattern = re.compile("|".join(re.escape(k) for k in sorted(table, key=len, reverse=True)))
+    return pattern.sub(lambda m: table[m.group(0)], text)
+
+
+def twin_row(src: dict, twin: dict) -> dict:
+    """One source briefing row → the twin's row (ids and names swapped)."""
+    pairs = list(twin["replace"]) + [(twin["source_id"], twin["id"])]
+    body = {c: src.get(c) for c in _COLS if c != "report_date"}
+    raw = anonymize(json.dumps(body, ensure_ascii=False, default=str), pairs)
+    row = json.loads(raw)
+    row["hotel_id"] = twin["id"]
+    row["report_date"] = str(src["report_date"])[:10]
+    return row
 
 
 def sync_demo_briefings() -> None:
-    url = os.getenv("SUPABASE_URL", "").rstrip("/")
-    key = os.getenv("SUPABASE_SERVICE_KEY", "")
-    if not url or not key:
+    from db import store
+    twins = store.demo_twins()
+    if not twins:
         return
-    headers = {"apikey": key, "Authorization": f"Bearer {key}"}
-    for src, dst in DEMO_MAP.items():
+    today = date.today()
+    since = (today - timedelta(days=HISTORY_DAYS)).isoformat()
+    before = (today + timedelta(days=1)).isoformat()
+    for twin in twins:
         try:
-            r = requests.get(
-                f"{url}/rest/v1/briefings",
-                params={"hotel_id": f"eq.{src}", "order": "report_date.desc", "limit": "1",
-                        "select": "report_date,generated_at,data,ai_insights,kpi_summary,rendered_html"},
-                headers=headers, timeout=30,
-            )
-            r.raise_for_status()
-            raw = r.text
-            for a, b in REPLACEMENTS:
-                raw = raw.replace(a, b)
-            row = raw.strip().lstrip("[").rstrip("]").strip()
-            if not row:
+            rows = store.get_briefings_since(twin["source_id"], since, before, _COLS)
+            if not rows:
                 continue
-            row = row[:1] + f'"hotel_id":"{dst}",' + row[1:]
-            w = requests.post(
-                f"{url}/rest/v1/briefings?on_conflict=hotel_id,report_date",
-                data=row.encode("utf-8"),
-                headers={**headers, "Content-Type": "application/json",
-                         "Prefer": "resolution=merge-duplicates,return=minimal"},
-                timeout=30,
-            )
-            w.raise_for_status()
-            print(f"[demo-sync] {src[:8]}… -> {dst[:8]}… OK")
+            have = set(store.get_briefing_dates(twin["id"], HISTORY_DAYS + 7))
+            newest = max(str(r["report_date"])[:10] for r in rows)
+            n = 0
+            for src in rows:
+                rd = str(src["report_date"])[:10]
+                if rd in have and rd != newest:
+                    continue
+                store.upsert_briefing(twin_row(src, twin))
+                n += 1
+            print(f"[demo-sync] {twin['source_id'][:8]}… -> {twin['id'][:8]}… "
+                  f"{n} day(s) written, newest {newest}")
         except Exception as exc:  # noqa: BLE001 — fail-open by design
-            print(f"[demo-sync] {src[:8]}… failed (non-blocking): {exc}")
+            print(f"[demo-sync] {twin['id'][:8]}… failed (non-blocking): {exc}")
