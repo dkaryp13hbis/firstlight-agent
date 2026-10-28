@@ -34,12 +34,12 @@ TABLES = {
 }
 
 
-def sb_rows(table: str) -> list[dict]:
+def sb_rows(table: str, select: str = "*", filters: dict | None = None) -> list[dict]:
     url = os.environ["SUPABASE_URL"].rstrip("/")
     key = os.environ["SUPABASE_SERVICE_KEY"]
     out, start, page = [], 0, 1000
     while True:
-        r = requests.get(f"{url}/rest/v1/{table}", params={"select": "*"},
+        r = requests.get(f"{url}/rest/v1/{table}", params={"select": select, **(filters or {})},
                          headers={"apikey": key, "Authorization": f"Bearer {key}",
                                   "Range-Unit": "items", "Range": f"{start}-{start + page - 1}"},
                          timeout=60)
@@ -51,6 +51,25 @@ def sb_rows(table: str) -> list[dict]:
         if len(batch) < page:
             return out
         start += page
+
+
+# big jsonb rows: a full `select *` times out on Supabase (HTTP 500) — read the
+# keys first, then only the rows Postgres does not have, one at a time
+KEYS_FIRST = {"briefings"}
+
+
+def _missing_heavy_rows(table: str, key: str) -> list[dict]:
+    cols = [c.strip() for c in key.split(",")]
+    keys = sb_rows(table, select=",".join(cols))
+    have = {tuple(str(v) for v in r) for r in store._exec(
+        f"select {', '.join(c + '::text' for c in cols)} from {table}", fetch=True)}
+    out = []
+    for k in keys:
+        kt = tuple(str(k[c]) for c in cols)
+        if kt in have:
+            continue
+        out.extend(sb_rows(table, filters={c: f"eq.{k[c]}" for c in cols}))
+    return out
 
 
 def main():
@@ -70,7 +89,10 @@ def main():
             print(f"{table:20} report failed: {exc}")
     for table, key in TABLES.items():
         try:
-            rows = sb_rows(table)
+            if table in KEYS_FIRST:
+                rows = _missing_heavy_rows(table, key)
+            else:
+                rows = sb_rows(table)
         except Exception as exc:
             print(f"{table:20} Supabase read failed: {exc}")
             continue
