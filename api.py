@@ -32,6 +32,13 @@ from db import sb_echo   # temporary best-effort Supabase copy (stage 2 removes 
 async def lifespan(app: FastAPI):
     from apscheduler.schedulers.background import BackgroundScheduler
     sched = BackgroundScheduler()
+    # 05:00 Europe/Athens (DST-proof) — paid early briefing for hotels with
+    # pms_config.briefing_slot = "early" (Tor group). Added to railway_main on
+    # 2026-09-12 but production runs THIS scheduler (uvicorn api:app since
+    # 2026-08-10), so it never fired until 2026-10-29. Always before the
+    # 03:30 UTC run, which then skips hotels already published today.
+    sched.add_job(lambda: core.run_all_hotels(slot="early"), "cron",
+                  hour=5, minute=0, timezone="Europe/Athens")
     sched.add_job(core.run_all_hotels, "cron", hour=3, minute=30)   # full
     sched.add_job(core.run_all_hotels, "cron", hour=6, minute=0)    # catch-up
     # 5 intraday data-only refreshes (user-approved 2026-09-10, follow-up
@@ -51,7 +58,8 @@ async def lifespan(app: FastAPI):
     sched.add_job(run_dual_verify, "cron", hour=7, minute=20)
     sched.start()
     threading.Thread(target=core._poll_refresh_commands, daemon=True).start()
-    core.log.info("[api] Scheduler 03:30 full | 06:00 catch-up | 11:00+17:00 data-only UTC; poller up")
+    core.log.info("[api] Scheduler 05:00 Athens early-slot | 03:30 full | 06:00 catch-up | "
+                  "data-only 07/10/13/16/19 UTC; poller up")
     try:
         core.log.info(f"[api] Hotels: {[h['name'] for h in core._get_hotels()]}")
     except Exception as exc:  # noqa: BLE001 — never block startup on a listing
