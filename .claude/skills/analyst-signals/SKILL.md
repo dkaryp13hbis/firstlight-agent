@@ -76,6 +76,12 @@ Two layers, strictly separated:
 - Scoring `_score_candidate(R,U,M,N,C)` = (0.35R + 0.25U + 0.25M + 0.15N)·C;
   ranked = score ≥ 0.08, top 6, narrate top 5.
 - Merges before ranking: same-month pace+projection; pickup ALERT + soft dates.
+- DATE ENGINE (2026-10-31, DARK unless `DATE_CARDS=1`): `briefing/date_events.py`
+  finds surge / cluster / ly_event / week on the next 90 nights vs the SAME
+  WEEKDAY last year (Q18 cube, Q21 for surges); `_date_candidate` words them,
+  signal `date_event`, fingerprint = nights + rn move (surge = event key).
+  Dark findings go to cards_audit `dates:<id>` WATCH. Runs > 7 nights are
+  month stories; zero-booked nights are never 'behind' (closed / unknown).
 - CARD WINDOW (2026-10-30, user): month cards cover THIS month while >= 7
   nights are left + the next 4 calendar months across the year end
   (`_in_card_window`, `_CARD_MONTHS_AHEAD`, `_MIN_NIGHTS_LEFT`; applied to

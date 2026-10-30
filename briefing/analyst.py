@@ -535,7 +535,7 @@ def _in_card_window(c: dict, today: _date) -> bool:
     cards (soft / hot dates: specific nights, at most 90 days out) are not
     month stories and always pass; a card without a readable stay period is
     never dropped on a guess."""
-    if c.get("signal") in ("soft_dates", "hot_dates"):
+    if c.get("signal") in ("soft_dates", "hot_dates", "date_event"):
         return True
     sp = (c.get("insight") or {}).get("stay_period") or {}
     try:
@@ -1648,6 +1648,198 @@ def _fold_discoveries(candidates: list[dict], discoveries: list[dict]) -> list[d
     return candidates
 
 
+# ── Date-level engine (briefing/date_events.py, 2026-10-31) ─────────────────
+# DARK by default (user: "go" on "build it hidden first"): findings are
+# recorded in cards_audit ("dates:<id>", tag WATCH) and never reach an owner.
+# DATE_CARDS=1 lets the top two compete as cards; a soft / hot dates card on
+# the same nights then gives way (it compares calendar dates, these compare
+# the same weekdays — one story, one card).
+_DATE_CARDS = _os.getenv("DATE_CARDS", "0") == "1"
+_MAX_DATE_CARDS = 2
+
+
+def _night(d: _date) -> str:
+    return d.strftime("%a %b %d").replace(" 0", " ")          # "Fri Nov 20"
+
+
+def _nights_label(a: _date, b: _date) -> str:
+    return _night(a) if a == b else f"{_night(a)}–{_night(b)}"
+
+
+def _date_candidate(f: dict, ctx: dict) -> dict:
+    """Presentation for one raw date finding: period-scoped facts, a plain
+    fallback card inside the caps, review language, fingerprint metric, score."""
+    today, base = ctx["today"], ctx["daily_rev_baseline"]
+    kind, sign = f["type"], f["sign"]
+    label = _nights_label(f["from"], f["to"])
+    days_out = max(0, (f["from"] - today).days)
+    p_ly = f"stays {label}, vs the same weekdays last year at this point"
+    facts: dict[str, Any] = {"nights": label}
+    drv = f.get("driver")
+    noun = (("jump" if sign > 0 else "drop") if kind == "surge"
+            else ("lead" if sign > 0 else "gap"))
+    drv_txt = ""
+    if drv:
+        who = drv["name"] if drv["key"] == "source" else f"segment {drv['name']}"
+        share_txt = _share_of(drv["share"], noun)
+        facts["biggest_source" if drv["key"] == "source" else "biggest_segment"] = drv["name"]
+        facts["driver_share"] = _fact(share_txt, p_ly if kind != "surge" else f"yesterday's bookings for {label}")
+        drv_txt = f"; {who} accounts for {share_txt}"
+    by_when = "Today." if days_out <= 7 or kind == "surge" else "Within 7 days."
+    conf = "Medium"
+
+    if kind == "surge":
+        new, normal = f["new_rn"], f["normal_per_day"]
+        f_new = f"{abs(int(round(new)))}"
+        f_norm = ("+" if normal >= 0 else "−") + f"{abs(normal):.1f}"
+        facts["room_nights_yesterday"] = _fact(f"{f_new} room nights",
+                                               f"net {'new bookings' if sign > 0 else 'change'} yesterday for {label}")
+        facts["normal_per_day"] = _fact(f"{f_norm} a day", "net new bookings per day for those nights, prior 7 days")
+        parts = []
+        if sign > 0 and f.get("share_of_yday"):
+            f_share = _about_pct(f["share_of_yday"])
+            facts["share_of_yesterday"] = _fact(f_share, "of all net new bookings yesterday")
+            parts.append(f"These nights took {f_share} of all new bookings yesterday")
+        if drv:
+            parts.append(drv_txt[2:])
+        hyp = ("this may point to an event, a group or a conference" if sign > 0
+               else "this may point to a group or block being released")
+        why = ("; ".join(parts) + "; " + hyp) if parts else hyp[0].upper() + hyp[1:]
+        conf = "Low"
+        fb = {
+            "headline": f"Sudden demand for {label}" if sign > 0 else f"Sudden drop in bookings for {label}",
+            "evidence": [
+                {"label": "NEW ROOM NIGHTS YESTERDAY" if sign > 0 else "CHANGE YESTERDAY",
+                 "value": f_new if sign > 0 else f"−{f_new}", "sub": label},
+                {"label": "NORMAL PER DAY", "value": f_norm, "sub": "same nights, prior 7 days"},
+            ],
+            "what_happened": (f"Yesterday brought {f_new} new room nights for {label}, against a normal "
+                              f"{f_norm} a day for those nights." if sign > 0 else
+                              f"Bookings for {label} fell by {f_new} room nights yesterday, against a normal "
+                              f"{f_norm} a day for those nights."),
+            "why_it_matters": f"{why} (confidence: {conf}).",
+            "recommended_action": (f"Worth checking what is happening on {label} and how many rooms are "
+                                   f"still open for those nights." if sign > 0 else
+                                   f"Worth checking yesterday's changes for {label} for a common group, "
+                                   f"company or contract."),
+            "by_when": by_when,
+        }
+        tag = "OPPORTUNITY" if sign > 0 else "ALERT"
+        hypo_text = (f"An event, a group or a conference on {label}" if sign > 0
+                     else f"A group or block for {label} released")
+        metric, ly_vol, magnitude = new, abs(new), _magnitude_z(f["z"])
+        cid = f"date_surge_{'up' if sign > 0 else 'down'}"
+    else:
+        ty, ly, gap, pct = f["ty"], f["ly"], f["gap"], f["pct"]
+        f_ty, f_ly, f_pct = f"{int(round(ty)):,}", f"{int(round(ly)):,}", _pct_signed(pct * 100)
+        facts["booked_vs_last_year"] = _fact(f"{f_ty} rn vs {f_ly} rn", p_ly)
+        facts["nights_vs_last_year"] = _fact(f_pct, p_ly)
+        facts["room_night_gap"] = _fact(_rn_signed(gap), p_ly)
+        evidence = [{"label": "BOOKED SO FAR", "value": f"{f_ty} rn", "sub": f"vs {f_ly} rn last year"},
+                    {"label": "VS LAST YEAR", "value": f_pct, "sub": "same weekdays"}]
+        if kind == "week":
+            mname = _cal.month_name[f["month"]]
+            wk = _short_date(f["from"])
+            f_rest = _pct_signed(f["rest_pct"] * 100)
+            facts["rest_of_month"] = _fact(f_rest, f"the other {mname} nights within the next 90 days, same comparison")
+            why = f"The rest of {mname} is {f_rest} vs last year, so this week stands apart from the month{drv_txt}"
+            fb = {
+                "headline": f"Week of {wk} {'ahead of' if sign > 0 else 'behind'} the rest of {mname}",
+                "what_happened": (f"Week of {wk} ({label}): {f_ty} room nights booked so far vs {f_ly} at "
+                                  f"this point last year (same weekdays), {f_pct}."),
+                "why_it_matters": f"{why} (confidence: {conf}).",
+                "recommended_action": (f"Worth checking what makes this week different from the rest of "
+                                       f"{mname}, such as an event, a group or a holiday."),
+            }
+            tag = "OPPORTUNITY" if sign > 0 else "ALERT"
+            hypo_text = f"Something specific to the week of {wk} — the rest of {mname} is {f_rest}"
+            cid = f"date_week_{f['from'].isoformat()}"
+        else:
+            f_ctx = _pct_signed(f["ctx_pct"] * 100)
+            facts["nights_around"] = _fact(f_ctx, "the 14 nights either side, same comparison")
+            what = (f"{label}: {f_ty} room nights booked so far vs {f_ly} at this point last year "
+                    f"(same weekdays), {f_pct}.")
+            if kind == "ly_event":
+                f_lynb = _pct_signed((f["ly_vs_nb"] - 1) * 100, 0)
+                facts["last_year_vs_weeks_around"] = _fact(
+                    f_lynb, "last year's nights vs the same weekdays 1–2 weeks around them")
+                fb = {
+                    "headline": f"{label}: last year was unusually busy",
+                    "what_happened": what,
+                    "why_it_matters": (f"Last year these nights were {f_lynb} above the same weekdays around "
+                                       f"them, possibly a one-off event; this year they are booking like a "
+                                       f"normal week (confidence: {conf})."),
+                    "recommended_action": ("Worth checking whether last year's event or group returns this "
+                                           "year before reading this as a slowdown."),
+                }
+                tag = "MONITOR"
+                hypo_text = f"Last year's {label} were a one-off peak ({f_lynb} above the weeks around them)"
+            else:
+                why = (f"The nights around them are {f_ctx} vs last year, so the "
+                       f"{'lead' if sign > 0 else 'shortfall'} is specific to these dates{drv_txt}")
+                ty_nb = f.get("ty_vs_nb")
+                if sign > 0 and ty_nb and ty_nb >= 1.6:
+                    f_tynb = _pct_signed((ty_nb - 1) * 100, 0)
+                    facts["this_year_vs_weeks_around"] = _fact(
+                        f_tynb, "this year's nights vs the same weekdays 1–2 weeks around them")
+                    why += f"; they are {f_tynb} above the same weekdays around them"
+                fb = {
+                    "headline": f"{label}: {'well ahead of' if sign > 0 else 'behind'} last year",
+                    "what_happened": what,
+                    "why_it_matters": f"{why} (confidence: {conf}).",
+                    "recommended_action": (f"Worth checking what is driving demand on {label}, such as an "
+                                           f"event, a group or a conference." if sign > 0 else
+                                           "Worth checking what brought guests on these dates last year, "
+                                           "such as an event, a group or a contract, and whether it returns."),
+                }
+                tag = "OPPORTUNITY" if sign > 0 else "ALERT"
+                hypo_text = f"Something specific to {label} — the nights around them are {f_ctx}"
+            cid = (f"date_{kind}_{'up' if sign > 0 else 'down'}_"
+                   f"{f['from'].strftime('%b').lower()}_{f['from'].year}")
+        fb["evidence"] = evidence
+        fb["by_when"] = by_when
+        metric, ly_vol, magnitude = gap, ly, _magnitude_pct(pct)
+
+    exposure = float(f.get("exposure_eur") or 0)
+    facts["value_at_stake"] = _eur(exposure)                     # internal only
+    facts["value_at_stake_calc"] = "room-night move × last year's rate for those nights"
+    fb.update({"id": cid, "tag": tag})
+    score = _score_candidate(min(exposure / base, 1.0) if base else 0.0, _urgency(days_out),
+                             magnitude, C=_confidence(ly_vol))
+    return {
+        "signal": "date_event", "date_type": kind, "tag": tag, "score": round(score, 4),
+        "title_hint": fb["headline"], "stake_eur": exposure, "date_metric": metric,
+        "dates": [d.isoformat() for d in f["dates"]],
+        "insight": {
+            "id": cid, "tag": tag, "score": round(score, 4), "signal": "date_event",
+            "stay_period": {"from": f["from"].isoformat(), "to": f["to"].isoformat(), "label": f"stays {label}"},
+            "days_to_nearest_arrival": days_out,
+            "booking_window_days_left": max(0, (f["to"] - today).days),
+            "facts": facts,
+            "cause_hypotheses": [{"text": hypo_text, "confidence": conf}],
+            "action_directives": {"type": "investigate_dates", "target": fb["recommended_action"],
+                                  "deadline": fb["by_when"].rstrip("."), "trigger_if_monitor": None},
+            "history": {"first_raised": None, "previously_advised": None},
+        },
+        "fallback_card": fb,
+    }
+
+
+def _fold_date_cards(candidates: list[dict], date_cards: list[dict]) -> list[dict]:
+    """Live mode only: the top date cards compete; a soft / hot dates card
+    whose range covers any of their nights gives way (one story, one card)."""
+    top = sorted(date_cards, key=lambda c: -c["score"])[:_MAX_DATE_CARDS]
+    nights = {d for c in top for d in c["dates"]}
+
+    def _covers(c: dict) -> bool:
+        sp = c["insight"].get("stay_period") or {}
+        a, b = str(sp.get("from") or ""), str(sp.get("to") or "")
+        return bool(a and b) and any(a <= n <= b for n in nights)
+
+    kept = [c for c in candidates if not (c["signal"] in ("soft_dates", "hot_dates") and _covers(c))]
+    return kept + top
+
+
 def _signal_lead_time(ctx: dict) -> list[dict]:
     data, today, pace = ctx["data"], ctx["today"], ctx["pace"]
     daily_rev_baseline = ctx["daily_rev_baseline"]
@@ -2562,6 +2754,25 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
     except Exception as exc:
         compute_errors.append(f"discovery: {type(exc).__name__}: {exc}"[:200])
 
+    # ── Date-level findings (2026-10-31, DARK unless DATE_CARDS=1) ───────────
+    date_cards: list[dict] = []
+    try:
+        from briefing import date_events as _de
+        found, errs = _de.discover_dates(data, today)
+        compute_errors.extend(errs)
+        for f in found:
+            try:
+                date_cards.append(_date_candidate(f, ctx))
+            except Exception as exc:
+                compute_errors.append(f"date card {f.get('type')}: {type(exc).__name__}: {exc}"[:200])
+        if date_cards:
+            print(f"[analyst] Date findings ({'LIVE' if _DATE_CARDS else 'dark'}): "
+                  f"{[c['insight']['id'] for c in date_cards]}")
+        if _DATE_CARDS:
+            candidates = _fold_date_cards(candidates, date_cards)
+    except Exception as exc:
+        compute_errors.append(f"date events: {type(exc).__name__}: {exc}"[:200])
+
     # ── Fingerprints (2026-09-24): every card carries its state so the gate
     # can tell "same story" from "moved" — with or without a euro stake.
     for c in candidates:
@@ -2606,6 +2817,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
         "headline":  headline,
         "compute_errors": compute_errors,
         "discoveries": discoveries,   # Release 2 — recorded in cards_audit while dark
+        "date_cards": date_cards,     # date engine — recorded in cards_audit while dark
     }
 
 
@@ -2852,6 +3064,12 @@ def _fingerprint(c: dict, yesterday_str: str) -> dict:
             metric, floor = c.get("disc_metric"), 3.0   # the slice's own gap, signed %
     elif sig == "lead_time":
         metric, floor = _first_signed_number(_fv("lead_shift")), 1.0   # days
+    elif sig == "date_event":
+        if c.get("date_type") == "surge":
+            key = f"day:{yesterday_str}"      # a surge is an event: always news
+        else:                                 # the nights + their room-night move
+            key = "|".join(f"date:{d}" for d in c.get("dates") or [])
+            metric, floor = c.get("date_metric"), 5.0
     elif sig in ("soft_dates", "hot_dates"):
         dates = sorted(str(d.get("date", "")) for d in (facts.get("per_date") or [])
                        if isinstance(d, dict))
@@ -4124,6 +4342,21 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None,
                     "tag": "WATCH", "attempts": 0, "fallback_used": False,
                     "validation_problems": [], "score": dc["score"],
                     "headline": dc["fallback_card"]["headline"],
+                    "why": dc["fallback_card"]["why_it_matters"],
+                    "facts": {k: v for k, v in dc["insight"]["facts"].items()
+                              if not k.startswith("value_at_stake")},
+                    "confidence": dc["insight"]["cause_hypotheses"][0]["confidence"],
+                })
+        if not _DATE_CARDS:
+            # date engine dark launch (2026-10-31): what it would have said,
+            # reviewed on real mornings before DATE_CARDS=1 — never shown
+            for dc in computed.get("date_cards") or []:
+                meta["cards_audit"].append({
+                    "card_id": f"dates:{dc['insight']['id']}", "signal": "date_event",
+                    "date_type": dc["date_type"], "tag": "WATCH", "attempts": 0,
+                    "fallback_used": False, "validation_problems": [], "score": dc["score"],
+                    "headline": dc["fallback_card"]["headline"],
+                    "what": dc["fallback_card"]["what_happened"],
                     "why": dc["fallback_card"]["why_it_matters"],
                     "facts": {k: v for k, v in dc["insight"]["facts"].items()
                               if not k.startswith("value_at_stake")},

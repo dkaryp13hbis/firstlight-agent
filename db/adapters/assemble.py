@@ -431,6 +431,10 @@ def assemble_snapshot(rows: dict[str, Any], hotel_ctx: dict[str, Any],
                 "stay_date":   _iso(r["stay_date"]),
                 "source":      str(r.get("source") or "Direct"),
                 "room_cat":    None if r.get("room_cat") is None else str(r["room_cat"]),
+                # Q18 segment / rate plan (Protel, 2026-10-30) — were dropped here
+                # until 2026-10-31, so the engine never saw them; Opera: None
+                "segment":     None if r.get("segment") is None else str(r["segment"]),
+                "rate_plan":   None if r.get("rate_plan") is None else str(r["rate_plan"]),
                 "lead_bucket": r.get("lead_bucket"),
                 "rn_ty":  float(r.get("rn_ty") or 0),  "rev_ty": round(float(r.get("rev_ty") or 0), 2),
                 "rn_ly":  float(r.get("rn_ly") or 0),  "rev_ly": round(float(r.get("rev_ly") or 0), 2),

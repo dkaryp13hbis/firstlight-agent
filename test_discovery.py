@@ -261,11 +261,15 @@ check("assemble passes pickup_by_source with ISO dates", p2["pickup_by_source"]
 print("assemble, publish strip, contract")
 from db.adapters.assemble import assemble_snapshot
 payload = assemble_snapshot({"booking_cube": [{"stay_date": stay, "source": "BK", "room_cat": 12, "lead_bucket": "31-60",
+                                               "segment": "LEI", "rate_plan": "NRF",
                                                "rn_ty": 1, "rev_ty": 113, "rn_ly": 2, "rev_ly": 226}],
                              "cancel_detail": [{"cancel_date": "garbage"}]},
                             {"hotel_name": "T", "total_rooms": 100}, today=TODAY)
 check("cube passes through with ISO dates", payload["booking_cube"][0]["stay_date"] == "2026-11-13"
       and payload["booking_cube"][0]["room_cat"] == "12", str(payload["booking_cube"]))
+check("cube keeps segment + rate plan (were dropped until 2026-10-31)",
+      payload["booking_cube"][0]["segment"] == "LEI" and payload["booking_cube"][0]["rate_plan"] == "NRF",
+      str(payload["booking_cube"]))
 check("a malformed row is skipped, the rest and the snapshot intact",
       payload["cancel_detail"] == [] and len(payload["booking_cube"]) == 1 and "pace" in payload)
 check("report_date_iso = yesterday", payload["report_date_iso"] == "2026-10-27")
