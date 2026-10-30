@@ -289,6 +289,25 @@ rule), and changing test assertions beyond the three that check removed names.
   leftovers are allowed review language. ~140 of the 168 came from the old fallback
   templates Release 1 rewrote. Expect a higher fallback rate in the first mornings
   until the new prompt settles (fallbacks are now clean templates).
+- 🔄 **2026-10-30 — first morning of the new analyst (`cards-v1.11-review`, build 5c05d43), read-only check 03:47 UTC (logs + `/health`):**
+  - **Early slot fired but ran NO hotel**: job "05:00 EET" ran 03:00:00 and finished in 5 ms
+    — the slot filter found no `pms_config.briefing_slot = "early"`. The legacy Supabase
+    copy has no flag on any hotel either. Likely cause: the Sep 12 SQL updated PG only, and
+    the nightly Supabase→PG mirror (`FirstLightMirror`, disabled 2026-10-28) overwrote PG
+    hotels with the flag-less Supabase rows. Tor published at 03:30 UTC (05:30 Athens) as
+    before. ⬜ FIX (production data write — needs the user's OK): re-run
+    `docs/sql/pg/2026-09-12_tor_early_slot.sql` on Railway PG (`railway connect Postgres`),
+    confirm the verify SELECT shows `early` for the 3 Tor rows, check the next 03:00 UTC run.
+  - 03:30 run: City, ON Residence, Excelsior published to Postgres, **5 cards each**
+    (yesterday 2 / 3 / 4); fetch 14.4 / 15.5 / 10.9 s, AI 39–43 s. Day one: every new card id
+    (next-year months, new card types) is "never seen" by the novelty memory, so all are
+    news — ⬜ re-check the card count on 2026-10-31 (it should settle).
+  - Analyst detail lines (fallbacks, rejection reasons, number watch, dark discoveries) were
+    NOT in the logs yet: `print()` output is block-buffered (untimestamped lines arrive in
+    batches later). ⬜ read `refresh_runs.cards_audit` for 2026-10-30 when PG access is
+    available; ⬜ propose `PYTHONUNBUFFERED=1` on the Railway web service (config change).
+  - Pomegranate / Potidea: usual closed-season data-quality failure; `/health` stale list
+    unchanged (those two only).
 - ✅ **FL Pulse audit fixes 1–6 BUILT** (user: "all 1 to 6", 2026-10-28; deployed 2026-10-29 08:55 UTC):
   (1) pickup attribution = cancellations / new bookings / BOTH with the exact split
   `swing = (normal new bookings before cancellations − yesterday's) + (cancellations −
