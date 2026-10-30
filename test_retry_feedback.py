@@ -8,7 +8,7 @@ import config
 config.TOTAL_ROOMS = 100
 config.HOTEL_NAME = "Test Hotel"
 
-from briefing.analyst import _retry_feedback, _style_violations
+from briefing.analyst import _retry_feedback, _style_violations, _WORD_CAPS
 
 PASS = 0
 FAIL = 0
@@ -28,7 +28,9 @@ card = {
     "headline": "August pace surging far ahead of last year on volume",
     "what_happened": ("Net pickup for Aug 2026 was +43 rn yesterday against a "
                       "7-day average of +21.0 rn/day which is well above the "
-                      "recent trend"),
+                      "recent trend, and most of it landed on the busiest "
+                      "weekends of the month, when the hotel was already close "
+                      "to full"),
     "why_it_matters": "Short.",
     "recommended_action": "Raise the August rates on open nights now.",
     "by_when": "Today.",
@@ -42,8 +44,9 @@ fb = _retry_feedback(card, ["99,999"], style, ["period problem X"])
 
 check("quotes the offending what_happened text",
       "Net pickup for Aug 2026 was +43 rn" in fb)
+_cap = _WORD_CAPS["what_happened"]   # caps relaxed 2026-10 (20 → 33): read, don't hard-code
 check("names the cap and a target",
-      "the cap is 20" in fb and "target 18" in fb, fb[:400])
+      f"the cap is {_cap}" in fb and f"target {_cap - 2}" in fb, fb[:400])
 check("quotes the imperative action text",
       "Raise the August rates" in fb)
 check("suggests soft openers", "It may be worth" in fb)   # was "Consider" (2026-10-28)

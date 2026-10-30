@@ -61,10 +61,14 @@ WEEKEND_NIGHTS = {4, 5}   # Friday and Saturday nights (date.weekday(), Mon = 0)
 
 _DIMS: dict[str, Callable[[dict], Any]] = {
     "source":      lambda r: r.get("source"),
-    "day_type":    lambda r: "weekend" if r["_date"].weekday() in WEEKEND_NIGHTS else "weekday",
+    "segment":     lambda r: r.get("segment"),      # MarketGrp / MARKET_CODE (2026-10-30)
+    "rate_plan":   lambda r: r.get("rate_plan"),    # RateCodeGroupe / RATE_CODE
+    "day_type":    lambda r: (("weekend" if r["_date"].weekday() in WEEKEND_NIGHTS else "weekday")
+                              if r.get("_date") else None),
     "lead_bucket": lambda r: r.get("lead_bucket"),
     "room_cat":    lambda r: r.get("room_cat"),
 }
+_UNCLASSIFIED = "(none)"      # blank PMS code — a slice that is never named
 
 
 def z_crit(k: int) -> float:
@@ -103,6 +107,8 @@ def _prepare(cube: list[dict]) -> list[dict]:
             out.append({
                 "_date":       date.fromisoformat(str(r["stay_date"])[:10]),
                 "source":      str(r.get("source") or "Direct"),
+                "segment":     None if r.get("segment") in (None, "") else str(r["segment"]),
+                "rate_plan":   None if r.get("rate_plan") in (None, "") else str(r["rate_plan"]),
                 "room_cat":    None if r.get("room_cat") in (None, "") else str(r["room_cat"]),
                 "lead_bucket": r.get("lead_bucket") or None,
                 "rn_ty":  float(r.get("rn_ty") or 0), "rev_ty": float(r.get("rev_ty") or 0),
@@ -165,6 +171,8 @@ def _cell(key_dims: tuple, key: tuple, rows: list[dict], parent_gap: float,
 
 
 def _passes(c: dict, sign: int, crit: float, min_share: float = MIN_SHARE) -> bool:
+    if _UNCLASSIFIED in c["dims"].values():
+        return False          # "segment (none)" explains nothing
     return (c["delta"] * sign > 0 and c["share"] >= min_share
             and c["share"] - c["weight"] >= MIN_OVERWEIGHT
             and c["ly"] >= MIN_LY_RN and abs(c["delta"]) >= MIN_MOVE_RN and c["z"] * sign >= crit)
@@ -204,7 +212,8 @@ def explain(rows: list[dict], parent_gap: float, dims: list[str]) -> dict | None
                 refined.append(c)
         keep = [c for c in refined
                 if c["delta"] * sign > 0 and abs(c["delta"]) >= REFINE_KEEP * abs(best["delta"])
-                and c["ly"] >= MIN_LY_RN and c["z"] * sign >= z_crit(tested)]
+                and c["ly"] >= MIN_LY_RN and c["z"] * sign >= z_crit(tested)
+                and _UNCLASSIFIED not in c["dims"].values()]
         if not keep:
             break
         best = max(keep, key=lambda c: abs(c["delta"]))

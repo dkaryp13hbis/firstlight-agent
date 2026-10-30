@@ -271,7 +271,27 @@ check("a malformed row is skipped, the rest and the snapshot intact",
 check("report_date_iso = yesterday", payload["report_date_iso"] == "2026-10-27")
 from briefing.cloud_push import _ANALYST_ONLY_KEYS
 check("publish strips the analyst-only inputs",
-      set(_ANALYST_ONLY_KEYS) == {"booking_cube", "cancel_detail", "pickup_by_source"})   # Q21 added 2026-10-30
+      set(_ANALYST_ONLY_KEYS) == {"booking_cube", "cancel_detail", "pickup_by_source",
+                                  "mix_by_month"})   # Q21 + Q22 added 2026-10-30
+
+print("Opera booking mix (Q_MIX_GRAIN → compute_mix)")
+from db.adapters.opera_oracle.fetcher import compute_mix
+mix_rows = [  # (sy, sm, book, cancel, src, seg, rate, room, sg, rn, gross, crn, cgross)
+    (2026, 11, date(2026, 10, 1), None, "BK", "LEI", "BAR", "DBL", "A", 3, 450.0, 0, 0),
+    (2025, 11, date(2025, 10, 1), None, "BK", "GRP", "GRP1", "DBL", "A", 5, 600.0, 0, 0),           # STLY, active
+    (2025, 11, date(2025, 10, 2), date(2025, 11, 2), "TEL", "GRP", "GRP1", "TWN", "C", 0, 0, 4, 480.0),  # cancelled AFTER cap
+    (2025, 11, date(2025, 10, 3), date(2025, 10, 20), "TEL", "GRP", "GRP1", "TWN", "C", 0, 0, 2, 240.0),  # cancelled BEFORE cap
+    (2027, 1, date(2026, 10, 27), None, "BK", None, None, None, "A", 2, 300.0, 0, 0),             # next year, blanks
+]
+mx = {(r["stay_year"], r["stay_month"], r["source"], r["segment"], r["rate_plan"], r["room_type"]): r
+      for r in compute_mix(mix_rows, TODAY)}
+check("TY row this year", mx.get((2026, 11, "BK", "LEI", "BAR", "DBL"), {}).get("rn_ty") == 3)
+check("STLY active keyed to the TY year", mx.get((2026, 11, "BK", "GRP", "GRP1", "DBL"), {}).get("rn_stly") == 5)
+check("cancelled after the cap is restored", mx.get((2026, 11, "TEL", "GRP", "GRP1", "TWN"), {}).get("rn_stly") == 4,
+      str(mx.get((2026, 11, "TEL", "GRP", "GRP1", "TWN"))))
+check("next-year row, blanks → (none)", mx.get((2027, 1, "BK", "(none)", "(none)", "(none)"), {}).get("rn_ty") == 2)
+check("engine never names an unclassified slice", not D._passes(
+    {"dims": {"segment": "(none)"}, "delta": -50, "share": 0.9, "weight": 0.1, "ly": 80, "z": -5}, -1, 2.0))
 from db.contract import build_data_quality
 dq = build_data_quality({"pace": [], "pickup_daily": [1], "otb_by_date": [1], "current_month_remaining": {"a": 1}})
 check("cube absent never flips legacy_mode", dq["legacy_mode"] is False and "booking_cube" in dq["missing_fields"],

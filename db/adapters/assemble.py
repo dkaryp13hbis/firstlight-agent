@@ -505,6 +505,25 @@ def assemble_snapshot(rows: dict[str, Any], hotel_ctx: dict[str, Any],
         except Exception:   # noqa: BLE001
             pass
 
+    # ── Q22: booking mix by month (segment / rate plan / room type) ──
+    mix_by_month: list[dict] = []
+    for r in rows.get("mix_by_month") or []:
+        try:
+            mix_by_month.append({
+                "stay_year":  int(r["stay_year"]),
+                "stay_month": int(r["stay_month"]),
+                "source":     str(r.get("source") or "Direct"),
+                "segment":    str(r.get("segment") or "(none)"),
+                "rate_plan":  str(r.get("rate_plan") or "(none)"),
+                "room_type":  str(r.get("room_type") or "(none)"),
+                "rn_ty":      float(r.get("rn_ty") or 0),
+                "rev_ty":     round(float(r.get("rev_ty") or 0), 0),
+                "rn_stly":    float(r.get("rn_stly") or 0),
+                "rev_stly":   round(float(r.get("rev_stly") or 0), 0),
+            })
+        except Exception:   # noqa: BLE001
+            pass
+
     # ── Q16: Next-year OTB by month ───────────────────────────────
     pace_next_year = []
     for r in rows.get("pace_next") or []:
@@ -602,6 +621,7 @@ def assemble_snapshot(rows: dict[str, Any], hotel_ctx: dict[str, Any],
         "booking_cube":  booking_cube,     # Q18 — analyst-only, stripped on publish
         "cancel_detail": cancel_detail,    # Q19 — analyst-only, stripped on publish
         "pickup_by_source": pickup_by_source,  # Q21 — analyst-only, stripped on publish
+        "mix_by_month": mix_by_month,          # Q22 — analyst-only, stripped on publish
         "hotel_type":  hotel_ctx.get("hotel_type", "resort"),
         "otb_by_date": otb_by_date,
         "current_month_remaining": current_month_remaining,

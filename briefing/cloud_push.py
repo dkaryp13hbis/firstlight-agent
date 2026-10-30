@@ -74,7 +74,7 @@ def _publish_supabase(payload: dict[str, Any]) -> bool:
 
 # Snapshot keys the analyst consumes but the app never reads (Q18/Q19 cube,
 # review 2026-10-28) — dropped before the briefing is stored.
-_ANALYST_ONLY_KEYS = ("booking_cube", "cancel_detail", "pickup_by_source")
+_ANALYST_ONLY_KEYS = ("booking_cube", "cancel_detail", "pickup_by_source", "mix_by_month")
 
 
 def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str | None = None,

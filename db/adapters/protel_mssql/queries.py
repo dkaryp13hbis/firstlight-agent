@@ -20,6 +20,13 @@ _FAKE_RT_EXCLUDE = """
     )
 """
 
+# A hotel code column as trimmed text, blank → '(none)' — for the booking-mix
+# dimensions (MarketGrp / RateCodeGroupe / RoomType, the hotel's Power BI
+# names, 2026-10-30). Codes are never translated.
+_TXT = "ISNULL(NULLIF(LTRIM(RTRIM(CAST({col} AS NVARCHAR(100)))), N''), N'(none)')"
+_SEG, _RATE, _ROOM = (_TXT.format(col="h.MarketGrp"), _TXT.format(col="h.RateCodeGroupe"),
+                      _TXT.format(col="h.RoomType"))
+
 # ------------------------------------------------------------------
 # Q1: Yesterday + MTD KPIs  (stay-date axis, active only)
 # ------------------------------------------------------------------
@@ -965,13 +972,13 @@ DECLARE @horizon DATE = DATEADD(DAY, 90, @today);
 DECLARE @cap_ly  DATE = DATEADD(DAY, -364, @today);
 DECLARE @ly_to   DATE = DATEADD(DAY, -364, @horizon);
 
-SELECT stay_date, source, room_cat, lead_bucket,
+SELECT stay_date, source, segment, rate_plan, room_cat, lead_bucket,
        SUM(rn_ty)  AS rn_ty,
        SUM(rev_ty) AS rev_ty,
        SUM(rn_ly)  AS rn_ly,
        SUM(rev_ly) AS rev_ly
 FROM (
-    SELECT stay_date, source, room_cat,
+    SELECT stay_date, source, segment, rate_plan, room_cat,
            CASE WHEN lead_days <= 3  THEN '0-3'
                 WHEN lead_days <= 7  THEN '4-7'
                 WHEN lead_days <= 15 THEN '8-15'
@@ -984,7 +991,9 @@ FROM (
         -- TY: active stays in the next 90 days, as booked today
         SELECT h.date AS stay_date,
                ISNULL(NULLIF(LTRIM(RTRIM(h.Sourcen)), ''), 'Direct') AS source,
-               h.katnr AS room_cat,
+               {seg}  AS segment,
+               {rate} AS rate_plan,
+               {room} AS room_cat,
                DATEDIFF(DAY, CAST(h.SystemDate AS DATE), h.date) AS lead_days,
                h.Occupancy AS rn_ty,
                h.logis     AS rev_ty,
@@ -1001,7 +1010,9 @@ FROM (
         -- LY: same weekday 52 weeks earlier, as booked 364 days ago
         SELECT DATEADD(DAY, 364, h.date),
                ISNULL(NULLIF(LTRIM(RTRIM(h.Sourcen)), ''), 'Direct'),
-               h.katnr,
+               {seg},
+               {rate},
+               {room},
                DATEDIFF(DAY, CAST(h.SystemDate AS DATE), h.date),
                0,
                0.0,
@@ -1017,9 +1028,9 @@ FROM (
           AND CAST(h.SystemDate AS DATE) <= @cap_ly
     ) u
 ) t
-GROUP BY stay_date, source, room_cat, lead_bucket
+GROUP BY stay_date, source, segment, rate_plan, room_cat, lead_bucket
 ORDER BY stay_date;
-""".format(fake_rt=_FAKE_RT_EXCLUDE)
+""".format(fake_rt=_FAKE_RT_EXCLUDE, seg=_SEG, rate=_RATE, room=_ROOM)
 
 
 # ------------------------------------------------------------------
@@ -1121,6 +1132,70 @@ FROM (
 GROUP BY ref_date, stay_date, source
 ORDER BY ref_date, stay_date;
 """.format(fake_rt=_FAKE_RT_EXCLUDE)
+
+
+# ------------------------------------------------------------------
+# Q22: Booking MIX by month — stay year/month × source × market segment ×
+# rate-code group × room type, TY on the books vs the same booking stage
+# one season earlier. Columns = the hotel's own Power BI model (2026-10-30):
+# MarketGrp ("Market"), RateCodeGroupe ("Rate Code"), RoomType ("Room
+# Type"); codes kept exactly as the hotel writes them, blanks → '(none)'.
+# TY = this + next calendar year's active stays; STLY = last + this year's
+# stays booked by @stly_cap and still active then (cancelled-later restored,
+# Q17/Q20 conventions), keyed to the TY year (+1) — so totals reconcile with
+# Q4 / Q16 month by month. Optional / fail-open; analyst-only.
+# ------------------------------------------------------------------
+
+Q_MIX_BY_MONTH = """
+DECLARE @today    DATE = CAST(GETDATE() AS DATE);
+DECLARE @stly_cap DATE = DATEADD(YEAR, -1, @today);
+
+SELECT stay_year, stay_month, source, segment, rate_plan, room_type,
+       SUM(rn_ty)    AS rn_ty,
+       SUM(rev_ty)   AS rev_ty,
+       SUM(rn_stly)  AS rn_stly,
+       SUM(rev_stly) AS rev_stly
+FROM (
+    SELECT YEAR(h.date)  AS stay_year,
+           MONTH(h.date) AS stay_month,
+           ISNULL(NULLIF(LTRIM(RTRIM(h.Sourcen)), ''), 'Direct') AS source,
+           {seg}  AS segment,
+           {rate} AS rate_plan,
+           {room} AS room_type,
+           h.Occupancy AS rn_ty,
+           h.logis     AS rev_ty,
+           0           AS rn_stly,
+           0.0         AS rev_stly
+    FROM bidata.proteluser.Hitia h
+    WHERE h.mpehotel = ?
+      AND h.reschar < 2
+      AND {fake_rt}
+      AND YEAR(h.date) IN (YEAR(@today), YEAR(@today) + 1)
+
+    UNION ALL
+
+    SELECT YEAR(h.date) + 1,
+           MONTH(h.date),
+           ISNULL(NULLIF(LTRIM(RTRIM(h.Sourcen)), ''), 'Direct'),
+           {seg},
+           {rate},
+           {room},
+           0,
+           0.0,
+           CASE WHEN h.reschar < 2 THEN h.Occupancy
+                WHEN CAST(h.datumbis AS DATE) = CAST(h.date AS DATE) THEN 0
+                ELSE 1 END,
+           h.logis
+    FROM bidata.proteluser.Hitia h
+    WHERE h.mpehotel = ?
+      AND (h.reschar < 2 OR (h.reschar = 2 AND CAST(h.Canceled AS DATE) > @stly_cap))
+      AND {fake_rt}
+      AND YEAR(h.date) IN (YEAR(@today) - 1, YEAR(@today))
+      AND CAST(h.SystemDate AS DATE) <= @stly_cap
+) t
+GROUP BY stay_year, stay_month, source, segment, rate_plan, room_type
+ORDER BY stay_year, stay_month;
+""".format(fake_rt=_FAKE_RT_EXCLUDE, seg=_SEG, rate=_RATE, room=_ROOM)
 
 
 # ------------------------------------------------------------------

@@ -5,8 +5,11 @@ description: Writing or changing PMS SQL queries (Protel/SQL Server today, Opera
 
 # PMS queries
 
-All Protel queries: `db/adapters/protel_mssql/queries.py` (Q1–Q21; Q20 next
-year by source, Q21 pickup by source × stay date — 2026-10-30), executed by
+All Protel queries: `db/adapters/protel_mssql/queries.py` (Q1–Q22; Q20 next
+year by source, Q21 pickup by source × stay date, Q22 booking mix by month ×
+segment (MarketGrp) × rate plan (RateCodeGroupe) × room type (RoomType) —
+2026-10-30; column names = the hotel's own Power BI query; Opera:
+MARKET_CODE / RATE_CODE / ROOM_TYPE on the same view), executed by
 `fetcher.py` in the same folder. Q18 `Q_BOOKING_CUBE` / Q19 `Q_CANCEL_DETAIL`
 (2026-10-28) feed the dark cross-filter engine: last year = the SAME WEEKDAY
 (−364 d, Q15 convention) — never compare weekdays on Q10's calendar-date STLY.

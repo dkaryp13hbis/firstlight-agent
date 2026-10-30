@@ -597,5 +597,52 @@ out = _compute_signals(payload(pace=[pace_row(11, 500, 500, 95_000, 95_000)], pi
 pu = [c for c in cands(out) if c["signal"] == "pickup"]
 check("an even surge names no source", pu and "swing_source" not in pu[0]["insight"]["facts"])
 
+print("Segment + rate plan (Q22 mix_by_month, the hotel's Power BI columns)")
+
+
+def mix(m, s, seg, rate, room, rn_ty, rev_ty, rn_stly, rev_stly, y=2026):
+    return {"stay_year": y, "stay_month": m, "source": s, "segment": seg, "rate_plan": rate,
+            "room_type": room, "rn_ty": rn_ty, "rev_ty": rev_ty, "rn_stly": rn_stly, "rev_stly": rev_stly}
+
+
+# Nov −20%: segment GRP (30% of last year) carries the whole gap; leisure flat
+seg_mix = [mix(11, "TEL", "GRP", "GRP1", "DBL", 50, 7_500, 150, 22_500),
+           mix(11, "BK", "LEI", "BAR", "DBL", 200, 30_000, 200, 30_000),
+           mix(11, "Direct", "LEI", "BAR", "TWN", 150, 22_500, 150, 22_500)]
+out = _compute_signals(payload(pace=[pace_row(11, 400, 500, 60_000, 75_000)], mix_by_month=seg_mix))
+pc = cands(out, "pace")
+if pc:
+    f, fb = pc[0]["insight"]["facts"], pc[0]["fallback_card"]
+    check("segment GRP named", f.get("biggest_segment") == "GRP" and f.get("biggest_segment_move", {}).get("value") == "GRP −100 rn",
+          str(f.get("biggest_segment_move")))
+    check("why tells the one-segment story", fb["why_it_matters"].startswith("Most of the gap sits with segment GRP"),
+          fb["why_it_matters"])
+    check("drill-down carries the segment", A._drilldown(pc[0]).get("segment") == "GRP")
+    template_ok(fb, "segment")
+else:
+    check("segment pace card fires", False)
+# the gap sits in an unclassified '(none)' segment → nothing is named
+out = _compute_signals(payload(pace=[pace_row(11, 400, 500, 60_000, 75_000)],
+                               mix_by_month=[dict(r, segment="(none)") if r["segment"] == "GRP" else r for r in seg_mix]))
+pc = cands(out, "pace")
+check("'(none)' is never named", pc and "biggest_segment" not in pc[0]["insight"]["facts"])
+# a segment that is simply big and falls evenly is not "the cause"
+even_mix = [mix(11, "BK", "LEI", "BAR", "DBL", 300, 45_000, 375, 56_250), mix(11, "TEL", "GRP", "GRP1", "DBL", 100, 15_000, 125, 18_750)]
+out = _compute_signals(payload(pace=[pace_row(11, 400, 500, 60_000, 75_000)], mix_by_month=even_mix))
+pc = cands(out, "pace")
+check("an even fall names no segment", pc and "biggest_segment" not in pc[0]["insight"]["facts"])
+
+# more rooms, less revenue — the extra rooms come through a cheap rate plan
+rp_mix = [mix(11, "BK", "LEI", "NRF", "DBL", 260, 31_200, 60, 12_000),      # +200 rn at €120
+          mix(11, "Direct", "LEI", "BAR", "DBL", 300, 63_800, 440, 88_000)]
+out = _compute_signals(payload(pace=[nov_mix], mix_by_month=rp_mix))
+pc = cands(out, "pace")
+if pc:
+    f, fb = pc[0]["insight"]["facts"], pc[0]["fallback_card"]
+    check("rate plan NRF named with its rate", f.get("biggest_rate_plan") == "NRF"
+          and f.get("biggest_rate_plan_rate", {}).get("value") == "€120", str((f.get("biggest_rate_plan"), f.get("biggest_rate_plan_rate"))))
+    check("why names the rate plan (no source data here)", "rate plan NRF" in fb["why_it_matters"], fb["why_it_matters"])
+    template_ok(fb, "rate-plan")
+
 print(f"\n{PASS} passed, {FAIL} failed")
 raise SystemExit(1 if FAIL else 0)

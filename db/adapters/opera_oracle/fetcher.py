@@ -444,6 +444,35 @@ def compute_pack(rows: list[Row], today: date) -> dict[str, Any]:
     return out
 
 
+def compute_mix(mix_rows: list[tuple], today: date) -> list[dict[str, Any]]:
+    """Q22 shape (booking mix by month) from the Q_MIX_GRAIN extract, with
+    the adapter's own rules: TY = active nights this + next year; STLY = last
+    + this year's nights booked by the same date last year and still alive
+    then (cancelled-later restored from CANCELLED_ROOM_NIGHTS / lost gross),
+    keyed to the TY year. Tuples: (stay_year, stay_month, book_date,
+    cancel_date, source, segment, rate_plan, room_type, sg, rn, gross, crn,
+    cgross)."""
+    stly_cap = _year_ago(today)
+    ty_year = today.year
+    acc: dict[tuple, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for (sy, sm, bd, cd, src, seg, rate, room, sg, rn, gross, crn, cgross) in mix_rows:
+        sy, sm, bd, cd = int(sy), int(sm), _d(bd), _d(cd)
+        dims = (src or "Direct", seg or "(none)", rate or "(none)", room or "(none)")
+        rn, gross, crn, cgross = float(rn or 0), float(gross or 0), float(crn or 0), float(cgross or 0)
+        if sg in ACTIVE and sy in (ty_year, ty_year + 1):
+            k = (sy, sm) + dims
+            acc[k]["rn_ty"] += rn; acc[k]["rev_ty"] += gross
+        if sy in (ty_year - 1, ty_year) and bd is not None and bd <= stly_cap and (
+                sg in ACTIVE or (sg == CANCELLED and cd is not None and cd > stly_cap)):
+            k = (sy + 1, sm) + dims
+            acc[k]["rn_stly"] += rn if sg in ACTIVE else crn
+            acc[k]["rev_stly"] += gross if sg in ACTIVE else cgross
+    return [dict(stay_year=k[0], stay_month=k[1], source=k[2], segment=k[3], rate_plan=k[4],
+                 room_type=k[5], rn_ty=v["rn_ty"], rev_ty=v["rev_ty"],
+                 rn_stly=v["rn_stly"], rev_stly=v["rev_stly"])
+            for k, v in sorted(acc.items())]
+
+
 # ------------------------------------------------------------------
 # Fetch
 # ------------------------------------------------------------------
@@ -483,6 +512,15 @@ def fetch_snapshot(conn, hotel_ctx: dict[str, Any]) -> dict[str, Any]:
 
     rows = _load_rows(cur, resort)
     pack = compute_pack(rows, today)
+
+    # Booking mix (segment / rate code / room type) — optional, fail-open:
+    # a failure here never blocks the briefing (2026-10-30)
+    try:
+        cur.execute(Q.Q_MIX_GRAIN, resort=resort)
+        pack["mix_by_month"] = compute_mix(cur.fetchall(), today)
+    except Exception as exc:   # noqa: BLE001
+        pack["mix_by_month"] = []
+        print(f"[{hotel_ctx.get('hotel_name', resort)}] mix_by_month query failed (non-blocking): {exc}")
 
     ref_dates = [yesterday, yesterday - timedelta(days=365), _year_ago(yesterday)] + \
                 [today + timedelta(days=i) for i in range(0, 8)]

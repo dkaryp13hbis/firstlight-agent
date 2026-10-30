@@ -97,7 +97,7 @@ _SIGNAL_PREFIXES = _SIGNAL_FIELDS + ("pace[].rn_stly", "pace[].rn_final_ly",
                                      "sources_by_month",
                                      # review 2026-10-28, Release 2 (dark)
                                      "booking_cube", "cancel_detail",
-                                     "pickup_by_source")
+                                     "pickup_by_source", "mix_by_month")
 
 _REQUIRED_YESTERDAY = ("revenue", "revenueLY", "roomNights", "roomNightsLY",
                        "adr", "adrLY", "occupancy", "occupancyLY")
@@ -170,7 +170,7 @@ def build_data_quality(data: dict[str, Any], total_rooms: int | None = None) -> 
         missing.append("consumed_by_source")
     if not data.get("sources_by_month"):
         missing.append("sources_by_month")
-    for opt in ("booking_cube", "cancel_detail", "pickup_by_source"):   # Q18/19/21 — optional
+    for opt in ("booking_cube", "cancel_detail", "pickup_by_source", "mix_by_month"):   # Q18/19/21/22 — optional
         if not data.get(opt):
             missing.append(opt)
 
@@ -180,7 +180,7 @@ def build_data_quality(data: dict[str, Any], total_rooms: int | None = None) -> 
         for field in ("pace", "pickup_daily", "otb_by_date", "topChannels",
                       "next7days", "lead_time", "cancel_daily",
                       "consumed_by_source", "sources_by_month",
-                      "booking_cube", "cancel_detail", "pickup_by_source")
+                      "booking_cube", "cancel_detail", "pickup_by_source", "mix_by_month")
     }
 
     # ── Sanity checks ─────────────────────────────────────────────────────

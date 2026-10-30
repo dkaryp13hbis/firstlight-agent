@@ -218,21 +218,28 @@ def _q17_rows(sources_by_month: list[dict], sm: int, sy: int | None = None) -> l
 
 def _source_attribution(sources_by_month: list[dict], sm: int, rn_gap: float,
                         sy: int | None = None) -> dict | None:
-    """Which source explains a month's room-night gap vs same time last year.
-    Returns None when the data is absent, too thin, or does not reconcile
-    with the pace gap — safety-first: say nothing rather than mis-attribute.
+    """Which source explains a month's room-night gap vs same time last year
+    (Q17 / Q20 rows). See _dim_attribution for the rules."""
+    return _dim_attribution(_q17_rows(sources_by_month, sm, sy), "source", rn_gap)
+
+
+def _dim_attribution(rows: list[dict], key: str, rn_gap: float) -> dict | None:
+    """Which value of one dimension (source, segment, rate plan, …) explains
+    a month's room-night gap vs same time last year. Returns None when the
+    data is absent, too thin, or does not reconcile with the pace gap —
+    safety-first: say nothing rather than mis-attribute.
     share = top mover's delta / total gap; spread = concentrated (>= 60% in
-    one source AND >= 20 pts more than its share of last year's volume —
-    review 2026-10-28: a source that is 70% of the business carries ~70% of
-    any even gap; that is its size, not a source-specific cause) | broad
-    (< 40% and 3+ sources moving the same way) | mixed."""
-    rows = _q17_rows(sources_by_month, sm, sy)
+    one value AND >= 20 pts more than its share of last year's volume —
+    review 2026-10-28: a value that is 70% of the business carries ~70% of
+    any even gap; that is its size, not a specific cause) | broad (< 40% and
+    3+ values moving the same way) | mixed. An unclassified '(none)' value
+    is never the named driver (2026-10-30)."""
     if not rows or not rn_gap:
         return None
     deltas: dict[str, float] = {}
     ly_rn: dict[str, float] = {}
     for r in rows:
-        name = str(r.get("source") or "Unknown").strip() or "Unknown"
+        name = str(r.get(key) or "Unknown").strip() or "Unknown"
         deltas[name] = deltas.get(name, 0.0) + float(r.get("rn_ty", 0) or 0) - float(r.get("rn_stly", 0) or 0)
         ly_rn[name] = ly_rn.get(name, 0.0) + float(r.get("rn_stly", 0) or 0)
     total = sum(deltas.values())
@@ -248,7 +255,7 @@ def _source_attribution(sources_by_month: list[dict], sm: int, rn_gap: float,
     top_name, top_delta = movers[0]
     share = abs(top_delta) / abs(rn_gap)
     weight = ly_rn.get(top_name, 0.0) / total_ly if total_ly else 0.0
-    if share >= 0.60 and share - weight >= 0.20:
+    if share >= 0.60 and share - weight >= 0.20 and top_name != "(none)":
         spread = "concentrated"
     elif share < 0.40 and len(movers) >= 3:
         spread = "broad"
@@ -595,6 +602,7 @@ def _signal_context(data: dict) -> dict:
         "sources_by_month":   data.get("sources_by_month") or [],   # Q17, optional
         "pickup_daily":       data.get("pickup_daily") or [],
         "pickup_by_source":   data.get("pickup_by_source") or [],   # Q21, optional
+        "mix_by_month":       data.get("mix_by_month") or [],       # Q22, optional
         "daily_rev_baseline": max(rev_final_ly_total / 365.0, 1.0),
     }
 
@@ -1009,6 +1017,28 @@ def _signal_pace(ctx: dict) -> list[dict]:
                 elif not split:
                     why = (f"{top_name} brings the most extra rooms ({attr['share_txt']}); the average rate "
                            f"booked is {f_adr_ty} against {f_adr_stly} last year (confidence: Low).")
+            # RATE PLAN (2026-10-30, Q22 = RateCodeGroupe / RATE_CODE): which
+            # rate plan the extra rooms came through, and at what average rate.
+            # Same gates; it takes the "why" only when no source story did.
+            rp_rows = _q17_rows(ctx["mix_by_month"], sm, sy) if ctx["mix_by_month"] else []
+            rp = _dim_attribution(rp_rows, "rate_plan", rn_gap) if rp_rows else None
+            if rp and rp["spread"] == "concentrated":
+                rp_name = rp["top_name"]
+                rp_rn = sum(float(r.get("rn_ty") or 0) for r in rp_rows if str(r.get("rate_plan")) == rp_name)
+                rp_rev = sum(float(r.get("rev_ty") or 0) for r in rp_rows if str(r.get("rate_plan")) == rp_name)
+                rp_cheaper = rp_rn >= 10 and rp_rev / rp_rn < adr_stly_calc
+                f_rp_rn = _rn_signed(rp["top_delta"])
+                facts["biggest_rate_plan"] = rp_name
+                facts["biggest_rate_plan_move"] = _fact(f"{rp_name} {f_rp_rn}", p_vs_stly)
+                if rp_cheaper:
+                    facts["biggest_rate_plan_rate"] = _fact(_eur(rp_rev / rp_rn), f"rate plan {rp_name}, {m_name} booked so far")
+                rp_txt = (f"Most of the extra rooms come through rate plan {rp_name} ({f_rp_rn} vs same time last year)"
+                          + (f" at an average rate of {_eur(rp_rev / rp_rn)}, against {f_adr_stly} for the month last year"
+                             if rp_cheaper else ""))
+                hypo.insert(0, {"text": rp_txt, "confidence": "Medium"})
+                if not (attr and attr["spread"] == "concentrated"):
+                    why = f"{rp_txt} (confidence: Medium)."
+                    action = f"It may be worth reviewing which dates and sources rate plan {rp_name} is selling on for {m_name}."
             directive = {
                 "type": "investigate_mix",
                 "target": f"which sources and rate plans the extra {m_name} rooms come from",
@@ -1107,6 +1137,7 @@ def _signal_pace(ctx: dict) -> list[dict]:
         # to suggest "a source-by-source comparison would show which" — now it
         # shows it. Only when the source deltas reconcile with the pace gap.
         # (attr is computed above; the mixed card tells its own source story.)
+        offset_applied = False
         if attr:
             top_name  = attr["top_name"]
             f_top_rn  = _rn_signed(attr["top_delta"])
@@ -1154,6 +1185,7 @@ def _signal_pace(ctx: dict) -> list[dict]:
             if (attr["spread"] == "concentrated" and attr["share"] > 1.25
                     and not mixed and not adr_dilution
                     and abs(attr["total"] - rn_gap) <= max(3.0, 0.05 * abs(attr["top_delta"]))):
+                offset_applied = True
                 f_others = _rn_signed(rn_gap - attr["top_delta"])
                 facts["other_sources_move"] = _fact(f_others, p_vs_stly)
                 mix_txt = "a change in where bookings come from"
@@ -1169,6 +1201,32 @@ def _signal_pace(ctx: dict) -> list[dict]:
                 fb["evidence"][1] = {"label": "BIGGEST MOVER", "value": f_top,
                                      "sub": f"other sources together {f_others}"}
                 fb["why_it_matters"] = f"The other sources together are {f_others}, {tail} (confidence: High)."
+
+        # SEGMENT (2026-10-30, Q22 = MarketGrp / MARKET_CODE, the hotel's own
+        # Power BI "Market"): "the gap is last year's business in ONE segment,
+        # not weaker demand overall". Same gates as the source attribution
+        # (reconciles with the pace gap, >= 60%, over-represented); codes as
+        # written; an unclassified '(none)' is never named.
+        mix_rows = _q17_rows(ctx["mix_by_month"], sm, sy) if ctx["mix_by_month"] else []
+        seg = _dim_attribution(mix_rows, "segment", rn_gap) if mix_rows else None
+        if seg and seg["spread"] == "concentrated":
+            f_seg_rn = _rn_signed(seg["top_delta"])
+            facts["biggest_segment"] = seg["top_name"]
+            facts["biggest_segment_move"] = _fact(f"{seg['top_name']} {f_seg_rn}", p_vs_stly)
+            facts["biggest_segment_share"] = _fact(seg["share_txt"], p_vs_stly)
+            if not mixed and not adr_dilution:
+                via = ""
+                if attr and attr["spread"] == "concentrated" and attr["share"] <= 1.25:
+                    via = f", mostly through {attr['top_name']} ({_rn_signed(attr['top_delta'])})"
+                seg_txt = (f"Most of the {'lead' if ahead else 'gap'} sits with segment "
+                           f"{seg['top_name']} ({f_seg_rn} vs same time last year){via}")
+                hypo.insert(0, {"text": seg_txt, "confidence": "Medium"})
+                if not offset_applied:
+                    tail = "" if ahead else " — a shortfall in one segment rather than weaker demand overall"
+                    fb["why_it_matters"] = f"{seg_txt}{tail} (confidence: Medium)."
+                    if not ahead:
+                        fb["recommended_action"] = (f"It may be worth checking what changed with segment "
+                                                    f"{seg['top_name']} bookings for {m_name}.")
 
         # the mixed card gets its own id: same month, different story (novelty
         # must not read it as a repeat of yesterday's "bookings ahead" card)
@@ -1364,6 +1422,10 @@ def _slice_desc(dims: dict) -> str:
     if lead:
         lead = "over 90" if lead == "90+" else lead.replace("-", "–")
     parts = [p for p in (dims.get("source"), dims.get("day_type")) if p]
+    if dims.get("segment"):
+        parts.append(f"segment {dims['segment']}")
+    if dims.get("rate_plan"):
+        parts.append(f"rate plan {dims['rate_plan']}")
     desc = " ".join(parts + ["bookings"])
     if lead:
         desc += f" made {lead} days ahead"
@@ -3922,6 +3984,9 @@ def _drilldown(cand: dict) -> dict:
            or (swing.get("value") if isinstance(swing, dict) else None))
     if src:
         d["source"] = src
+    for key, fact in (("segment", "biggest_segment"), ("rate_plan", "biggest_rate_plan")):
+        if facts.get(fact):
+            d[key] = facts[fact]
     return {k: v for k, v in d.items() if v}
 
 

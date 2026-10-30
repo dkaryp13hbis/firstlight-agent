@@ -97,6 +97,8 @@ def fetch_snapshot(conn: pyodbc.Connection, hotel_ctx: dict[str, Any]) -> dict[s
         # 2026-10-30: source analysis for next year + pickup by source
         ("sources_next", Q.Q_SOURCES_NEXT_YEAR, (hotel_id, hotel_id)),
         ("pickup_by_source", Q.Q_PICKUP_BY_SOURCE, (hotel_id, hotel_id)),
+        # segment / rate plan / room type by month (hotel's Power BI columns)
+        ("mix_by_month", Q.Q_MIX_BY_MONTH,    (hotel_id, hotel_id)),
     )
     for key, sql, params in optional:
         try:

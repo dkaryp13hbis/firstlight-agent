@@ -73,6 +73,49 @@ SELECT NVL(SUM(number_rooms), 0) AS total_rooms
 """
 
 # ------------------------------------------------------------------
+# Q_MIX_GRAIN (2026-10-30): the booking-MIX extract — stay year/month × book
+# date × cancel date × source × market segment × rate code × room type ×
+# status group. Columns = the group's own Power BI query on this view
+# (MARKET_CODE "Market", RATE_CODE "Rate Code", ROOM_TYPE "Room Type
+# Short"); codes kept as written, blanks → '(none)'. Same row rules as
+# Q_GRAIN (physical-room nights, gross revenue incl. posting masters, the
+# pseudo predicate in the SELECT CASE, never in WHERE). A separate, optional
+# query so the main grain stays as fast as it is; stay MONTH (not date)
+# keeps it small. fetcher.compute_mix applies the STLY rules in Python.
+# ------------------------------------------------------------------
+
+Q_MIX_GRAIN = f"""
+SELECT EXTRACT(YEAR FROM business_date)                          AS stay_year,
+       EXTRACT(MONTH FROM business_date)                         AS stay_month,
+       TRUNC(booked_date)                                        AS book_date,
+       TRUNC(cancellation_date)                                  AS cancel_date,
+       NVL(source_code, 'Direct')                                AS source,
+       NVL(TRIM(market_code), '(none)')                          AS segment,
+       NVL(TRIM(rate_code), '(none)')                            AS rate_plan,
+       NVL(TRIM(room_type), '(none)')                            AS room_type,
+       CASE WHEN resv_status IN ('RESERVED', 'CHECKED IN') THEN 'A'
+            WHEN resv_status = 'CHECKED OUT'                THEN 'D'
+            ELSE 'C' END                                         AS sg,
+       SUM(CASE WHEN {PHYS} THEN NVL(no_rooms, 0) ELSE 0 END)    AS rn,
+       SUM(NVL(room_revenue, 0) + NVL(room_revenue_tax, 0))      AS rev_gross,
+       SUM(CASE WHEN {PHYS} THEN NVL(cancelled_room_nights, 0) ELSE 0 END) AS cxl_rn,
+       SUM(NVL(clx_room_revenue_gross, 0))                       AS cxl_gross
+  FROM {VIEW}
+ WHERE resort = :resort
+   AND r_type = 'R'
+   AND resv_status IN ('RESERVED', 'CHECKED IN', 'CHECKED OUT', 'CANCELLED')
+   AND business_date >= ADD_MONTHS(TRUNC(SYSDATE, 'YYYY'), -12)
+   AND business_date <  ADD_MONTHS(TRUNC(SYSDATE, 'YYYY'), 24)
+ GROUP BY EXTRACT(YEAR FROM business_date), EXTRACT(MONTH FROM business_date),
+          TRUNC(booked_date), TRUNC(cancellation_date),
+          NVL(source_code, 'Direct'), NVL(TRIM(market_code), '(none)'),
+          NVL(TRIM(rate_code), '(none)'), NVL(TRIM(room_type), '(none)'),
+          CASE WHEN resv_status IN ('RESERVED', 'CHECKED IN') THEN 'A'
+               WHEN resv_status = 'CHECKED OUT'                THEN 'D'
+               ELSE 'C' END
+"""
+
+# ------------------------------------------------------------------
 # Q_GRAIN: the single bounded extract every Protel query is computed from.
 # Grain = stay night × book date × cancel date × source × status group ×
 # has-revenue. Sums: nights (physical rooms only), net/gross revenue (ALL
