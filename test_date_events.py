@@ -291,5 +291,119 @@ check("malformed rows: no crash, no findings", found == [], str((found, errs)))
 out = A._compute_signals(dict(payload, booking_cube=None, pickup_by_source=None))
 check("missing inputs: briefing computes, no date cards", out["date_cards"] == [])
 
+# ── 16. fast-filling nights (user 2026-10-31, "only when it happens") ───────
+print("16. fast-filling nights")
+FRI, SAT = D(11, 20), D(11, 21)                 # 18 days out
+weekend = {FRI, SAT}
+
+
+def fill_pbs(extra=None, yday_extra=None):
+    """Q21: every night of the horizon gets 1 rn on 2 of the last 7 days (usual
+    7-day net = 2). extra = {night: (source, rn a day on yday-6..yday-1)},
+    yday_extra = {night: (source, rn yesterday)}; an 8th, older booking day
+    (50 rn) must never count."""
+    rows = []
+    for k in range(90):
+        n = (TODAY + timedelta(days=k)).isoformat()
+        for ref in (yday - timedelta(days=6), yday - timedelta(days=3)):
+            rows.append({"ref_date": ref.isoformat(), "stay_date": n, "source": "BK", "net_rn": 1, "net_rev": 120})
+    for n, (src, rn) in (extra or {}).items():
+        rows.append({"ref_date": (yday - timedelta(days=7)).isoformat(), "stay_date": n.isoformat(),
+                     "source": src, "net_rn": 50, "net_rev": 5000})
+        for k in range(1, 7):
+            rows.append({"ref_date": (yday - timedelta(days=k)).isoformat(), "stay_date": n.isoformat(),
+                         "source": src, "net_rn": rn, "net_rev": rn * 130})
+    for n, (src, rn) in (yday_extra or {}).items():
+        rows.append({"ref_date": yday.isoformat(), "stay_date": n.isoformat(), "source": src,
+                     "net_rn": rn, "net_rev": rn * 130})
+    return rows
+
+
+def run_fill(rows, pbs, rooms=36):
+    data = {"booking_cube": rows, "pickup_by_source": pbs}
+    if rooms is not None:
+        data["total_rooms"] = rooms
+    return DE.discover_dates(data, TODAY)
+
+
+grp_week = {FRI: ("GRP", 2), SAT: ("GRP", 2)}
+grp_yday = {FRI: ("GRP", 1), SAT: ("GRP", 1)}
+cube_wknd = cube(lambda d: (26, 15) if d in weekend else (15, 15))
+found, errs = run_fill(cube_wknd, fill_pbs(grp_week, grp_yday))
+fl = [f for f in found if f["type"] == "fill"]
+check("no errors", not errs, str(errs))
+check("one fill finding Fri Nov 20–Sat Nov 21", len(fl) == 1 and (fl[0]["from"], fl[0]["to"], fl[0]["sign"])
+      == (FRI, SAT, 1), str([(f["type"], f["from"], f["to"]) for f in found]))
+if fl:
+    f = fl[0]
+    check("30 rn in 7 days vs a usual 4 (2 a night); the older 8th day ignored",
+          round(f["new_rn"]) == 30 and abs(f["usual_rn"] - 4) < 1e-9, str((f["new_rn"], f["usual_rn"])))
+    check("20 of 72 room nights still free, 2 of them booked yesterday",
+          (round(f["free"]), round(f["capacity"]), round(f["yday_rn"])) == (20, 72, 2), str(f))
+    check("same-weekday comparison carried: 52 vs 30", (round(f["ty"]), round(f["ly"])) == (52, 30), str(f))
+    check("GRP named (26 of 30, normally a small share)", f["driver"] and f["driver"]["name"] == "GRP",
+          str(f["driver"]))
+check("one story per night: the 'ahead' cluster on the same nights gives way",
+      not [c for c in found if c["type"] == "cluster" and set(c["dates"]) & weekend], str(found))
+
+found, _ = run_fill(cube(lambda d: (15, 15)), fill_pbs({D(11, 7): ("GRP", 2)}, {D(11, 7): ("GRP", 1)}))
+check("5 days out is the normal last-minute flow: no fill", not [f for f in found if f["type"] == "fill"], str(found))
+found, _ = run_fill(cube(lambda d: (15, 15)), fill_pbs(None, {FRI: ("GRP", 13), SAT: ("GRP", 13)}))
+check("mostly yesterday: no fill, the surge tells it",
+      not [f for f in found if f["type"] == "fill"] and [f for f in found if f["type"] == "surge"], str(found))
+found, _ = run_fill(cube(lambda d: (36, 15) if d in weekend else (15, 15)), fill_pbs(grp_week, grp_yday))
+check("sold-out nights: nothing left to fill", not [f for f in found if f["type"] == "fill"], str(found))
+tue_wed = {D(11, 10): ("GRP", 2), D(11, 11): ("GRP", 2)}
+found, _ = run_fill(cube(lambda d: (5, 15) if d in tue_wed else (15, 15)),
+                    fill_pbs(tue_wed, {d: ("GRP", 1) for d in tue_wed}))
+check("62 rooms free 8 days out at ~4 a day: they would outlast the nights, no fill",
+      not [f for f in found if f["type"] == "fill"], str(found))
+everyone = {TODAY + timedelta(days=k): ("BK", 2) for k in range(90)}
+found, _ = run_fill(cube(lambda d: (15, 15)), fill_pbs(everyone))
+check("every night equally fast: nothing stands out, no fill", not [f for f in found if f["type"] == "fill"],
+      str(found))
+found, _ = run_fill(cube_wknd, fill_pbs(grp_week, grp_yday), rooms=None)
+check("no room count: silent", not [f for f in found if f["type"] == "fill"], str(found))
+found, _ = run_fill(cube_wknd, fill_pbs(grp_week, grp_yday), rooms=200)
+check("200-room hotel: 15 a night is under 8% of the rooms, no fill",
+      not [f for f in found if f["type"] == "fill"], str(found))
+found, errs = run_fill([], fill_pbs(grp_week, grp_yday) + [{"ref_date": "x", "stay_date": None}, {}])
+check("no cube, malformed Q21 rows: no crash", not errs, str(errs))
+
+fill_f = [f for f in run_fill(cube_wknd, fill_pbs(grp_week, grp_yday))[0] if f["type"] == "fill"][0]
+fc = A._date_candidate(fill_f, ctx)
+fb = fc["fallback_card"]
+check("fill card: shape", not _shape_problems(fb), str(_shape_problems(fb)))
+for field, cap in _WORD_CAPS.items():
+    txt = str(fb.get(field, ""))
+    n = len(txt.split())
+    check(f"fill card: {field} {n}<={cap}", n <= cap and not txt.endswith("…"), txt)
+    _, hits = _plainify_text(txt)
+    check(f"fill card: {field} plain", not hits, str(hits))
+check("fill card: review language", not _action_violations(fb), str(_action_violations(fb)))
+check("fill card: no euro in the card text", "€" not in " ".join(str(fb[k]) for k in _WORD_CAPS), str(fb))
+check("fill card: headline, tag, id", (fb["headline"], fc["tag"], fc["insight"]["id"])
+      == ("Fri Nov 20–Sat Nov 21 filling fast", "OPPORTUNITY", "date_fill_nov_2026"), str((fb["headline"], fc["tag"])))
+check("fill card: the card's numbers", fb["evidence"][0]["value"] == "+30 rn" and fb["evidence"][1]["value"] == "20"
+      and "30 room nights booked in the last 7 days" in fb["what_happened"] and "usual 4" in fb["what_happened"]
+      and "20 of 72" in fb["what_happened"], str(fb))
+check("fill card: GRP and the same-weekday comparison in the why",
+      "GRP accounts for" in fb["why_it_matters"] and "+73.3% vs the same weekdays last year" in fb["why_it_matters"],
+      fb["why_it_matters"])
+check("fill card: sell-out worded as a condition, no date or count",
+      "would be booked before these nights arrive" in fb["why_it_matters"])
+check("fill card: confidence Medium", fc["insight"]["cause_hypotheses"][0]["confidence"] == "Medium")
+check("fill card: by when within 3 days (18 days out)", fb["by_when"] == "Within 3 days.", fb["by_when"])
+check("fill card: card window never drops it", _in_card_window(fc, TODAY))
+fp = _fingerprint(fc, REPORT)
+check("fill fingerprint: key = its nights, metric = rooms booked on them (floor 5)",
+      fp["key"] == "date:2026-11-20|date:2026-11-21" and round(fp["metric"]) == 52 and fp["floor"] == 5.0, str(fp))
+out = A._compute_signals(dict(payload, booking_cube=cube_wknd, pickup_by_source=fill_pbs(grp_week, grp_yday),
+                              total_rooms=36))
+check("through the analyst: fill computed, dark by default",
+      "date_fill_nov_2026" in [c["insight"]["id"] for c in out["date_cards"]]
+      and not [c for c in out["ranked"] + out["watchlist"] + out.get("demoted", []) if c["signal"] == "date_event"],
+      str([c["insight"]["id"] for c in out["date_cards"]]))
+
 print(f"\n{PASS} passed, {FAIL} failed")
 raise SystemExit(1 if FAIL else 0)

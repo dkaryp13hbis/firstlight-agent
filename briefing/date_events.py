@@ -22,6 +22,10 @@ calendar dates, where a Saturday meets a Friday.
             above the same weekdays around them, while this year's nights look
             normal: probably a one-off event last year, not a slowdown now
   week      a Mon–Sun week that stands apart from the rest of its month
+  fill      1–7 consecutive nights booking far faster over the LAST 7 DAYS than
+            the same weekdays around them, with rooms still free and a speed
+            that would book them before the nights arrive (user 2026-10-31,
+            PriceLabs' "fast-filling dates": "only when it happens")
 
 Safety (discovery.py spirit — say nothing rather than mislead):
   * volume floors on every finding (last year's nights and the move itself);
@@ -63,6 +67,16 @@ WEEK_MIN_PCT   = 0.15
 WEEK_STANDOUT  = 0.15
 WEEK_OVERLAP   = 1       # a week holding ANY cluster night is the same story (a 2-night
                          # last-year spike made its whole week look weak — test 2026-10-31)
+FILL_DAYS      = 7       # fill: net new bookings over the last 7 booking days (Q21)...
+FILL_MIN_OUT   = 7       # ...for nights >= 7 days away: closer nights are the normal last-minute
+                         # flow, and their same-weekday peers would all lie further out (slower)
+FILL_PEERS     = 4       # usual speed = median of the 4 nearest same-weekday nights (1–4 weeks
+FILL_MIN_PEERS = 2       # either side, inside the horizon, zero-filled), at least 2 of them
+FILL_NIGHT_RN  = 3       # a night joins with >= 3 rn in 7 days...
+FILL_NIGHT_ROOMS = 0.08  # ...and >= 8% of the hotel's rooms...
+FILL_MIN_X     = 3.0     # ...and >= 3× the usual for its weekday
+FILL_MIN_RN    = 8       # the run's 7-day total
+FILL_YDAY_MAX  = 0.70    # mostly yesterday = a one-day jump, the surge's story
 SHARE_MIN      = 0.60
 SHARE_OVER     = 0.20
 MAX_CLUSTERS   = 2
@@ -310,27 +324,130 @@ def surge(pbs: list[dict], today: date) -> list[dict]:
     return [best] if best else []
 
 
+def fill(pbs: list[dict], booked: dict[date, float], daily: dict[date, dict],
+         rooms: float, today: date) -> list[dict]:
+    """Fast-filling nights (Q21 net = bookings minus cancellations, Q9
+    conventions). A night qualifies when its last-7-days net is >= 3 rn,
+    >= 8% of the rooms and >= 3× the usual for its weekday (the median of the
+    nearest same-weekday nights, zero-filled), and it still has rooms free.
+    A run of 1–7 such nights is reported only when its 7-day total is >= 8 rn,
+    the bookings came on several days (not mostly yesterday: that is a
+    surge), and at this speed the free rooms would be booked before the first
+    night arrives — the PriceLabs 'before they sell out' test, used as a gate
+    only (never shown as a projection). The largest run wins."""
+    if not rooms or rooms <= 0:
+        return []
+    yday = today - timedelta(days=1)
+    first_ref = yday - timedelta(days=FILL_DAYS - 1)
+    end = today + timedelta(days=HORIZON_DAYS)
+    p7: dict[date, float] = defaultdict(float)
+    p7_rev: dict[date, float] = defaultdict(float)
+    p1: dict[date, float] = defaultdict(float)
+    by_src: dict[date, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    src_all: dict[str, float] = defaultdict(float)
+    for r in pbs or []:
+        ref, sd = _d(r.get("ref_date")), _d(r.get("stay_date"))
+        if ref is None or sd is None or not first_ref <= ref <= yday or not today <= sd <= end:
+            continue
+        rn = float(r.get("net_rn") or 0)
+        src = str(r.get("source") or "Direct")
+        p7[sd] += rn
+        p7_rev[sd] += float(r.get("net_rev") or 0)
+        if ref == yday:
+            p1[sd] += rn
+        by_src[sd][src] += rn
+        src_all[src] += abs(rn)
+
+    def usual(d: date) -> float | None:
+        peers: list[date] = []
+        for k in range(1, 5):
+            peers += [p for p in (d - timedelta(days=7 * k), d + timedelta(days=7 * k)) if today <= p <= end]
+            if len(peers) >= FILL_PEERS:
+                break
+        if len(peers) < FILL_MIN_PEERS:
+            return None
+        return statistics.median(p7.get(p, 0.0) for p in peers[:FILL_PEERS])
+
+    flagged: list[date] = []
+    usual_of: dict[date, float] = {}
+    for d in sorted(p7):
+        if (d - today).days < FILL_MIN_OUT or d not in booked or rooms - booked[d] <= 0:
+            continue                                   # too close, unknown, or sold out
+        u = usual(d)
+        v = p7[d]
+        if u is None or v < FILL_NIGHT_RN or v < FILL_NIGHT_ROOMS * rooms or v < FILL_MIN_X * max(u, 1.0):
+            continue
+        flagged.append(d)
+        usual_of[d] = u
+    best: dict | None = None
+    for run in _runs(flagged):
+        if len(run) > MAX_RUN:
+            continue                                   # a month story
+        new = sum(p7[d] for d in run)
+        if new < FILL_MIN_RN:
+            continue
+        yd = sum(p1[d] for d in run)
+        if yd / new > FILL_YDAY_MAX:
+            continue                                   # one day's jump: the surge tells it
+        free = sum(rooms - booked[d] for d in run)
+        days_out = (run[0] - today).days
+        if new / FILL_DAYS * days_out < free:
+            continue                                   # rooms would outlast the nights at this speed
+        ty = sum(booked[d] for d in run)
+        ly = sum(daily[d]["ly"] for d in run) if all(d in daily for d in run) else 0.0
+        moves: dict[str, float] = defaultdict(float)
+        for d in run:
+            for s, v in by_src[d].items():
+                moves[s] += v
+        cand = {
+            "type": "fill", "sign": 1, "from": run[0], "to": run[-1], "dates": list(run),
+            "new_rn": new, "usual_rn": sum(usual_of[d] for d in run), "yday_rn": yd,
+            "free": free, "capacity": rooms * len(run), "ty": ty,
+            "ly": ly if ly >= MIN_DATE_LY * len(run) else None,     # no base → no comparison
+            "exposure_eur": abs(sum(p7_rev[d] for d in run)),       # real revenue, internal ranking
+            "driver": _driver(moves, dict(src_all) or {s: abs(v) for s, v in moves.items()}, 1, "source"),
+        }
+        if best is None or new > best["new_rn"]:
+            best = cand
+    return [best] if best else []
+
+
 def discover_dates(data: dict, today: date) -> tuple[list[dict], list[str]]:
     """All date findings for one snapshot + non-fatal errors. Each part is
-    fail-open: one broken piece never takes the others (or the briefing)."""
-    found: list[dict] = []
+    fail-open: one broken piece never takes the others (or the briefing).
+    One story per night: a fast-filling run replaces an overlapping 'ahead'
+    cluster or upward surge (it carries yesterday's part and the same-weekday
+    comparison itself), and a week holding a fill night is not told twice."""
     errors: list[str] = []
     cube = [r for r in (data.get("booking_cube") or []) if isinstance(r, dict)]
+    pbs = [r for r in (data.get("pickup_by_source") or []) if isinstance(r, dict)]
     daily = daily_from_cube(cube, today) if cube else {}
     cl: list[dict] = []
+    fl: list[dict] = []
+    wk: list[dict] = []
+    su: list[dict] = []
     if daily:
         try:
             cl = clusters(daily, cube)
-            found.extend(cl)
         except Exception as exc:   # noqa: BLE001
             errors.append(f"date clusters: {type(exc).__name__}: {exc}"[:200])
+    try:
+        # rooms booked per night: the cube (same as Q10's this-year count); Q10 when no cube
+        booked = ({d: x["ty"] for d, x in daily.items()} if daily else
+                  {d: float(r.get("rn_ty") or 0) for r in (data.get("otb_by_date") or [])
+                   if isinstance(r, dict) and (d := _d(r.get("stay_date"))) is not None})
+        fl = fill(pbs, booked, daily, float(data.get("total_rooms") or 0), today)
+    except Exception as exc:   # noqa: BLE001
+        errors.append(f"date fill: {type(exc).__name__}: {exc}"[:200])
+    filled = {d for f in fl for d in f["dates"]}
+    cl = [c for c in cl if not (c["sign"] > 0 and filled & set(c["dates"]))]
+    if daily:
         try:
-            covered = {d for c in cl for d in c["dates"]}
-            found.extend(weeks(daily, cube, covered))
+            wk = weeks(daily, cube, {d for c in cl for d in c["dates"]} | filled)
         except Exception as exc:   # noqa: BLE001
             errors.append(f"date weeks: {type(exc).__name__}: {exc}"[:200])
     try:
-        found.extend(surge([r for r in (data.get("pickup_by_source") or []) if isinstance(r, dict)], today))
+        su = [s for s in surge(pbs, today) if not (s["sign"] > 0 and filled & set(s["dates"]))]
     except Exception as exc:   # noqa: BLE001
         errors.append(f"date surge: {type(exc).__name__}: {exc}"[:200])
-    return found, errors
+    return cl + wk + su + fl, errors

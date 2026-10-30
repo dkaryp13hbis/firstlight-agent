@@ -1677,13 +1677,16 @@ def _date_candidate(f: dict, ctx: dict) -> dict:
     facts: dict[str, Any] = {"nights": label}
     drv = f.get("driver")
     noun = (("jump" if sign > 0 else "drop") if kind == "surge"
+            else "new bookings" if kind == "fill"
             else ("lead" if sign > 0 else "gap"))
     drv_txt = ""
     if drv:
         who = drv["name"] if drv["key"] == "source" else f"segment {drv['name']}"
         share_txt = _share_of(drv["share"], noun)
         facts["biggest_source" if drv["key"] == "source" else "biggest_segment"] = drv["name"]
-        facts["driver_share"] = _fact(share_txt, p_ly if kind != "surge" else f"yesterday's bookings for {label}")
+        facts["driver_share"] = _fact(share_txt, f"yesterday's bookings for {label}" if kind == "surge"
+                                      else f"net new bookings in the last 7 days for {label}" if kind == "fill"
+                                      else p_ly)
         drv_txt = f"; {who} accounts for {share_txt}"
     by_when = "Today." if days_out <= 7 or kind == "surge" else "Within 7 days."
     conf = "Medium"
@@ -1729,6 +1732,45 @@ def _date_candidate(f: dict, ctx: dict) -> dict:
                      else f"A group or block for {label} released")
         metric, ly_vol, magnitude = new, abs(new), _magnitude_z(f["z"])
         cid = f"date_surge_{'up' if sign > 0 else 'down'}"
+    elif kind == "fill":
+        # fast-filling nights (user 2026-10-31): speed of the last 7 days vs the
+        # same weekdays around them, rooms still free. The sell-out test is a
+        # gate in date_events.fill — worded as a condition, never a date or count.
+        new, usual, free, cap = f["new_rn"], f["usual_rn"], f["free"], f["capacity"]
+        f_new, f_free, f_cap = f"{int(round(new))}", f"{int(round(free))}", f"{int(round(cap))}"
+        f_usual = f"{usual:.1f}".rstrip("0").rstrip(".")
+        facts["room_nights_last_7_days"] = _fact(f"{f_new} room nights",
+                                                 f"net new bookings in the last 7 days for {label}")
+        facts["usual_for_these_weekdays"] = _fact(f"{f_usual} room nights",
+                                                  "the same weekdays 1–4 weeks either side, last 7 days")
+        facts["rooms_still_free"] = _fact(f"{f_free} of {f_cap} room nights", f"stays {label}, today")
+        if f.get("yday_rn"):
+            facts["of_which_yesterday"] = _fact(f"{int(round(f['yday_rn']))} room nights",
+                                                f"net new bookings yesterday for {label}")
+        why = f"At this speed the free rooms would be booked before these nights arrive{drv_txt}"
+        if f.get("ly"):
+            f_pct = _pct_signed((f["ty"] - f["ly"]) / f["ly"] * 100)
+            facts["booked_vs_last_year"] = _fact(f"{int(round(f['ty'])):,} rn vs {int(round(f['ly'])):,} rn", p_ly)
+            facts["nights_vs_last_year"] = _fact(f_pct, p_ly)
+            why += f"; booked so far is {f_pct} vs the same weekdays last year"
+        fb = {
+            "headline": f"{label} filling fast",
+            "evidence": [
+                {"label": "BOOKED IN LAST 7 DAYS", "value": f"+{f_new} rn", "sub": f"usual {f_usual} for these weekdays"},
+                {"label": "ROOMS STILL FREE", "value": f_free, "sub": f"of {f_cap} for these nights"},
+            ],
+            "what_happened": (f"{label}: {f_new} room nights booked in the last 7 days, against a usual "
+                              f"{f_usual} for the same weekdays nearby; {f_free} of {f_cap} are still free."),
+            "why_it_matters": f"{why} (confidence: {conf}).",
+            "recommended_action": f"Worth reviewing whether rates and availability for {label} still fit this demand.",
+            "by_when": "Today." if days_out <= 14 else "Within 3 days.",
+        }
+        tag = "OPPORTUNITY"
+        hypo_text = f"Demand for {label} is building faster than for the same weekdays around them"
+        # novelty: the nights + rooms booked on them — it ships again only when
+        # they got materially fuller (>= 10% and >= 5 rn) or new nights join
+        metric, ly_vol, magnitude = f["ty"], new, _magnitude_pct(new / max(usual, 1.0) - 1)
+        cid = f"date_fill_{f['from'].strftime('%b').lower()}_{f['from'].year}"
     else:
         ty, ly, gap, pct = f["ty"], f["ly"], f["gap"], f["pct"]
         f_ty, f_ly, f_pct = f"{int(round(ty)):,}", f"{int(round(ly)):,}", _pct_signed(pct * 100)

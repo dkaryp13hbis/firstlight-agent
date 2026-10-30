@@ -82,6 +82,12 @@ Two layers, strictly separated:
   signal `date_event`, fingerprint = nights + rn move (surge = event key).
   Dark findings go to cards_audit `dates:<id>` WATCH. Runs > 7 nights are
   month stories; zero-booked nights are never 'behind' (closed / unknown).
+  `fill` (fast-filling nights, 2026-10-31): last-7-days net (Q21) >= 3 rn,
+  >= 8% of rooms and >= 3× the same weekdays nearby, >= 7 days out, not sold
+  out, run >= 8 rn, < 70% from yesterday (else surge), and the 7-day speed
+  would book the free rooms before arrival — a GATE, never a shown
+  projection. Fingerprint metric = rooms booked on those nights. It replaces
+  an overlapping ahead cluster / upward surge (one story per night).
 - CARD WINDOW (2026-10-30, user): month cards cover THIS month while >= 7
   nights are left + the next 4 calendar months across the year end
   (`_in_card_window`, `_CARD_MONTHS_AHEAD`, `_MIN_NIGHTS_LEFT`; applied to
