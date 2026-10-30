@@ -624,17 +624,11 @@ if __name__ == "__main__":
     import sys, traceback
     try:
         scheduler = BackgroundScheduler()
-        # 05:00 Europe/Athens (DST-proof) — early full briefing for hotels with
-        # pms_config.briefing_slot = "early" (Tor city group asked for 5 am).
-        # Always fires BEFORE the 03:30 UTC global run (02:00/03:00 UTC).  If it
-        # fails (e.g. Opera night audit not closed yet), the retry ladder and
-        # the global runs below pick the hotel up — and when it succeeded,
-        # _briefing_exists_today() skips it there at zero token cost.
-        scheduler.add_job(lambda: run_all_hotels(slot="early"), "cron",
-                          hour=5, minute=0, timezone="Europe/Athens")
-        # 03:30 UTC = 06:30 Greece — full briefing (replaces the hotel Task
-        # Scheduler triggers so hotel servers can be decommissioned)
-        scheduler.add_job(run_all_hotels, "cron", hour=3, minute=30)
+        # Rollback path only — production runs api.py's scheduler. Same times:
+        # 06:30 Europe/Athens every day, DST-proof (2026-10-30; the 05:00
+        # Athens early slot is retired).
+        scheduler.add_job(run_all_hotels, "cron", hour=6, minute=30,
+                          timezone="Europe/Athens")
         # 06:00 UTC = 09:00 Greece — catch-up full run (skips if briefing exists)
         scheduler.add_job(run_all_hotels, "cron", hour=6, minute=0)
         # 11:00 UTC = 14:00 Greece — data refresh, reuse morning AI insights
@@ -642,7 +636,7 @@ if __name__ == "__main__":
         # 17:00 UTC = 20:00 Greece — data refresh, reuse morning AI insights
         scheduler.add_job(lambda: run_all_hotels(data_only=True), "cron", hour=17, minute=0)
         scheduler.start()
-        log.info("[railway] Scheduler — 05:00 Athens early-slot | 03:30 full | "
+        log.info("[railway] Scheduler — 06:30 Athens full | "
                  "06:00 catch-up | 11:00 + 17:00 UTC data-only")
         log.info(f"[railway] Hotels configured: {[h['name'] for h in _get_hotels()]}")
 

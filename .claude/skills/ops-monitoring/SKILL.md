@@ -22,7 +22,7 @@ GET /rest/v1/refresh_runs?select=hotel_id,run_type,status,fetch_path,tunnel_erro
     started_at,timings,estimated_cost_usd,error_type,error_message
     &started_at=gte.<today>T00:00:00Z&order=started_at.desc
 ```
-Expect per hotel (UTC): 03:30 full (Pome: fetch_path=tunnel, cost ~$0.03–0.05),
+Expect per hotel: 06:30 Athens full (04:30 UTC winter / 03:30 UTC summer) (Pome: fetch_path=tunnel, cost ~$0.03–0.05),
 11:00 + 17:00 data_only (no cost). Potidea: bridge, plus a stray 04:00 /trigger
 full (its old Task Scheduler — silent, $0, dies at Phase 3).
 Statuses: `success` clean · `degraded` = fallback cards used (check

@@ -76,6 +76,14 @@ Two layers, strictly separated:
 - Scoring `_score_candidate(R,U,M,N,C)` = (0.35R + 0.25U + 0.25M + 0.15N)·C;
   ranked = score ≥ 0.08, top 6, narrate top 5.
 - Merges before ranking: same-month pace+projection; pickup ALERT + soft dates.
+- CARD WINDOW (2026-10-30, user): month cards cover THIS month while >= 7
+  nights are left + the next 4 calendar months across the year end
+  (`_in_card_window`, `_CARD_MONTHS_AHEAD`, `_MIN_NIGHTS_LEFT`; applied to
+  every candidate after the signals and to discoveries). Soft / hot DATE
+  cards are exempt. A new month-level signal needs a correct
+  `insight.stay_period.from` or the window cannot place it (kept, never
+  dropped on a guess). `since_first_flagged`: signed metric only, 'lead'
+  when ahead, never on event (`day:`) cards.
 - NOVELTY v2 (2026-09-24, "cards are news, the watchlist is memory"): every
   candidate carries a FINGERPRINT (`_fingerprint`: metric = rn_gap / vs_ref
   / lead_shift / stake; key = date set for hot & soft dates, event day for

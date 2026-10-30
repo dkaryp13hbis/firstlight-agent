@@ -32,15 +32,13 @@ from db import sb_echo   # temporary best-effort Supabase copy (stage 2 removes 
 async def lifespan(app: FastAPI):
     from apscheduler.schedulers.background import BackgroundScheduler
     sched = BackgroundScheduler()
-    # 05:00 Europe/Athens (DST-proof) — paid early briefing for hotels with
-    # pms_config.briefing_slot = "early" (Tor group). Added to railway_main on
-    # 2026-09-12 but production runs THIS scheduler (uvicorn api:app since
-    # 2026-08-10), so it never fired until 2026-10-29. Always before the
-    # 03:30 UTC run, which then skips hotels already published today.
-    sched.add_job(lambda: core.run_all_hotels(slot="early"), "cron",
-                  hour=5, minute=0, timezone="Europe/Athens")
-    sched.add_job(core.run_all_hotels, "cron", hour=3, minute=30)   # full
-    sched.add_job(core.run_all_hotels, "cron", hour=6, minute=0)    # catch-up
+    # Full run 06:30 Europe/Athens EVERY day, DST-proof (user 2026-10-30: "i
+    # dont need 5 am, we can do 6:30 everyday"). Was 03:30 UTC = 06:30 only
+    # in summer, 05:30 after the October clock change. The 05:00 Athens
+    # "early" slot (Tor group) is retired — no hotel carries the marker.
+    sched.add_job(core.run_all_hotels, "cron", hour=6, minute=30,
+                  timezone="Europe/Athens")                          # full
+    sched.add_job(core.run_all_hotels, "cron", hour=6, minute=0)    # catch-up (UTC = 08:00/09:00 Athens)
     # 5 intraday data-only refreshes (user-approved 2026-09-10, follow-up
     # engine cadence): ~10:00-22:00 hotel time (Athens = UTC+2/+3). No AI —
     # events, alert checks and watch states only; push volume gated by
@@ -49,7 +47,8 @@ async def lifespan(app: FastAPI):
         sched.add_job(lambda: core.run_all_hotels(data_only=True), "cron", hour=_h, minute=0)
     # Demo mirror: refresh anonymized copies after the morning run + evening
     from briefing.demo_sync import sync_demo_briefings
-    sched.add_job(sync_demo_briefings, "cron", hour=4, minute=15)
+    sched.add_job(sync_demo_briefings, "cron", hour=7, minute=15,
+                  timezone="Europe/Athens")            # 45 min after the full run
     sched.add_job(sync_demo_briefings, "cron", hour=17, minute=20)
     # Daily data-freshness audit (ops email only when something is wrong)
     from briefing.audit import run_daily_audit, run_dual_verify
@@ -58,7 +57,7 @@ async def lifespan(app: FastAPI):
     sched.add_job(run_dual_verify, "cron", hour=7, minute=20)
     sched.start()
     threading.Thread(target=core._poll_refresh_commands, daemon=True).start()
-    core.log.info("[api] Scheduler 05:00 Athens early-slot | 03:30 full | 06:00 catch-up | "
+    core.log.info("[api] Scheduler 06:30 Athens full | 06:00 UTC catch-up | "
                   "data-only 07/10/13/16/19 UTC; poller up")
     try:
         core.log.info(f"[api] Hotels: {[h['name'] for h in core._get_hotels()]}")
@@ -363,7 +362,7 @@ def feedback(hotel_id: str = Depends(auth_hotel),
 @app.post("/push/test")
 def push_test(hotel_id: str = Depends(auth_hotel)):
     """Send a test Web Push to every subscription of this hotel — the way to
-    verify a phone right after tapping the bell (no need to wait for 03:30).
+    verify a phone right after tapping the bell (no need to wait for the 06:30 run).
     Returns how many subscriptions the hotel has and how many sends succeeded."""
     import io, contextlib
     from briefing.cloud_push import _send_push_notifications
@@ -380,7 +379,7 @@ def push_test(hotel_id: str = Depends(auth_hotel)):
         _send_push_notifications(
             {"insights": [], "executive_summary":
              "Test notification — push is working on this device. "
-             "Your real briefing arrives every morning after the 03:30 UTC run."},
+             "Your real briefing arrives every morning at 06:30 Greek time."},
             hotel_id, hotel_name=name)
     log = buf.getvalue().strip().splitlines()
     return {"hotel_id": hotel_id, "subscriptions": len(subs), "log": log[-6:]}

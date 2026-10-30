@@ -92,7 +92,7 @@ Why flat, not per-size:
 |---|---|---|
 | User limit | DECIDED | None. Unlimited recipients/users per hotel. |
 | Billing unit | DECIDED | Per hotel (one PMS connection = one hotel). |
-| AI usage | DECIDED (eng) | One AI generation per hotel per day (03:30 UTC run); manual/data refreshes reuse the day's insights. This is also the fair-use answer if anyone asks "can we refresh 50×/day": data yes, AI narration no. |
+| AI usage | DECIDED (eng) | One AI generation per hotel per day (06:30 Athens run); manual/data refreshes reuse the day's insights. This is also the fair-use answer if anyone asks "can we refresh 50×/day": data yes, AI narration no. |
 | Reliability promise | DECIDED (eng) | A briefing is always published if data is valid — narration failures degrade to fallback cards, never block. Customer-facing wording: "your briefing arrives every morning". |
 | Hotel-side footprint | DECIDED (eng) | Customer hardware runs only a Cloudflare tunnel — no code, queries, or keys on site. Sales point for IT-sensitive clients. |
 | Trial | OPEN | Suggestion: 14 days free, real data, no card — the product sells itself after ~10 mornings. |

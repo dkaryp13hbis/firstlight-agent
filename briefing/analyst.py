@@ -516,26 +516,57 @@ def _anchor_today(data: dict) -> _date:
     return _date.today()
 
 
-_FORWARD_DAYS_NEXT_YEAR = 183   # next-year months starting within ~6 months
+# CARD WINDOW (user 2026-10-30, after the first new-analyst evaluation):
+# month cards cover THIS month + the next 4 months, across the year end ("look
+# next 4 month no matter the year change" — April/May 2027 cards in October,
+# 5–6 months out on thin early bookings, took slots), and this month only while
+# at least 7 nights are left ("skip a month" — October cards with 1 night left).
+_CARD_MONTHS_AHEAD = 4
+_MIN_NIGHTS_LEFT   = 7
+
+
+def _month_offset(today: _date, d: _date) -> int:
+    """Calendar months from today's month to d's month (Dec → Jan = 1)."""
+    return (d.year - today.year) * 12 + d.month - today.month
+
+
+def _in_card_window(c: dict, today: _date) -> bool:
+    """True when a candidate's stay month is inside the card window. Date
+    cards (soft / hot dates: specific nights, at most 90 days out) are not
+    month stories and always pass; a card without a readable stay period is
+    never dropped on a guess."""
+    if c.get("signal") in ("soft_dates", "hot_dates"):
+        return True
+    sp = (c.get("insight") or {}).get("stay_period") or {}
+    try:
+        start = _date.fromisoformat(str(sp.get("from") or ""))
+    except ValueError:
+        return True
+    off = _month_offset(today, start)
+    if off == 0:
+        nights_left = _cal.monthrange(today.year, today.month)[1] - today.day + 1
+        return nights_left >= _MIN_NIGHTS_LEFT
+    return off <= _CARD_MONTHS_AHEAD
 
 
 def _forward_months(pace: list[dict], pace_next_year: list[dict],
                     today: _date, total_rooms: int) -> list[dict]:
     """Stay months the monthly signals (pace, projection) look at, each
-    tagged with its YEAR. This year's months from today's month on (Q4), plus
-    next year's months starting within _FORWARD_DAYS_NEXT_YEAR (Q16) — so
-    Jan–Mar are no longer invisible in Nov/Dec (review 2026-10-28).
+    tagged with its YEAR: today's month + the next _CARD_MONTHS_AHEAD months,
+    across the year end (this year from Q4, next year from Q16 — so Jan–Mar
+    are visible in Nov/Dec, review 2026-10-28; 4 months, user 2026-10-30).
     A next-year month takes its 'final last year' figures from THIS year's
-    same month, which Q4 holds as actuals because that month has passed."""
+    same month, which Q4 holds as actuals because that month has passed.
+    The 7-nights-left rule for today's month is _in_card_window's job."""
     out = [{**p, "year": today.year} for p in pace
-           if int(p.get("month_num") or 0) >= today.month]
+           if 0 <= int(p.get("month_num") or 0) - today.month <= _CARD_MONTHS_AHEAD]
     this_year = {int(p.get("month_num") or 0): p for p in pace}
     ny = today.year + 1
     for r in pace_next_year:
         sm = int(r.get("month_num") or 0)
         if not 1 <= sm < today.month:
-            continue          # later months are > 6 months out (or invalid)
-        if (_date(ny, sm, 1) - today).days > _FORWARD_DAYS_NEXT_YEAR:
+            continue          # invalid, or a month this year's Q4 already covers
+        if _month_offset(today, _date(ny, sm, 1)) > _CARD_MONTHS_AHEAD:
             continue
         ly = this_year.get(sm) or {}
         inv = total_rooms * _cal.monthrange(ny, sm)[1] if total_rooms else 0
@@ -2494,6 +2525,13 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
             print(f"[analyst] Signal '{name}' failed and was skipped "
                   f"(other signals continue): {type(exc).__name__}: {exc}")
 
+    # ── Card window (2026-10-30): this month (≥ 7 nights left) + next 4 ──────
+    out_of_window = [c for c in candidates if not _in_card_window(c, today)]
+    if out_of_window:
+        candidates = [c for c in candidates if _in_card_window(c, today)]
+        print(f"[analyst] Outside the card window (skipped): "
+              f"{[c.get('insight', {}).get('id') for c in out_of_window]}")
+
     # ── Merge gates (spec C1/C2.4): same story or same dates → one card ──────
     for merge in (_merge_cancel_into_pickup, _merge_same_month_story, _merge_pickup_soft):
         try:
@@ -2515,6 +2553,7 @@ def _compute_signals(data: dict, hotel_id: str | None = None) -> dict:
                 discoveries.append(_discovery_candidate(d, ctx))
             except Exception as exc:
                 compute_errors.append(f"discovery card {d.get('discovery_type')}: {exc}"[:200])
+        discoveries = [d for d in discoveries if _in_card_window(d, today)]
         if discoveries:
             print(f"[analyst] Discoveries ({'LIVE' if _DISCOVERY_CARDS else 'dark'}): "
                   f"{[c['insight']['id'] for c in discoveries]}")
@@ -2879,16 +2918,28 @@ def _novelty_decide(candidates: list[dict], prior_rows: list[dict],
         c["first_seen_iso"] = first_iso
         facts["first_flagged"] = _fmt_day(first_iso)
 
-        # follow-up wording vs the FIRST sighting
+        # follow-up wording vs the FIRST sighting. Only for STATES with a
+        # signed fingerprint metric (2026-10-30 evaluation, user-approved):
+        # an event card (one-day surge / cancellation burst, key "day:…") is
+        # not compared at all ("gap ~228% wider" on a booking surge), nor is a
+        # stake-only card (hot dates). Ahead of last year = a LEAD, not a gap
+        # ("December lead … gap ~21% wider"); a sign flip is no comparison.
         f_metric = (first.get("novelty") or {}).get("metric")
-        ref_first = f_metric if f_metric else (first["stake"] or None)
-        cur_ref   = nov.get("metric") if f_metric else (c.get("stake_eur") or None)
-        if ref_first and cur_ref:
-            move = (abs(cur_ref) - abs(ref_first)) / abs(ref_first) * 100
+        cur_ref  = nov.get("metric")
+        is_event = str(nov.get("key") or "").startswith("day:")
+        if f_metric and cur_ref and not is_event and (f_metric > 0) == (cur_ref > 0):
+            move = (abs(cur_ref) - abs(f_metric)) / abs(f_metric) * 100
             if abs(move) >= 15:
+                sig = c.get("signal", "")
+                if sig == "lead_time":
+                    what, more, less = "the change in booking timing", "bigger", "smaller"
+                elif cur_ref > 0 and sig != "soft_dates":   # soft dates' metric = the gap
+                    what, more, less = "the lead over last year", "bigger", "smaller"
+                else:
+                    what, more, less = "the underlying gap", "wider", "narrower"
                 facts["since_first_flagged"] = (
-                    f"the underlying gap is ~{abs(move):.0f}% "
-                    f"{'wider' if move > 0 else 'narrower'} than when first flagged")
+                    f"{what} is ~{abs(move):.0f}% "
+                    f"{more if move > 0 else less} than when first flagged")
 
         # (c) entered the near-term window since last seen
         l_nov = last.get("novelty") or {}

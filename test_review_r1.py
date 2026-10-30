@@ -199,7 +199,7 @@ out = _compute_signals(payload(report_date_iso="2026-12-14", pace=dec_pace, pace
 ids = [c["insight"]["id"] for c in cands(out)]
 check("Jan 2027 card exists", any(i.endswith("jan_2027") for i in ids), str(ids))
 check("no Jan 2026 card", not any(i.endswith("jan_2026") for i in ids), str(ids))
-check("July 2027 is outside the 6-month window", not any("jul" in i for i in ids), str(ids))
+check("July 2027 is outside the 4-month window", not any("jul" in i for i in ids), str(ids))
 jan = [c for c in cands(out) if c["insight"]["id"].endswith("jan_2027")]
 if jan:
     ins = jan[0]["insight"]
@@ -643,6 +643,69 @@ if pc:
           and f.get("biggest_rate_plan_rate", {}).get("value") == "€120", str((f.get("biggest_rate_plan"), f.get("biggest_rate_plan_rate"))))
     check("why names the rate plan (no source data here)", "rate plan NRF" in fb["why_it_matters"], fb["why_it_matters"])
     template_ok(fb, "rate-plan")
+
+# ── Evaluation fixes (user 2026-10-30): card window + follow-up wording ─────
+print("Eval 1+2. card window — this month (>= 7 nights left) + the next 4 months")
+from briefing.analyst import _in_card_window
+def _wc(sig, start):
+    return {"signal": sig, "insight": {"stay_period": {"from": start}}}
+check("Oct 28: October (4 nights left) is skipped", not _in_card_window(_wc("pace", "2026-10-28"), date(2026, 10, 28)))
+check("Oct 25: October (7 nights left) is kept", _in_card_window(_wc("pace", "2026-10-25"), date(2026, 10, 25)))
+check("Nov 24: November (7 of 30 nights left) is kept", _in_card_window(_wc("pace", "2026-11-24"), date(2026, 11, 24)))
+check("Nov 25: November (6 nights left) is skipped", not _in_card_window(_wc("projection", "2026-11-25"), date(2026, 11, 25)))
+check("Oct 28: Feb 2027 (4 months ahead) is kept", _in_card_window(_wc("pace", "2027-02-01"), date(2026, 10, 28)))
+check("Oct 28: Mar 2027 (5 months ahead) is skipped", not _in_card_window(_wc("pace", "2027-03-01"), date(2026, 10, 28)))
+check("Dec 20: Apr 2027 is kept, May 2027 is not (year change ignored)",
+      _in_card_window(_wc("pace", "2027-04-01"), date(2026, 12, 20))
+      and not _in_card_window(_wc("pace", "2027-05-01"), date(2026, 12, 20)))
+check("Jun 10: Nov 2026 (5 months, same year) is skipped", not _in_card_window(_wc("pace", "2026-11-01"), date(2026, 6, 10)))
+check("date cards always pass (specific nights, <= 90 days)",
+      _in_card_window(_wc("soft_dates", "2026-10-30"), date(2026, 10, 28))
+      and _in_card_window(_wc("hot_dates", "2026-10-31"), date(2026, 10, 28)))
+check("no readable stay period -> never dropped on a guess", _in_card_window({"signal": "pace", "insight": {}}, date(2026, 10, 28)))
+
+# end to end: October 4 nights left -> no October card; Nov + Feb 2027 kept; Mar 2027 never computed
+oct_behind = pace_row(10, 2000, 2600, 300_000, 390_000)
+nov_behind = pace_row(11, 1500, 2000, 225_000, 300_000)
+pnx5 = [{"month": "Feb", "month_num": 2, "rn": 300, "rn_stly": 450, "rev": 45_000, "rev_stly": 67_500},
+        {"month": "Mar", "month_num": 3, "rn": 300, "rn_stly": 450, "rev": 45_000, "rev_stly": 67_500}]
+feb_actual = pace_row(2, 1200, 1100, 180_000, 160_000)   # this year's Feb = next Feb's 'final last year'
+mar_actual = pace_row(3, 1200, 1100, 180_000, 160_000)
+out = _compute_signals(payload(pace=[feb_actual, mar_actual, oct_behind, nov_behind], pace_next_year=pnx5))
+ids = [c["insight"]["id"] for c in cands(out)]
+check("Oct 28: no October card", not any("oct" in i for i in ids), str(ids))
+check("Oct 28: November card kept", any("nov_2026" in i for i in ids), str(ids))
+check("Oct 28: Feb 2027 card kept (4 months ahead)", any("feb_2027" in i for i in ids), str(ids))
+check("Oct 28: no Mar 2027 card (5 months ahead)", not any("mar_2027" in i for i in ids), str(ids))
+out = _compute_signals(payload(report_date_iso="2026-10-14", pace=[oct_behind, nov_behind]))
+ids = [c["insight"]["id"] for c in cands(out)]
+check("Oct 15: October card still ships (17 nights left)", any("oct" in i for i in ids), str(ids))
+
+print("Eval 3. follow-up wording — lead for good news, no comparison on events")
+def _sff(cid, sig, metric, old_metric, key=None, stake=0, old_stake=0):
+    cnd = {"signal": sig, "insight": {"id": cid, "facts": {}}, "stake_eur": stake,
+           "novelty": {"metric": metric, "key": key, "days_out": 40, "floor": 0.0}}
+    prior_ = [{"report_date": "2026-10-26", "ai_insights": {"insights": [
+        {"id": cid, "_stake_eur": old_stake,
+         "_novelty": {"metric": old_metric, "key": key, "days_out": 40}}]}}]
+    _novelty_decide([cnd], prior_, date(2026, 10, 28))
+    return cnd["insight"]["facts"].get("since_first_flagged", "")
+t = _sff("pace_dec_2026", "pace", 121.0, 100.0)
+check("ahead and growing -> 'lead ... bigger', never 'gap'", "lead over last year" in t and "bigger" in t and "gap" not in t, t)
+t = _sff("pace_dec_2026", "pace", 80.0, 100.0)
+check("ahead and shrinking -> 'lead ... smaller'", "lead over last year" in t and "smaller" in t, t)
+t = _sff("pace_nov_2026", "pace", -121.0, -100.0)
+check("behind and growing -> 'gap ... wider' (unchanged)", "gap" in t and "wider" in t, t)
+t = _sff("pickup_nov_2026", "pickup", None, None, key="day:2026-10-27", stake=5_000, old_stake=1_000)
+check("one-day surge -> no comparison (was 'gap ~400% wider')", t == "", t)
+t = _sff("hot_dates_nov", "hot_dates", None, None, key="date:2026-11-14", stake=5_000, old_stake=1_000)
+check("stake-only card (hot dates) -> no comparison", t == "", t)
+t = _sff("pace_dec_2026", "pace", 40.0, -100.0)
+check("behind -> ahead (sign flip) -> no comparison", t == "", t)
+t = _sff("leadtime_dec_2026", "lead_time", -6.0, -4.0)
+check("lead time -> 'change in booking timing ... bigger'", "booking timing" in t and "bigger" in t, t)
+t = _sff("soft_dates_nov", "soft_dates", 8_000.0, 5_000.0, key="date:2026-11-03")
+check("soft dates (metric = the gap) -> 'gap ... wider'", "gap" in t and "wider" in t, t)
 
 print(f"\n{PASS} passed, {FAIL} failed")
 raise SystemExit(1 if FAIL else 0)

@@ -161,7 +161,9 @@ print("— Projection fallback templates within word caps (regression 2026-09-13
 # ahead/behind) must produce fallback text inside the caps WITHOUT clamping.
 from datetime import date as _date
 from briefing.analyst import _compute_signals, _WORD_CAPS
-_today = _date.today()
+# Pinned to the 15th: the current-month branch only exists while >= 7 nights
+# are left (card window, 2026-10-30) — on the real date it vanished at month end.
+_today = _date.today().replace(day=15)
 _fut = [m for m in range(_today.month + 1, 13)]          # future months this year
 def _proj_data(ahead: bool) -> dict:
     # current month: proj = mtd + remaining OTB + max(0, rem_final_ly − rem_stly)
@@ -180,7 +182,8 @@ def _proj_data(ahead: bool) -> dict:
                      "rev": 300_000 if ahead else 150_000, "rev_stly": 200_000, "rev_final": 300_000,
                      "adr": 170.0, "adr_stly": 165.0, "adr_final_ly": 160.0,
                      "occ": 0.55, "stly": 0.45, "final": 0.85})
-    return {"mtd": mtd, "current_month_remaining": cm, "pace": pace}
+    return {"mtd": mtd, "current_month_remaining": cm, "pace": pace,
+            "report_date_iso": (_today.replace(day=14)).isoformat()}   # → analyst today = the 15th
 _seen = 0
 for _ahead in (True, False):
     _ranked = _compute_signals(_proj_data(_ahead))["ranked"]
@@ -195,6 +198,9 @@ for _ahead in (True, False):
             n = len(txt.split())
             check(f"{fb['id']} {field} {n}<={cap}", n <= cap and not txt.endswith("…"), txt)
 check("all four projection branches covered", _seen >= (4 if _fut else 2), str(_seen))
+check("current-month branch covered (ahead + behind)",
+      sum(1 for _a in (True, False) for c in _compute_signals(_proj_data(_a))["ranked"]
+          if c["signal"] == "projection" and c["insight"]["id"].startswith(f"proj_{_today.strftime('%B').lower()}")) == 2)
 
 print(f"\n{PASS} passed, {FAIL} failed")
 raise SystemExit(1 if FAIL else 0)

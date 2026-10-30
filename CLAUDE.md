@@ -12,7 +12,7 @@ Hotel servers run ONLY cloudflared — all code, queries, and keys live here.
 - **Never break a briefing.** New queries/signals must be fail-open (see
   `lead_time` in the fetcher: try/except → empty list, publication proceeds).
   Narration failures degrade to fallback cards — only data-level failures block.
-- **Claude runs once per hotel per day** (03:30 UTC scheduled run). Manual and
+- **Claude runs once per hotel per day** (06:30 Europe/Athens scheduled run). Manual and
   data-only runs REUSE the day's `ai_insights` and are silent (no email/push).
 - **Update [docs/ENGINEERING_LOG.md](docs/ENGINEERING_LOG.md) after every
   step, incident, or decision** — release history, decision log, TO-DO list.
@@ -47,7 +47,7 @@ Hotel servers run ONLY cloudflared — all code, queries, and keys live here.
 
 | Path | What |
 |---|---|
-| `api.py` | **Production entry point** (`uvicorn api:app`): FastAPI + the LIVE scheduler in `lifespan` (05:00 Athens early slot, 03:30 full, 06:00 catch-up, data-only 07/10/13/16/19 UTC) + refresh poller. New scheduled jobs go HERE. |
+| `api.py` | **Production entry point** (`uvicorn api:app`): FastAPI + the LIVE scheduler in `lifespan` (06:30 Athens full, 06:00 UTC catch-up, data-only 07/10/13/16/19 UTC) + refresh poller. New scheduled jobs go HERE. |
 | `railway_main.py` | Per-hotel pipeline used by `api.py`: fetch → gate → AI → render → publish → notify. Its own `__main__` scheduler is only the rollback path (not running in production). |
 | `db/contract.py` | HotelDataSnapshot contract + `data_quality` + `is_publishable` gate. Signal fields optional via `_SIGNAL_PREFIXES`. |
 | `db/adapters/` | One folder per PMS (`get_adapter(pms_type)`). `protel_mssql/queries.py` = Q1–Q17, `fetcher.py` = snapshot builder. |

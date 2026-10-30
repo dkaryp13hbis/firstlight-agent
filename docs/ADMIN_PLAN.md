@@ -49,7 +49,7 @@ migrate later.
 **Read-heavy rule** — a nightly `rollup_daily` table (05:30 UTC job:
 per-hotel per-day events, opens, AI cost, fallback count, push deliveries)
 feeds every trend chart; live queries touch only indexed single-day data.
-No portal query runs during the 03:30 window.
+No portal query runs during the 06:30 Athens morning window.
 
 **Kill switches** — a `platform_settings` key/value table read by the
 pipeline at each run start (60s cache, fail-open to "on" if unreadable:

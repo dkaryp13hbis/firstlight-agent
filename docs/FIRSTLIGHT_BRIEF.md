@@ -108,7 +108,7 @@ Hotel PMS  ──encrypted outbound tunnel──▶  Cloud pipeline  ──▶  
 - **Hotel side — near zero footprint.** Hotels run only a lightweight
   Cloudflare tunnel connector. No FirstLight code, queries, or
   credentials on hotel servers; no inbound ports; SQL access read-only.
-- **Cloud (Railway):** scheduled pipeline — 03:30 UTC full run with AI,
+- **Cloud (Railway):** scheduled pipeline — 06:30 Athens full run with AI,
   06:00 catch-up, twice-daily data-only refreshes, intraday alert
   checks, daily self-audit (missed/failed/frozen hotels → ops email),
   automated backup + cross-database verification.
