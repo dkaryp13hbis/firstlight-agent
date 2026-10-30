@@ -308,6 +308,21 @@ rule), and changing test assertions beyond the three that check removed names.
     available; ⬜ propose `PYTHONUNBUFFERED=1` on the Railway web service (config change).
   - Pomegranate / Potidea: usual closed-season data-quality failure; `/health` stale list
     unchanged (those two only).
+- 🔄 **2026-10-30 evaluation of the first new-analyst cards (3 Tor hotels, 15 cards, read
+  from the Supabase echo):** 0 / 15 cards or heroes with pricing advice (2026-10-29: 4 of
+  9); 5 hidden-source cards (City WBH Oct −39.7%, ON WBH Oct −48.4%, ON TEL Nov −49.8%,
+  Excelsior EXP Oct −39.2%, Excelsior TEL Nov −78.9%) — numbers reconcile; 4 next-year
+  cards (City Apr/May 2027, ON Apr 2027, Excelsior Jan 2027); only 1 repeat of the day
+  before (Excelsior pace_dec, fingerprint metric switched on day one); 1 / 15 fallback
+  text; High confidence only on measured hidden-source cards; heroes 125–130 words (cap
+  132) and lead with the new finding. Weak spots: (a) 5 cards per hotel — October cards
+  for a month with 1 night left (3 hidden-source + City pickup_oct); (b) far-out next-year
+  months (City Apr + May 2027, 153 / 183 days out) fill slots on low urgency; (c) the
+  "since first flagged" fact says "gap ~228% wider" on a positive pickup surge and "gap
+  ~21% wider" on a December LEAD — wrong word for opportunities and events; (d) positive
+  pickup surges (4 cards) stay unexplained until the dark engine is switched on; (e) the
+  follow-up label sat on hidden_src_tel_nov / pickup_nov cards — fixed in b6b2dd8 (not
+  deployed). ⬜ proposals (a)–(c) need the user's OK.
 - ✅ **FL Pulse audit fixes 1–6 BUILT** (user: "all 1 to 6", 2026-10-28; deployed 2026-10-29 08:55 UTC):
   (1) pickup attribution = cancellations / new bookings / BOTH with the exact split
   `swing = (normal new bookings before cancellations − yesterday's) + (cancellations −
