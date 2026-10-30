@@ -386,10 +386,12 @@
   </div>
   <div id="ss-full" style="display:none">
     <div class="ss-body">{{ ai.executive_summary | highlight_dark | safe }}</div>
+    <div style="font-size:11.5px;color:rgba(255,255,255,.55);line-height:1.45;margin-top:8px">This summary is written by AI and can make mistakes. Please double-check it before you make changes.</div>
     <span class="ss-more" onclick="document.getElementById('ss-full').style.display='none';document.getElementById('ss-mini').style.display='block'">Show less ↑</span>
   </div>
   {% else %}
   <div class="ss-body">{{ ai.executive_summary | highlight_dark | safe }}</div>
+  <div style="font-size:11.5px;color:rgba(255,255,255,.55);line-height:1.45;margin-top:8px">This summary is written by AI and can make mistakes. Please double-check it before you make changes.</div>
   {% endif %}
   {% set h_rn_var  = ((yd.roomNights - yd.roomNightsLY) / yd.roomNightsLY * 100) if yd.roomNightsLY else 0 %}
   {% set h_adr_var = ((yd.adr - yd.adrLY) / yd.adrLY * 100) if yd.adrLY else 0 %}
@@ -1087,7 +1089,7 @@
 <!-- AI INSIGHTS -->
 {% if ai.insights %}
 <div id="sec-ai" class="sec-anchor"></div>
-<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>AI Insights<button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-ai');n.style.display=n.style.display==='block'?'none':'block';">i</button></div><div class="info-panel" id="info-ai">The analyst's ranked findings for today: what happened, why it matters, a suggested action and what's at stake. Only changes that passed significance checks appear here.</div>
+<div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>AI Insights<button class="info-btn" title="What is this?" onclick="var n=document.getElementById('info-ai');n.style.display=n.style.display==='block'?'none':'block';">i</button></div><div class="info-panel" id="info-ai">The analyst's ranked findings for today: what happened, why it matters, a suggested action and what's at stake. Only changes that passed significance checks appear here. The numbers are calculated from your hotel system's data; the AI writes the words and suggests possible causes, which are worth checking, not facts.</div>
 {% for ins in ai.insights %}
   {% if ins.type == 'warning' %}
     {% set ic = 'warn' %}{% set il = 'Alert' %}
@@ -1150,6 +1152,7 @@
   </div>
 </div>
 {% endfor %}
+<div style="font-size:11.5px;color:#6E7A96;line-height:1.45;text-align:center;margin:14px 2px 0">FL Pulse is AI and can make mistakes. Please double-check its findings before you make changes.</div>
 {% endif %}
 
 <!-- CTA -->

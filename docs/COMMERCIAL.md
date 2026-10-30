@@ -119,6 +119,10 @@ Why flat, not per-size:
 - [ ] Trial policy (14 days, real data?).
 - [ ] Cancellation terms wording.
 - [ ] Data-ownership clause for the contract.
+- [ ] AI clause for the contract (2026-10-30): insights are AI-assisted and
+  informational, can contain mistakes, and the hotel makes its own
+  decisions — mirrors the in-app line "FL Pulse is AI and can make
+  mistakes…". Have a lawyer word it (liability + EU AI Act transparency).
 - [ ] New-PMS integration: paid or free?
 - [ ] Price review trigger: revisit €99 once FirstLight has ~20 standalone
   (non-Hotel-BI) customers — that's the signal it carries its own weight.
