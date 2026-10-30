@@ -199,7 +199,25 @@ def _cancel_series(cancel_daily: list[dict], sm: int, sy: int,
     return yday_rn, yday_rev, prior
 
 
-def _source_attribution(sources_by_month: list[dict], sm: int, rn_gap: float) -> dict | None:
+def _q17_rows(sources_by_month: list[dict], sm: int, sy: int | None = None) -> list[dict]:
+    """Q17/Q20 rows for one stay month — and one stay YEAR when given
+    (2026-10-30: Q20 adds next year's months to the same list, tagged with
+    their year). A row without a year (old payloads) matches any year."""
+    out = []
+    for r in sources_by_month:
+        try:
+            if int(r.get("stay_month", 0)) != sm:
+                continue
+            if sy is not None and r.get("stay_year") is not None and int(r["stay_year"]) != sy:
+                continue
+        except (TypeError, ValueError):
+            continue
+        out.append(r)
+    return out
+
+
+def _source_attribution(sources_by_month: list[dict], sm: int, rn_gap: float,
+                        sy: int | None = None) -> dict | None:
     """Which source explains a month's room-night gap vs same time last year.
     Returns None when the data is absent, too thin, or does not reconcile
     with the pace gap — safety-first: say nothing rather than mis-attribute.
@@ -208,7 +226,7 @@ def _source_attribution(sources_by_month: list[dict], sm: int, rn_gap: float) ->
     review 2026-10-28: a source that is 70% of the business carries ~70% of
     any even gap; that is its size, not a source-specific cause) | broad
     (< 40% and 3+ sources moving the same way) | mixed."""
-    rows = [r for r in sources_by_month if int(r.get("stay_month", 0)) == sm]
+    rows = _q17_rows(sources_by_month, sm, sy)
     if not rows or not rn_gap:
         return None
     deltas: dict[str, float] = {}
@@ -246,13 +264,12 @@ def _source_attribution(sources_by_month: list[dict], sm: int, rn_gap: float) ->
             "others": total - top_delta}          # every other source combined, signed
 
 
-def _source_totals(sources_by_month: list[dict], sm: int, name: str) -> tuple[float, float]:
+def _source_totals(sources_by_month: list[dict], sm: int, name: str,
+                   sy: int | None = None) -> tuple[float, float]:
     """This year's booked room nights + revenue for one source and stay month
     (same source-name normalisation as _source_attribution)."""
     rn = rev = 0.0
-    for r in sources_by_month:
-        if int(r.get("stay_month", 0)) != sm:
-            continue
+    for r in _q17_rows(sources_by_month, sm, sy):
         if (str(r.get("source") or "Unknown").strip() or "Unknown") == name:
             rn  += float(r.get("rn_ty", 0) or 0)
             rev += float(r.get("rev_ty", 0) or 0)
@@ -284,6 +301,76 @@ def _share_of(share: float, noun: str) -> str:
     if share >= 0.95:
         return f"nearly all of the {noun}"
     return f"{_about_pct(share)} of the {noun}"
+
+
+def _pickup_source_attribution(pbs: list[dict], sm: int, sy: int, yesterday: _date,
+                               yday_rn: float) -> dict | None:
+    """Which source — and which stay dates — carry yesterday's new-bookings
+    swing for one stay month (Q21, 2026-10-30). Per source: yesterday's net
+    vs its OWN zero-filled prior-7-day mean. Named only when Q21's yesterday
+    total matches Q9's (within max(2 rn, 5%)), one source carries >= 60% of
+    the summed swing in its direction, >= 20 pts above its share of normal
+    pickup (size is not a cause), and moved >= 5 rn. Otherwise None."""
+    by: dict[str, dict[str, float]] = {}
+    dates: dict[str, dict[_date, float]] = {}
+    for r in pbs:
+        try:
+            sd = _date.fromisoformat(str(r["stay_date"])[:10])
+            ref = _date.fromisoformat(str(r["ref_date"])[:10])
+            rn = float(r.get("net_rn") or 0)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if (sd.month, sd.year) != (sm, sy):
+            continue
+        src = str(r.get("source") or "Direct").strip() or "Direct"
+        day = by.setdefault(src, {})
+        day[ref.isoformat()] = day.get(ref.isoformat(), 0.0) + rn
+        if ref == yesterday:
+            dd = dates.setdefault(src, {})
+            dd[sd] = dd.get(sd, 0.0) + rn
+    if not by:
+        return None
+    yk = yesterday.isoformat()
+    if abs(sum(v.get(yk, 0.0) for v in by.values()) - yday_rn) > max(2.0, 0.05 * abs(yday_rn)):
+        return None                       # Q21 and Q9 disagree — say nothing
+    stats = {}
+    for src, v in by.items():
+        mean = sum(v.get((yesterday - timedelta(days=i)).isoformat(), 0.0) for i in range(1, 8)) / 7.0
+        stats[src] = (v.get(yk, 0.0), mean, v.get(yk, 0.0) - mean)
+    swing = sum(s[2] for s in stats.values())
+    if abs(swing) < 5:
+        return None
+    sign = 1 if swing > 0 else -1
+    src, (y, mean, d) = max(stats.items(), key=lambda kv: kv[1][2] * sign)
+    share = d / swing
+    normal = sum(abs(s[1]) for s in stats.values())
+    weight = abs(mean) / normal if normal else 0.0
+    if share < 0.60 or share - weight < 0.20 or abs(d) < 5:
+        return None
+    # the stay dates behind that source's move: all when <= 3, else the
+    # smallest set covering >= 60% (ties kept); no date claim if scattered
+    moved = sorted(((k, v) for k, v in (dates.get(src) or {}).items() if v * sign > 0),
+                   key=lambda kv: (-abs(kv[1]), kv[0]))
+    total = sum(abs(v) for _, v in moved)
+    if len(moved) <= 3:
+        top = [k for k, _ in moved]
+    else:
+        top, acc, last = [], 0.0, None
+        for k, v in moved:
+            if acc >= 0.60 * total and abs(v) != last:
+                break
+            top.append(k)
+            acc += abs(v)
+            last = abs(v)
+    top.sort()
+    label = None
+    if top:
+        if len(top) > 1 and all((b - a).days == 1 for a, b in zip(top, top[1:])):
+            label = f"{_short_date(top[0])}–{_short_date(top[-1])}"
+        elif len(top) <= 3:
+            label = ", ".join(_short_date(x) for x in top)
+    return {"source": src, "yday": y, "mean": mean, "delta": d, "share": share,
+            "dates": top, "dates_label": label}
 
 
 def _lead_shift_attribution(lt_src: dict, sm: int, sy: int, rn_ty: float, rn_ly: float,
@@ -341,7 +428,7 @@ def _lead_shift_attribution(lt_src: dict, sm: int, sy: int, rn_ty: float, rn_ly:
 
 
 def _mix_rate_split(sources_by_month: list[dict], sm: int, rn_ty: float, rev_ty: float,
-                    rn_stly: float, rev_stly: float) -> dict | None:
+                    rn_stly: float, rev_stly: float, sy: int | None = None) -> dict | None:
     """Split a month's average-rate change vs same time last year into
     'which sources sold' (mix) and 'rates within each source' (rate), using
     the charts.py ADR bridge on Q17 rows (midpoint weights, exact identity:
@@ -355,9 +442,7 @@ def _mix_rate_split(sources_by_month: list[dict], sm: int, rn_ty: float, rev_ty:
         return None
     ty: dict = {}
     ly: dict = {}
-    for r in sources_by_month:
-        if int(r.get("stay_month", 0)) != sm:
-            continue
+    for r in _q17_rows(sources_by_month, sm, sy):
         name = str(r.get("source") or "Unknown").strip() or "Unknown"
         for d, rn_k, rev_k in ((ty, "rn_ty", "rev_ty"), (ly, "rn_stly", "rev_stly")):
             rn, rev = float(r.get(rn_k) or 0), float(r.get(rev_k) or 0)
@@ -509,6 +594,7 @@ def _signal_context(data: dict) -> dict:
         "cancel_daily":       data.get("cancel_daily") or [],       # Q14, optional
         "sources_by_month":   data.get("sources_by_month") or [],   # Q17, optional
         "pickup_daily":       data.get("pickup_daily") or [],
+        "pickup_by_source":   data.get("pickup_by_source") or [],   # Q21, optional
         "daily_rev_baseline": max(rev_final_ly_total / 365.0, 1.0),
     }
 
@@ -691,6 +777,35 @@ def _signal_pickup(ctx: dict) -> list[dict]:
                     fb_why = f"New bookings slowed rather than cancellations rising: {f_c_y} cancelled yesterday is in line with the normal {f_c_avg} (confidence: Medium)."
                     fb_action = f"It may be worth checking what changed for {month_label} — rates, availability or a source pausing bookings."
 
+            # WHICH source and stay dates carry the swing (Q21, 2026-10-30) —
+            # a measured split, so a surge no longer reads "may reflect a
+            # campaign, event or group" when the data can say where it came from
+            ps = (_pickup_source_attribution(ctx["pickup_by_source"], sm, sy, yesterday, yday_rn)
+                  if ctx["pickup_by_source"] else None)
+            if ps:
+                f_ps_y = _rn_signed(ps["yday"])
+                f_ps_m = ("+" if ps["mean"] >= 0 else "−") + f"{abs(ps['mean']):.1f} rn/day"
+                facts["swing_source"]        = _fact(ps["source"], p_yday)
+                facts["swing_source_yday"]   = _fact(f"{ps['source']} {f_ps_y}", p_yday)
+                facts["swing_source_normal"] = _fact(f_ps_m, f"{ps['source']}, {p_prior}")
+                facts["swing_source_share"]  = _fact(_share_of(ps["share"], "change"), p_yday)
+                if ps["dates_label"]:
+                    facts["swing_source_dates"] = _fact(ps["dates_label"], f"stay dates, {ps['source']} {p_yday}")
+                dates_txt = f", for {ps['dates_label']} stays" if ps["dates_label"] else ""
+                src_sentence = (f"Most of the {'drop' if negative else 'jump'} came from {ps['source']}: "
+                                f"{f_ps_y} yesterday against a normal {f_ps_m}{dates_txt}")
+                if negative:
+                    hypo.insert(0, {"text": src_sentence, "confidence": "High"})
+                    combined = f"{src_sentence}. {fb_why}"
+                    if len(combined.split()) <= _WORD_CAPS["why_it_matters"]:
+                        fb_why = combined
+                else:
+                    hypo = [{"text": src_sentence, "confidence": "High"}]
+                    fb_why = f"{src_sentence} (confidence: High)."
+                    where = f"{ps['dates_label']} stays" if ps["dates_label"] else month_label
+                    fb_action = f"It may be worth checking what is behind the extra {ps['source']} bookings for {where}."
+                    directive["target"] = f"what is behind the extra {ps['source']} bookings for {where}"
+
             fallback_card = {
                 "id": f"pickup_{m_name.lower()}_{sy}",
                 "tag": tag,
@@ -807,9 +922,8 @@ def _signal_pace(ctx: dict) -> list[dict]:
         # hinted at higher rates. It is its own story — the booking mix or the
         # rates changed — and needs a real revenue shortfall (stake floor).
         mixed        = ahead and rev_delta <= -_STAKE_FLOOR_EUR
-        # Q17 rows carry this year's months only: never attribute next year
-        attr         = (None if p.get("next_year")
-                        else _source_attribution(sources_by_month, sm, rn_gap))
+        # Q17 (this year) + Q20 (next year) rows are matched on month AND year
+        attr         = _source_attribution(sources_by_month, sm, rn_gap, sy)
 
         f_pct_gap   = _pct_signed(pct_gap * 100)
         f_rev_delta = _eur_signed(rev_delta)
@@ -863,8 +977,7 @@ def _signal_pace(ctx: dict) -> list[dict]:
             action = f"It may be worth checking which sources and rate plans the extra {m_name} rooms come from."
             # Mix vs rate (the charts.py ADR bridge on Q17): is the lower average
             # rate a change in WHICH sources sold, or lower rates within sources?
-            split = None if p.get("next_year") else _mix_rate_split(
-                sources_by_month, sm, rn_ty, rev_ty, rn_stly, rev_stly)
+            split = _mix_rate_split(sources_by_month, sm, rn_ty, rev_ty, rn_stly, rev_stly, sy)
             if split:
                 facts["rate_change_explained_by"] = _fact(split["txt"], p_vs_stly)
                 hypo = [{"text": split["txt"][0].upper() + split["txt"][1:], "confidence": "Medium"}]
@@ -873,7 +986,7 @@ def _signal_pace(ctx: dict) -> list[dict]:
             if attr:
                 top_name = attr["top_name"]
                 f_top_rn = _rn_signed(attr["top_delta"])
-                src_rn, src_rev = _source_totals(sources_by_month, sm, top_name)
+                src_rn, src_rev = _source_totals(sources_by_month, sm, top_name, sy)
                 cheaper = src_rn >= 10 and src_rev / src_rn < adr_stly_calc
                 if cheaper:
                     facts["biggest_source_rate"] = _fact(_eur(src_rev / src_rn),
@@ -1109,14 +1222,13 @@ def _signal_hidden_source(ctx: dict) -> list[dict]:
     itself: >= 20 rn last year, >= 10 rn and >= 20% behind, stake (its rn
     gap × its own same-time-last-year rate) >= €1,000. Q17 must describe the
     same bookings as Q4 (totals within max(3 rn, 2%)) or it stays silent.
-    This year's months only (Q17 has no next-year rows)."""
+    Next year's months use the Q20 rows (matched on month AND year; without
+    them the totals cannot reconcile and the month stays silent)."""
     today, sbm, base = ctx["today"], ctx["sources_by_month"], ctx["daily_rev_baseline"]
     cands: list[dict] = []
     if not sbm:
         return cands
     for p in ctx["months"]:
-        if p.get("next_year"):
-            continue
         sm, sy = p["month_num"], p["year"]
         rn_ty, rn_stly = float(p.get("rn") or 0), float(p.get("rn_stly") or 0)
         if not rn_stly:
@@ -1128,9 +1240,7 @@ def _signal_hidden_source(ctx: dict) -> list[dict]:
         if m_end < today:
             continue
         by: dict[str, list[float]] = {}
-        for r in sbm:
-            if int(r.get("stay_month", 0)) != sm:
-                continue
+        for r in _q17_rows(sbm, sm, sy):
             name = str(r.get("source") or "Unknown").strip() or "Unknown"
             v = by.setdefault(name, [0.0, 0.0, 0.0, 0.0])
             v[0] += float(r.get("rn_ty", 0) or 0)
@@ -2882,8 +2992,10 @@ STRICT RULES
     period named in its fact. Never blend full-month and remaining-period
     numbers in one sentence.
 15. Booking SOURCE names (e.g. "BK", "TEL", "T.Os", "Mice") are the hotel's
-    own codes: copy them exactly as given. Never expand, guess or rename a
-    code (never turn "BK" into "Booking.com")."""
+    own codes: copy them exactly as given. Never expand, guess, explain or
+    rename a code — never "Booking.com" for "BK", never "telephone" for
+    "TEL", never "walk-in" for "WI"; write "TEL bookings", not "telephone
+    bookings"."""
 
 _CARD_TOOL: dict[str, Any] = {
     "name": "submit_card",
@@ -3073,12 +3185,29 @@ _CHANNEL_BRANDS = re.compile(
     re.IGNORECASE)
 
 
+# Generic channel words Claude uses to "explain" a code (2026-10-30: two heroes
+# turned the code "TEL" into "telephone bookings"). The user rule: codes stay
+# exactly as the hotel uses them — never translated, never explained.
+_CHANNEL_WORDS = re.compile(
+    r"\b(?:tele)?phones?\b|\btelephon\w*|\bcall[- ]?cent(?:er|re)s?\b|\bwalk[- ]?ins?\b|"
+    r"\btravel[- ]agen(?:ts?|cy|cies)\b|\btour[- ]operators?\b|\bwholesal\w*|"
+    r"\bweb[- ]?sites?\b|\bbooking[- ]engines?\b|\baffiliates?\b|\bcorporate\b|"
+    r"\bonline travel\b|\bOTAs?\b|\be-?mail bookings?\b|\bGDS\b",
+    re.IGNORECASE)
+
+
 def _source_violations(texts: list[str], haystack: str) -> list[str]:
     seen = {m.group(0).lower() for m in _CHANNEL_BRANDS.finditer(haystack)}
     out = {m.group(0) for t in texts for m in _CHANNEL_BRANDS.finditer(str(t or ""))
            if m.group(0).lower() not in seen}
-    return [f"source name '{b}' is not in the input — copy source codes exactly as given"
-            for b in sorted(out)]
+    v = [f"source name '{b}' is not in the input — copy source codes exactly as given"
+         for b in sorted(out)]
+    seen_w = {m.group(0).lower() for m in _CHANNEL_WORDS.finditer(haystack)}
+    words = {m.group(0) for t in texts for m in _CHANNEL_WORDS.finditer(str(t or ""))
+             if m.group(0).lower() not in seen_w}
+    v += [f"'{w}' explains a source code — codes stay exactly as given (TEL stays TEL)"
+          for w in sorted(words)]
+    return v
 
 
 # ── Confidence honesty (2026-10-28, FL Pulse audit: 49 October cards said
@@ -3662,7 +3791,9 @@ def _narrate_hero(hotel_name: str, slots: dict, cards: list[dict],
         "exclamation marks. Never suggest a pricing or offer move (higher or lower "
         "rates, offers, promotions, discounts) — only what is worth reviewing or "
         "watching. Never invent causes (nationalities, room types, events, "
-        "weather) — only what the data shows. Every number must appear verbatim in the "
+        "weather) — only what the data shows. Booking source codes (TEL, WBH, BK, …) "
+        "are copied exactly as written — never explained or translated (\"TEL bookings\", "
+        "never \"telephone bookings\"). Every number must appear verbatim in the "
         "data above."
     )
     if lang == "el":
@@ -3785,9 +3916,10 @@ def _drilldown(cand: dict) -> dict:
     sp    = ins.get("stay_period") or {}
     d: dict[str, Any] = {"signal": ins.get("signal"),
                          "stay_from": sp.get("from"), "stay_to": sp.get("to")}
-    shift = facts.get("shift_source")
+    shift, swing = facts.get("shift_source"), facts.get("swing_source")
     src = (facts.get("source") or facts.get("biggest_source")
-           or (shift.get("value") if isinstance(shift, dict) else None))
+           or (shift.get("value") if isinstance(shift, dict) else None)
+           or (swing.get("value") if isinstance(swing, dict) else None))
     if src:
         d["source"] = src
     return {k: v for k, v in d.items() if v}

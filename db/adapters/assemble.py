@@ -473,6 +473,37 @@ def assemble_snapshot(rows: dict[str, Any], hotel_ctx: dict[str, Any],
             "rn_stly":    float(r["rn_stly"] or 0),
             "rev_stly":   round(float(r["rev_stly"] or 0), 0),
         })
+    # Q20 (2026-10-30): next year's months by source, same shape, tagged with
+    # next year so the analyst can attribute Jan–Apr gaps too. Per-row
+    # fail-open: a malformed row is skipped, never the snapshot.
+    for r in rows.get("sources_next") or []:
+        try:
+            sources_by_month.append({
+                "stay_month": int(r["stay_month"]),
+                "stay_year":  today.year + 1,
+                "source":     r["source"],
+                "rn_ty":      float(r["rn_ty"] or 0),
+                "rev_ty":     round(float(r["rev_ty"] or 0), 0),
+                "rn_stly":    float(r["rn_stly"] or 0),
+                "rev_stly":   round(float(r["rev_stly"] or 0), 0),
+            })
+        except Exception:   # noqa: BLE001
+            pass
+
+    # ── Q21: net new bookings by book date × stay date × source ───
+    pickup_by_source: list[dict] = []
+    for r in rows.get("pickup_by_source") or []:
+        try:
+            ref, sd = r["ref_date"], r["stay_date"]
+            pickup_by_source.append({
+                "ref_date":  ref.strftime("%Y-%m-%d") if hasattr(ref, "strftime") else str(ref)[:10],
+                "stay_date": sd.strftime("%Y-%m-%d") if hasattr(sd, "strftime") else str(sd)[:10],
+                "source":    str(r.get("source") or "Direct"),
+                "net_rn":    float(r.get("net_rn") or 0),
+                "net_rev":   round(float(r.get("net_rev") or 0), 2),
+            })
+        except Exception:   # noqa: BLE001
+            pass
 
     # ── Q16: Next-year OTB by month ───────────────────────────────
     pace_next_year = []
@@ -570,6 +601,7 @@ def assemble_snapshot(rows: dict[str, Any], hotel_ctx: dict[str, Any],
         "pace_next_year": pace_next_year,
         "booking_cube":  booking_cube,     # Q18 — analyst-only, stripped on publish
         "cancel_detail": cancel_detail,    # Q19 — analyst-only, stripped on publish
+        "pickup_by_source": pickup_by_source,  # Q21 — analyst-only, stripped on publish
         "hotel_type":  hotel_ctx.get("hotel_type", "resort"),
         "otb_by_date": otb_by_date,
         "current_month_remaining": current_month_remaining,

@@ -94,6 +94,9 @@ def fetch_snapshot(conn: pyodbc.Connection, hotel_ctx: dict[str, Any]) -> dict[s
         # review 2026-10-28, Release 2 (dark): cross-filter engine inputs
         ("booking_cube", Q.Q_BOOKING_CUBE,    (hotel_id, hotel_id)),
         ("cancel_detail", Q.Q_CANCEL_DETAIL,  (hotel_id,)),
+        # 2026-10-30: source analysis for next year + pickup by source
+        ("sources_next", Q.Q_SOURCES_NEXT_YEAR, (hotel_id, hotel_id)),
+        ("pickup_by_source", Q.Q_PICKUP_BY_SOURCE, (hotel_id, hotel_id)),
     )
     for key, sql, params in optional:
         try:

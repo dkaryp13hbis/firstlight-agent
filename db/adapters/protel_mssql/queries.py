@@ -1023,6 +1023,107 @@ ORDER BY stay_date;
 
 
 # ------------------------------------------------------------------
+# Q20: NEXT YEAR's stays by month × SOURCE — OTB vs the same booking
+# stage one season earlier. Exactly Q16's (Q_PACE_NEXT) definitions, by
+# source: TY = next calendar year's active stays; STLY = THIS year's stays
+# as booked by @stly_cap (cancelled-later rows restored via the Occupancy
+# CASE). Lets the source attribution explain Jan–Apr next year too (Q17
+# only covers this calendar year). Optional / fail-open (2026-10-30).
+# ------------------------------------------------------------------
+
+Q_SOURCES_NEXT_YEAR = """
+DECLARE @today    DATE = CAST(GETDATE() AS DATE);
+DECLARE @stly_cap DATE = DATEADD(YEAR, -1, @today);
+
+SELECT stay_month, source,
+       SUM(rn_ty)    AS rn_ty,
+       SUM(rev_ty)   AS rev_ty,
+       SUM(rn_stly)  AS rn_stly,
+       SUM(rev_stly) AS rev_stly
+FROM (
+    SELECT MONTH(h.date) AS stay_month,
+           ISNULL(NULLIF(LTRIM(RTRIM(h.Sourcen)), ''), 'Direct') AS source,
+           h.Occupancy AS rn_ty,
+           h.logis     AS rev_ty,
+           0           AS rn_stly,
+           0.0         AS rev_stly
+    FROM bidata.proteluser.Hitia h
+    WHERE h.mpehotel = ?
+      AND h.reschar < 2
+      AND {fake_rt}
+      AND YEAR(h.date) = YEAR(@today) + 1
+
+    UNION ALL
+
+    SELECT MONTH(h.date),
+           ISNULL(NULLIF(LTRIM(RTRIM(h.Sourcen)), ''), 'Direct'),
+           0,
+           0.0,
+           CASE WHEN h.reschar < 2 THEN h.Occupancy
+                WHEN CAST(h.datumbis AS DATE) = CAST(h.date AS DATE) THEN 0
+                ELSE 1 END,
+           h.logis
+    FROM bidata.proteluser.Hitia h
+    WHERE h.mpehotel = ?
+      AND (h.reschar < 2 OR (h.reschar = 2 AND CAST(h.Canceled AS DATE) > @stly_cap))
+      AND {fake_rt}
+      AND YEAR(h.date) = YEAR(@today)
+      AND CAST(h.SystemDate AS DATE) <= @stly_cap
+) t
+GROUP BY stay_month, source
+ORDER BY stay_month, SUM(rn_ty) DESC;
+""".format(fake_rt=_FAKE_RT_EXCLUDE)
+
+
+# ------------------------------------------------------------------
+# Q21: Net new bookings by BOOK date × stay date × SOURCE — yesterday + the
+# prior 7 days. Q9's exact conventions (new bookings counted as made, no
+# reschar filter, minus cancellations by Canceled date, day-use excluded),
+# split by source and stay date, so a pickup surge or slump can name the
+# source and the stay dates behind it. Optional / fail-open (2026-10-30).
+# ------------------------------------------------------------------
+
+Q_PICKUP_BY_SOURCE = """
+DECLARE @today        DATE = CAST(GETDATE() AS DATE);
+DECLARE @window_start DATE = DATEADD(DAY, -8, @today);
+DECLARE @yesterday    DATE = DATEADD(DAY, -1, @today);
+
+SELECT ref_date, stay_date, source,
+       SUM(net_rn)  AS net_rn,
+       SUM(net_rev) AS net_rev
+FROM (
+    SELECT CAST(h.SystemDate AS DATE) AS ref_date,
+           CAST(h.date AS DATE)       AS stay_date,
+           ISNULL(NULLIF(LTRIM(RTRIM(h.Sourcen)), ''), 'Direct') AS source,
+           CASE WHEN h.reschar = 2
+                THEN CASE WHEN h.datumbis = h.date THEN 0 ELSE 1 END
+                ELSE h.Occupancy
+           END                        AS net_rn,
+           h.logis                    AS net_rev
+    FROM bidata.proteluser.Hitia h
+    WHERE h.mpehotel = ?
+      AND {fake_rt}
+      AND CAST(h.SystemDate AS DATE) BETWEEN @window_start AND @yesterday
+
+    UNION ALL
+
+    SELECT CAST(h.Canceled AS DATE),
+           CAST(h.date AS DATE),
+           ISNULL(NULLIF(LTRIM(RTRIM(h.Sourcen)), ''), 'Direct'),
+           -(CASE WHEN CAST(h.datumbis AS DATE) > CAST(h.date AS DATE) THEN 1 ELSE 0 END),
+           -h.logis
+    FROM bidata.proteluser.Hitia h
+    WHERE h.mpehotel = ?
+      AND h.reschar = 2
+      AND {fake_rt}
+      AND CAST(h.Canceled AS DATE) BETWEEN @window_start AND @yesterday
+) t
+GROUP BY ref_date, stay_date, source
+ORDER BY ref_date, stay_date;
+""".format(fake_rt=_FAKE_RT_EXCLUDE)
+
+
+# ------------------------------------------------------------------
 # Q19: Cancellations by cancel date × stay date × source — the 8 days up
 # to yesterday (yesterday + the prior 7, zero-filled in Python). Q14
 # conventions at a finer grain: reschar = 2, day-use rows excluded via

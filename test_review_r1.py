@@ -22,7 +22,7 @@ Run:  py -3.13 test_review_r1.py
 
 import copy
 import json
-from datetime import date
+from datetime import date, timedelta
 from types import SimpleNamespace
 
 import config
@@ -525,6 +525,77 @@ if cx_c:
     z = float(cx_c[0]["insight"]["facts"]["cancel_swing"]["value"].replace("+", ""))
     check("19 rn, z >= 3 → confidence factor 1.0 (was 0.7)", z >= 3.0 and cx_c[0]["score"] >= 0.75,
           f"z={z} score={cx_c[0]['score']}")
+
+# ══ Source analysis, 2026-10-30 (user: "1-6 you can move forward, dont
+# convert tel to telephone") ══════════════════════════════════════════════════
+print("Codes stay codes: no 'telephone' for TEL")
+hay_tel = '{"source": "TEL", "x": "WI"}'
+check("'telephone bookings' rejected", _source_violations(["telephone bookings have nearly halved"], hay_tel))
+check("'walk-ins' rejected", _source_violations(["WI walk-ins doubled"], hay_tel))
+check("'TEL bookings' fine", not _source_violations(["TEL bookings have nearly halved"], hay_tel))
+check("a word that IS in the data is fine", not _source_violations(["corporate bookings"], '{"source": "corporate"}'))
+from briefing.analyst import _NARRATION_SYSTEM
+check("prompt says never 'telephone' for TEL", 'never "telephone" for' in _NARRATION_SYSTEM)
+
+print("Next year's months by source (Q20)")
+# Today Dec 15 2026: Jan 2027 is −33% (300 vs 450); BK carries it; a Jan
+# 2026 row (this year's Q17) must NOT be used for Jan 2027
+jan_pace = [pace_row(1, 1200, 1100, 180_000, 160_000), pace_row(12, 900, 880, 150_000, 148_000)]
+jan_pace[0]["rev_final"] = 0
+jan_pnx = [{"month": "Jan", "month_num": 1, "rn": 300, "rn_stly": 450, "rev": 45_000, "rev_stly": 67_500}]
+jan_src = [dict(src(1, "BK", 80, 12_000, 220, 33_000), stay_year=2027),
+           dict(src(1, "Direct", 220, 33_000, 230, 34_500), stay_year=2027),
+           dict(src(1, "BK", 900, 135_000, 100, 15_000), stay_year=2026)]      # this year's Jan — ignored
+out = _compute_signals(payload(report_date_iso="2026-12-14", pace=jan_pace, pace_next_year=jan_pnx,
+                               sources_by_month=jan_src))
+jc = [c for c in cands(out) if c["insight"]["id"] == "pace_jan_2027"]
+check("Jan 2027 pace card", len(jc) == 1, str([c["insight"]["id"] for c in cands(out)]))
+if jc:
+    f = jc[0]["insight"]["facts"]
+    check("Jan 2027 attributed to BK from next-year rows only", f.get("biggest_source_move", {}).get("value") == "BK −140 rn",
+          str(f.get("biggest_source_move")))
+
+print("New bookings by source (Q21)")
+yd = date(2026, 10, 27)
+
+
+def pbs_row(ref, sd, s, rn):
+    return {"ref_date": ref.isoformat(), "stay_date": sd.isoformat(), "source": s, "net_rn": rn, "net_rev": rn * 150}
+
+
+# Nov: BK normally +2/day, yesterday +30 for Nov 14–16; Direct steady +3/day
+pbs = [pbs_row(yd - timedelta(days=i), date(2026, 11, 20), "BK", 2) for i in range(1, 8)]
+pbs += [pbs_row(yd - timedelta(days=i), date(2026, 11, 21), "Direct", 3) for i in range(1, 8)]
+pbs += [pbs_row(yd, date(2026, 11, d), "BK", 10) for d in (14, 15, 16)]
+pbs += [pbs_row(yd, date(2026, 11, 21), "Direct", 3)]
+pk_up = [{"ref_date": (yd - timedelta(days=i)).isoformat(), "stay_month": 11, "stay_year": 2026, "net_rn": v,
+          "net_rev": v * 150} for i, v in zip(range(7, 0, -1), [5, 6, 5, 4, 5, 5, 5])]
+pk_up.append({"ref_date": yd.isoformat(), "stay_month": 11, "stay_year": 2026, "net_rn": 33, "net_rev": 33 * 150})
+out = _compute_signals(payload(pace=[pace_row(11, 500, 500, 95_000, 95_000)], pickup_daily=pk_up, pickup_by_source=pbs))
+pu = [c for c in cands(out) if c["signal"] == "pickup"]
+check("pickup surge card", len(pu) == 1 and pu[0]["tag"] == "OPPORTUNITY", str([c["insight"]["id"] for c in pu]))
+if pu:
+    f, fb = pu[0]["insight"]["facts"], pu[0]["fallback_card"]
+    check("names BK", f.get("swing_source", {}).get("value") == "BK", str(f.get("swing_source")))
+    check("with its stay dates", f.get("swing_source_dates", {}).get("value") == "Nov 14–Nov 16", str(f.get("swing_source_dates")))
+    check("measured → High, no more 'campaign, event or group'",
+          pu[0]["insight"]["cause_hypotheses"][0]["confidence"] == "High" and "campaign" not in fb["why_it_matters"],
+          fb["why_it_matters"])
+    check("drill-down filter = BK", A._drilldown(pu[0]).get("source") == "BK")
+    template_ok(fb, "pickup-source")
+# Q21 that does not add up to Q9 → silent
+out = _compute_signals(payload(pace=[pace_row(11, 500, 500, 95_000, 95_000)], pickup_daily=pk_up,
+                               pickup_by_source=pbs[:-4]))
+pu = [c for c in cands(out) if c["signal"] == "pickup"]
+check("Q21 ≠ Q9 → no source claim", pu and "swing_source" not in pu[0]["insight"]["facts"])
+# an even surge across sources → no single source named
+even = [pbs_row(yd - timedelta(days=i), date(2026, 11, 20), s, 2) for i in range(1, 8) for s in ("BK", "Direct")]
+even += [pbs_row(yd, date(2026, 11, 20), s, 16) for s in ("BK", "Direct")]
+pk_even = [dict(r) for r in pk_up[:-1]] + [{"ref_date": yd.isoformat(), "stay_month": 11, "stay_year": 2026,
+                                           "net_rn": 32, "net_rev": 32 * 150}]
+out = _compute_signals(payload(pace=[pace_row(11, 500, 500, 95_000, 95_000)], pickup_daily=pk_even, pickup_by_source=even))
+pu = [c for c in cands(out) if c["signal"] == "pickup"]
+check("an even surge names no source", pu and "swing_source" not in pu[0]["insight"]["facts"])
 
 print(f"\n{PASS} passed, {FAIL} failed")
 raise SystemExit(1 if FAIL else 0)

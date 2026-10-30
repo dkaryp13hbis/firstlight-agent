@@ -419,6 +419,28 @@ def compute_pack(rows: list[Row], today: date) -> dict[str, Any]:
     out["cancel_detail"] = [dict(cancel_date=k[0], stay_date=k[1], source=k[2], **v)
                             for k, v in sorted(cx.items())]
 
+    # ── Q20: NEXT year by month × source — Q16's definitions, by source ──
+    sn: dict[tuple, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for r in rows:
+        if r.sg in ACTIVE and r.sd.year == ty_year + 1:
+            k = (r.sd.month, r.src); sn[k]["rn_ty"] += r.rn; sn[k]["rev_ty"] += r.gross
+        if r.sd.year == ty_year and _alive_at(r, stly_cap) and r.bd is not None and r.bd <= stly_cap:
+            k = (r.sd.month, r.src); sn[k]["rn_stly"] += _rn_of(r); sn[k]["rev_stly"] += _rev_of(r)
+    out["sources_next"] = [_full(v, _SOURCE_KEYS, stay_month=k[0], source=k[1])
+                           for k, v in sorted(sn.items(), key=lambda kv: (kv[0][0], -kv[1]["rn_ty"]))]
+
+    # ── Q21: Net new bookings by book date × stay date × source, 8 days ──
+    # Q9's conventions (bookings counted as made, cancellations by cancel date)
+    pw_start = today - timedelta(days=8)
+    pbs: dict[tuple, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for r in rows:
+        if r.bd is not None and pw_start <= r.bd <= yesterday:
+            k = (r.bd, r.sd, r.src); pbs[k]["net_rn"] += _rn_of(r); pbs[k]["net_rev"] += _rev_of(r)
+        if r.sg == CANCELLED and r.cd is not None and pw_start <= r.cd <= yesterday:
+            k = (r.cd, r.sd, r.src); pbs[k]["net_rn"] -= r.crn; pbs[k]["net_rev"] -= r.cgross
+    out["pickup_by_source"] = [dict(ref_date=k[0], stay_date=k[1], source=k[2], **v)
+                               for k, v in sorted(pbs.items())]
+
     return out
 
 

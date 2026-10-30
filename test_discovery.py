@@ -241,6 +241,22 @@ if cube:
 check("cancel detail", any(r["source"] == "TO" and r["cancel_rn"] == 2 for r in pack["cancel_detail"]),
       str(pack["cancel_detail"]))
 
+print("Opera Q20 next year by source + Q21 pickup by source (2026-10-30)")
+rows2 = [Row(date(2027, 1, 10), date(2026, 10, 27), None, "BK", "A", 1, 1, 100.0, 113.0, 0, 0, 0, 0),   # next-year stay, booked yesterday
+         Row(date(2026, 1, 10), date(2025, 10, 1), None, "BK", "A", 1, 1, 100.0, 113.0, 0, 0, 0, 0)]    # this year's Jan, booked before the cap
+pack2 = compute_pack(rows2, TODAY)
+sn = [r for r in pack2["sources_next"] if r["stay_month"] == 1 and r["source"] == "BK"]
+check("next-year Jan BK: 1 rn TY vs 1 rn STLY", sn and sn[0]["rn_ty"] == 1 and sn[0]["rn_stly"] == 1, str(pack2["sources_next"]))
+pb = [r for r in pack2["pickup_by_source"] if r["source"] == "BK"]
+check("pickup by source keyed by book date + stay date", pb and pb[0]["ref_date"] == date(2026, 10, 27)
+      and pb[0]["stay_date"] == date(2027, 1, 10) and pb[0]["net_rn"] == 1, str(pack2["pickup_by_source"]))
+from db.adapters.assemble import assemble_snapshot
+p2 = assemble_snapshot(dict(pack2, inventory=[]), {"hotel_name": "T", "total_rooms": 100}, today=TODAY)
+check("assemble tags Q20 rows with next year", any(r["stay_year"] == 2027 for r in p2["sources_by_month"]),
+      str(p2["sources_by_month"]))
+check("assemble passes pickup_by_source with ISO dates", p2["pickup_by_source"]
+      and p2["pickup_by_source"][0]["stay_date"] == "2027-01-10", str(p2["pickup_by_source"]))
+
 # ── assemble / publish / contract ───────────────────────────────────────────
 print("assemble, publish strip, contract")
 from db.adapters.assemble import assemble_snapshot
@@ -254,7 +270,8 @@ check("a malformed row is skipped, the rest and the snapshot intact",
       payload["cancel_detail"] == [] and len(payload["booking_cube"]) == 1 and "pace" in payload)
 check("report_date_iso = yesterday", payload["report_date_iso"] == "2026-10-27")
 from briefing.cloud_push import _ANALYST_ONLY_KEYS
-check("publish strips the analyst-only inputs", set(_ANALYST_ONLY_KEYS) == {"booking_cube", "cancel_detail"})
+check("publish strips the analyst-only inputs",
+      set(_ANALYST_ONLY_KEYS) == {"booking_cube", "cancel_detail", "pickup_by_source"})   # Q21 added 2026-10-30
 from db.contract import build_data_quality
 dq = build_data_quality({"pace": [], "pickup_daily": [1], "otb_by_date": [1], "current_month_remaining": {"a": 1}})
 check("cube absent never flips legacy_mode", dq["legacy_mode"] is False and "booking_cube" in dq["missing_fields"],

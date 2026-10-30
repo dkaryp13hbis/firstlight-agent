@@ -96,7 +96,15 @@ Two layers, strictly separated:
   report_date only, never same-day. New card types MUST get a fingerprint
   branch (or they fall back to stake, and stake-less ones read as repeats).
 - Narration rule 15: booking SOURCE codes are copied verbatim, never
-  expanded (Claude once turned "BK" into "Booking.com").
+  expanded or explained (Claude turned "BK" into "Booking.com", and on
+  2026-10-30 "TEL" into "telephone"). User rule: codes stay codes — no
+  glossary. `_source_violations` rejects brands AND generic channel words
+  (`_CHANNEL_WORDS`) that are not in the input.
+- Source rows (`sources_by_month`) carry `stay_year` (Q17 this year + Q20 next
+  year): always read them through `_q17_rows(sbm, month, year)`.
+- Pickup ALERT / OPPORTUNITY name the source + stay dates behind the swing via
+  `_pickup_source_attribution` (Q21 `pickup_by_source`), same gates as the
+  other attributions.
 
 ## Facts contract (validator enforces)
 
