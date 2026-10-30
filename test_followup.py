@@ -136,5 +136,20 @@ finally:
 check("earlier first sighting carried for the label", ai["insights"][0]["follow_up"].get("first_seen") == early)
 check("a later first sighting is not shown", "first_seen" not in ai["insights"][1]["follow_up"])
 
+# Only the month's own story card carries the label (2026-10-30: Excelsior's
+# positive November pickup card showed the November gap follow-up)
+store.fl_watch_rows = lambda h: [dict(_dec_row)]
+store.fl_watch_update = lambda i, p: True
+try:
+    ai = {"insights": [{"id": "pickup_oct_2026"}, {"id": "leadtime_oct_2026"},
+                       {"id": "pace_oct_2026"}, {"id": "pace_mix_oct_2026"}, {"id": "proj_oct_2026"}]}
+    followup.update_followups("hotel-x", PACE, ai, is_morning=False)
+finally:
+    store.fl_watch_rows, store.fl_watch_update = _orig
+labelled = [i["id"] for i in ai["insights"] if "follow_up" in i]
+check("label only on pace / pace_mix / proj cards", labelled == ["pace_oct_2026", "pace_mix_oct_2026", "proj_oct_2026"])
+check("is_month_story", followup.is_month_story("pace_nov_2026") and not followup.is_month_story("pickup_nov_2026")
+      and not followup.is_month_story(None))
+
 print(f"\n{P} passed, {F} failed")
 raise SystemExit(1 if F else 0)

@@ -55,6 +55,16 @@ def month_key_from_card_id(card_id: str | None) -> str | None:
     return f"{m.group(2)}-{_MON.index(m.group(1).lower()) + 1:02d}"
 
 
+def is_month_story(card_id: str | None) -> bool:
+    """The watched item is the MONTH's booking gap vs last year, so only cards
+    that tell that story carry its follow-up label: pace (incl. the 'more
+    rooms, less revenue' pace_mix_) and month-end projection cards. A pickup,
+    lead-time or cancellation card for the same month is a different story
+    (2026-10-30: Excelsior's positive 'November bookings surging' card showed
+    'Watching since Oct 27 · gap −9.7% → −9.1%')."""
+    return bool(card_id) and str(card_id).startswith(("pace_", "proj_"))
+
+
 def month_gap(data: dict, key: str) -> float | None:
     """% gap vs same-time-last-year for a '2026-10' month key, from pace."""
     try:
@@ -215,6 +225,8 @@ def update_followups(hotel_id: str, data: dict, ai: dict,
 
     # 3 ── attach follow-up meta to matching cards + ship closures
     for ins in (ai.get("insights") or []):
+        if not is_month_story(ins.get("id")):
+            continue                            # only the month's own story card
         key = month_key_from_card_id(ins.get("id"))
         row = open_by_key.get(key or "")
         if not row or not row.get("flagged_date"):
