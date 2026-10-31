@@ -707,5 +707,61 @@ check("lead time -> 'change in booking timing ... bigger'", "booking timing" in 
 t = _sff("soft_dates_nov", "soft_dates", 8_000.0, 5_000.0, key="date:2026-11-03")
 check("soft dates (metric = the gap) -> 'gap ... wider'", "gap" in t and "wider" in t, t)
 
+# ── First-morning fixes (2026-10-31): one explanation per card + number watch ──
+print("One explanation per card (source vs segment)")
+seg_eq = [mix(11, "TEL", "GRP", "GRP1", "DBL", 50, 7_500, 150, 22_500),
+          mix(11, "BK", "LEI", "BAR", "DBL", 200, 30_000, 200, 30_000),
+          mix(11, "Direct", "LEI", "BAR", "TWN", 150, 22_500, 150, 22_500)]
+src_eq = [src(11, "TEL", 50, 7_500, 150, 22_500), src(11, "BK", 200, 30_000, 200, 30_000),
+          src(11, "Direct", 150, 22_500, 150, 22_500)]
+out = _compute_signals(payload(pace=[pace_row(11, 400, 500, 60_000, 75_000)],
+                               sources_by_month=src_eq, mix_by_month=seg_eq))
+pc = cands(out, "pace")
+if pc:
+    c = pc[0]
+    f, fb = c["insight"]["facts"], c["fallback_card"]
+    blob = json.dumps(c["insight"], ensure_ascii=False)
+    check("equal strength → the source (TEL) is the story", f.get("biggest_source") == "TEL"
+          and "TEL" in fb["why_it_matters"], fb["why_it_matters"])
+    check("  the segment is not in what the AI sees", "biggest_segment" not in f and "segment GRP" not in blob, blob[:300])
+    check("  ...but stays a drill-down filter", A._drilldown(c).get("segment") == "GRP"
+          and A._drilldown(c).get("source") == "TEL", str(A._drilldown(c)))
+    template_ok(fb, "one-driver source")
+else:
+    check("source+segment pace card fires", False)
+
+src_part = [src(11, "TEL", 90, 13_500, 150, 22_500), src(11, "BK", 180, 27_000, 200, 30_000),
+            src(11, "Direct", 130, 19_500, 150, 22_500)]          # TEL 60% of the gap
+out = _compute_signals(payload(pace=[pace_row(11, 400, 500, 60_000, 75_000)],
+                               sources_by_month=src_part, mix_by_month=seg_eq))   # GRP 100%
+pc = cands(out, "pace")
+if pc:
+    c = pc[0]
+    f, fb = c["insight"]["facts"], c["fallback_card"]
+    blob = json.dumps(c["insight"], ensure_ascii=False)
+    check("segment explains clearly more (100% vs 60%) → segment GRP is the story",
+          fb["why_it_matters"].startswith("Most of the gap sits with segment GRP") and "mostly through" not in blob,
+          fb["why_it_matters"])
+    check("  the source is not in what the AI sees", "biggest_source" not in f and "biggest_source_move" not in f
+          and not any(h["text"].startswith("Most of the gap sits with TEL") for h in c["insight"]["cause_hypotheses"]),
+          str(c["insight"]["cause_hypotheses"]))
+    check("  evidence box + suggested review follow the segment",
+          fb["evidence"][1]["value"] == "segment GRP −100 rn" and "segment GRP" in fb["recommended_action"]
+          and "segment GRP" in c["insight"]["action_directives"]["target"], str(fb["evidence"][1]))
+    check("  drill-down keeps both filters", A._drilldown(c).get("source") == "TEL"
+          and A._drilldown(c).get("segment") == "GRP", str(A._drilldown(c)))
+    check("  novelty follows the month, not the silent source", c.get("top_source_delta") is None)
+    template_ok(fb, "one-driver segment")
+else:
+    check("segment-wins pace card fires", False)
+
+print("Number watch: trailing punctuation")
+check("'€464,935,' at a clause end matches €464,935", not _number_watch(["October is at €464,935, up 13.6%"],
+      "mtd €464,935 and +13.6%"), str(_number_watch(["October is at €464,935, up 13.6%"], "mtd €464,935 and +13.6%")))
+check("'2027,' matches 2027", not _number_watch(["For Feb 2027, the hotel"], "Feb 2027"))
+check("thousands inside a number still parse (1,019)", not _number_watch(["1,019 rows"], "1,019"))
+check("a ratio the model computed is still caught ('nearly 4×')",
+      any("'4'" in w for w in _number_watch(["nearly 4× the average"], "25 rn vs 6.7 rn/day")))
+
 print(f"\n{PASS} passed, {FAIL} failed")
 raise SystemExit(1 if FAIL else 0)

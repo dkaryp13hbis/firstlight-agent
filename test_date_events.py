@@ -405,5 +405,25 @@ check("through the analyst: fill computed, dark by default",
       and not [c for c in out["ranked"] + out["watchlist"] + out.get("demoted", []) if c["signal"] == "date_event"],
       str([c["insight"]["id"] for c in out["date_cards"]]))
 
+# ── Every date finding is recorded, shipped or not (2026-10-31) ─────────────
+print("audit: every date finding, live or dark")
+res = A.generate_insights(payload, narrate=False)
+aud = [a for a in res["_meta"]["cards_audit"] if str(a.get("card_id", "")).startswith("dates:")]
+n_found = len(A._compute_signals(payload)["date_cards"])
+check("dark: every finding recorded, none shipped", len(aud) == n_found and n_found >= 2
+      and not any(a["shipped"] for a in aud), str([(a["card_id"], a.get("shipped")) for a in aud]))
+A._DATE_CARDS = True
+try:
+    res = A.generate_insights(payload, narrate=False)
+    aud = [a for a in res["_meta"]["cards_audit"] if str(a.get("card_id", "")).startswith("dates:")]
+    shipped = {a["card_id"][6:] for a in aud if a["shipped"]}
+    card_ids = {str(i.get("id")) for i in res.get("insights", [])}
+    check("live: every finding recorded (was: none)", len(aud) == n_found, str([a["card_id"] for a in aud]))
+    check("live: 'shipped' = exactly the date cards in the briefing",
+          shipped == {i for i in card_ids if i.startswith("date_")} and 1 <= len(shipped) <= 2,
+          str((shipped, card_ids)))
+finally:
+    A._DATE_CARDS = False
+
 print(f"\n{PASS} passed, {FAIL} failed")
 raise SystemExit(1 if FAIL else 0)

@@ -88,6 +88,10 @@ Two layers, strictly separated:
   would book the free rooms before arrival — a GATE, never a shown
   projection. Fingerprint metric = rooms booked on those nights. It replaces
   an overlapping ahead cluster / upward surge (one story per night).
+- ONE EXPLANATION PER CARD (2026-10-31): a pace card hands narration ONE
+  driver — the source, unless the segment's share is >= 15 pts higher; the
+  other goes to the candidate's `drill_extra` (drill-down only, never sent to
+  Claude). Two drivers made Claude overrun the caps (5 / 15 fallbacks).
 - CARD WINDOW (2026-10-30, user): month cards cover THIS month while >= 7
   nights are left + the next 4 calendar months across the year end
   (`_in_card_window`, `_CARD_MONTHS_AHEAD`, `_MIN_NIGHTS_LEFT`; applied to

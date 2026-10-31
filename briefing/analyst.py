@@ -1240,24 +1240,54 @@ def _signal_pace(ctx: dict) -> list[dict]:
         # written; an unclassified '(none)' is never named.
         mix_rows = _q17_rows(ctx["mix_by_month"], sm, sy) if ctx["mix_by_month"] else []
         seg = _dim_attribution(mix_rows, "segment", rn_gap) if mix_rows else None
+        # ONE EXPLANATION PER CARD (2026-10-31, first-morning check: cards that
+        # carried a source AND a segment ran 48–55 words and fell back to the
+        # template). Narration gets ONE driver; the other is a drill-down filter
+        # only (`drill_extra`, never sent to Claude). The source wins — a channel
+        # or connection change is the more checkable story — unless the segment
+        # explains clearly more (>= 15 pts higher share). The offset story, the
+        # mixed card and the falling-rate card keep their own story.
+        drill_extra: dict[str, Any] = {}
+        source_quiet = False
         if seg and seg["spread"] == "concentrated":
-            f_seg_rn = _rn_signed(seg["top_delta"])
-            facts["biggest_segment"] = seg["top_name"]
-            facts["biggest_segment_move"] = _fact(f"{seg['top_name']} {f_seg_rn}", p_vs_stly)
-            facts["biggest_segment_share"] = _fact(seg["share_txt"], p_vs_stly)
-            if not mixed and not adr_dilution:
-                via = ""
-                if attr and attr["spread"] == "concentrated" and attr["share"] <= 1.25:
-                    via = f", mostly through {attr['top_name']} ({_rn_signed(attr['top_delta'])})"
-                seg_txt = (f"Most of the {'lead' if ahead else 'gap'} sits with segment "
-                           f"{seg['top_name']} ({f_seg_rn} vs same time last year){via}")
-                hypo.insert(0, {"text": seg_txt, "confidence": "Medium"})
-                if not offset_applied:
-                    tail = "" if ahead else " — a shortfall in one segment rather than weaker demand overall"
-                    fb["why_it_matters"] = f"{seg_txt}{tail} (confidence: Medium)."
+            src_named = bool(attr and attr["spread"] == "concentrated")
+            seg_wins = not (mixed or adr_dilution or offset_applied) and (
+                not src_named or seg["share"] >= attr["share"] + 0.15)
+            if not seg_wins:
+                drill_extra["biggest_segment"] = seg["top_name"]
+            else:
+                f_seg_rn = _rn_signed(seg["top_delta"])
+                facts["biggest_segment"] = seg["top_name"]
+                facts["biggest_segment_move"] = _fact(f"{seg['top_name']} {f_seg_rn}", p_vs_stly)
+                facts["biggest_segment_share"] = _fact(seg["share_txt"], p_vs_stly)
+                if src_named:
+                    source_quiet = True
+                    top = attr["top_name"]
+                    for k in ("biggest_source", "biggest_source_move", "biggest_source_share",
+                              "sources_moving_same_way"):
+                        if k in facts:
+                            drill_extra[k] = facts.pop(k)
+                    hypo = [h for h in hypo if not h["text"].startswith(
+                        (f"Most of the gap sits with {top} ", f"{top} is driving most of the lead"))]
                     if not ahead:
-                        fb["recommended_action"] = (f"It may be worth checking what changed with segment "
-                                                    f"{seg['top_name']} bookings for {m_name}.")
+                        fb["evidence"][1] = {"label": "BIGGEST MOVER",
+                                             "value": f"segment {seg['top_name']} {f_seg_rn}",
+                                             "sub": f"{seg['share_txt']} vs same time last year"}
+                        if directive.get("type") == "investigate_source":
+                            directive = {
+                                "type": "investigate_gap",
+                                "target": f"what changed with segment {seg['top_name']} bookings for {m_name}",
+                                "deadline": "within 7 days",
+                                "trigger_if_monitor": None,
+                            }
+                seg_txt = (f"Most of the {'lead' if ahead else 'gap'} sits with segment "
+                           f"{seg['top_name']} ({f_seg_rn} vs same time last year)")
+                hypo.insert(0, {"text": seg_txt, "confidence": "Medium"})
+                tail = "" if ahead else " — a shortfall in one segment rather than weaker demand overall"
+                fb["why_it_matters"] = f"{seg_txt}{tail} (confidence: Medium)."
+                if not ahead:
+                    fb["recommended_action"] = (f"It may be worth checking what changed with segment "
+                                                f"{seg['top_name']} bookings for {m_name}.")
 
         # the mixed card gets its own id: same month, different story (novelty
         # must not read it as a repeat of yesterday's "bookings ahead" card)
@@ -1276,7 +1306,8 @@ def _signal_pace(ctx: dict) -> list[dict]:
             # move holds, even if the month total drifts (Excelsior TEL −239 →
             # −236 repeated on Oct 14/16/19/20) — the fingerprint follows it
             "top_source_delta": (attr["top_delta"] if attr and attr["spread"] == "concentrated"
-                                 and not mixed else None),
+                                 and not mixed and not source_quiet else None),
+            "drill_extra": drill_extra,   # drill-down filters the narration does not see
             "insight": {
                 "id": fb["id"],
                 "tag": tag,
@@ -3513,7 +3544,9 @@ def _shape_problems(card: Any) -> list[str]:
 # card yet: findings go to cards_audit["number_watch"] so a week of real runs
 # shows its false-positive rate before it is switched on (ENGINEERING_LOG).
 _NUM_EXPR = re.compile(
-    r"(?:(?<![\w.,])(?P<sign>[+\-−]))?(?P<cur>€)?(?P<num>\d[\d,]*(?:\.\d+)?)"
+    # num ends on a digit: "€464,935," / "2027," at a clause end were read with
+    # the comma and flagged as invented (first-morning check 2026-10-31)
+    r"(?:(?<![\w.,])(?P<sign>[+\-−]))?(?P<cur>€)?(?P<num>\d(?:[\d,]*\d)?(?:\.\d+)?)"
     r"(?P<unit>%|\s?pts\b)?")
 
 
@@ -4289,15 +4322,16 @@ def _drilldown(cand: dict) -> dict:
     sp    = ins.get("stay_period") or {}
     d: dict[str, Any] = {"signal": ins.get("signal"),
                          "stay_from": sp.get("from"), "stay_to": sp.get("to")}
+    extra = cand.get("drill_extra") or {}     # the driver the narration was not given
     shift, swing = facts.get("shift_source"), facts.get("swing_source")
-    src = (facts.get("source") or facts.get("biggest_source")
+    src = (facts.get("source") or facts.get("biggest_source") or extra.get("biggest_source")
            or (shift.get("value") if isinstance(shift, dict) else None)
            or (swing.get("value") if isinstance(swing, dict) else None))
     if src:
         d["source"] = src
     for key, fact in (("segment", "biggest_segment"), ("rate_plan", "biggest_rate_plan")):
-        if facts.get(fact):
-            d[key] = facts[fact]
+        if facts.get(fact) or extra.get(fact):
+            d[key] = facts.get(fact) or extra[fact]
     return {k: v for k, v in d.items() if v}
 
 
@@ -4389,21 +4423,24 @@ def generate_insights(data: dict[str, Any], hotel_id: str | None = None,
                               if not k.startswith("value_at_stake")},
                     "confidence": dc["insight"]["cause_hypotheses"][0]["confidence"],
                 })
-        if not _DATE_CARDS:
-            # date engine dark launch (2026-10-31): what it would have said,
-            # reviewed on real mornings before DATE_CARDS=1 — never shown
-            for dc in computed.get("date_cards") or []:
-                meta["cards_audit"].append({
-                    "card_id": f"dates:{dc['insight']['id']}", "signal": "date_event",
-                    "date_type": dc["date_type"], "tag": "WATCH", "attempts": 0,
-                    "fallback_used": False, "validation_problems": [], "score": dc["score"],
-                    "headline": dc["fallback_card"]["headline"],
-                    "what": dc["fallback_card"]["what_happened"],
-                    "why": dc["fallback_card"]["why_it_matters"],
-                    "facts": {k: v for k, v in dc["insight"]["facts"].items()
-                              if not k.startswith("value_at_stake")},
-                    "confidence": dc["insight"]["cause_hypotheses"][0]["confidence"],
-                })
+        # Date engine: EVERY finding is recorded, shipped or not (2026-10-31 —
+        # live since the first run, and the ones that missed the 2-card cap,
+        # the ranking or novelty vanished: City's surge + fast-filling nights,
+        # ON's week, …). Dark mode: none ship, all are recorded.
+        shipped_ids = {c["insight"]["id"] for c in ranked[:5]}
+        for dc in computed.get("date_cards") or []:
+            meta["cards_audit"].append({
+                "card_id": f"dates:{dc['insight']['id']}", "signal": "date_event",
+                "date_type": dc["date_type"], "tag": "WATCH", "attempts": 0,
+                "shipped": dc["insight"]["id"] in shipped_ids,
+                "fallback_used": False, "validation_problems": [], "score": dc["score"],
+                "headline": dc["fallback_card"]["headline"],
+                "what": dc["fallback_card"]["what_happened"],
+                "why": dc["fallback_card"]["why_it_matters"],
+                "facts": {k: v for k, v in dc["insight"]["facts"].items()
+                          if not k.startswith("value_at_stake")},
+                "confidence": dc["insight"]["cause_hypotheses"][0]["confidence"],
+            })
         cards: list[dict] = []
         for cand in ranked[:5]:
             if not narrate:
