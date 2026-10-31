@@ -129,6 +129,13 @@ Two layers, strictly separated:
 - Pickup ALERT / OPPORTUNITY name the source + stay dates behind the swing via
   `_pickup_source_attribution` (Q21 `pickup_by_source`), same gates as the
   other attributions.
+- DAYTIME PUSHES REUSE TWO SIGNALS (2026-10-31, `briefing/intraday.py`
+  `pulse_checks`): `_signal_pickup` (OPPORTUNITY only → "good news") and
+  `_signal_cancellations` (→ "alert") run on today-so-far by re-anchoring
+  `report_date_iso` to today. The push text reads their facts keys
+  (`month_label`, `yday_net_rn`, `trailing_avg`, `yday_net_rev`,
+  `cancelled_yday`, `cancel_avg_prior`, `cancelled_rev_yday`) — renaming one
+  breaks the push text; test_intraday.py pins the exact wording.
 
 ## Facts contract (validator enforces)
 

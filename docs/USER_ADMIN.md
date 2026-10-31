@@ -96,11 +96,24 @@ The detail also shows live sessions and failed-login count.
 2. **iPhone:** Share → **Add to Home Screen**, then open FirstLight from the
    home screen — iOS only delivers notifications to the installed app.
    Android: install from the browser menu.
-3. Tap the **bell** for each hotel they want notifications for (per hotel);
-   Settings → Notifications chooses Morning / Alerts / Momentum.
-4. Settings → **Language** sets the briefing narration language for that
+3. Tap the **bell** for each hotel they want notifications for — per hotel AND
+   per device: a phone and a tablet each need their bell on, and both then
+   receive (since 2026-10-31; ten users on ten phones = ten deliveries). New
+   users see a one-time "Get the morning briefing on this phone" card with a
+   Turn on button (on iPhone it explains Add to Home Screen first).
+   Settings → Notifications chooses, per hotel, **Morning briefing** (06:30,
+   with the top FL Pulse finding), **Alerts during the day** (a burst of
+   cancellations) and **Good news during the day** (a strong booking day) —
+   at most one alert and one good news per hotel per day, none between 22:00
+   and 08:00. The choices belong to the person, not the device, and survive
+   the bell going off and on.
+4. **Check it in the portal:** Users → the **Notifications** column shows how
+   many devices have the bell on and for how many hotels ("off" = none yet).
+   Removing a user's access (or deactivating them) stops their notifications
+   at the next send — no clean-up needed.
+5. Settings → **Language** sets the briefing narration language for that
    hotel from the next morning.
-5. Settings → **Change password** any time (signs out their other devices).
+6. Settings → **Change password** any time (signs out their other devices).
 
 ## 6. Special accounts
 

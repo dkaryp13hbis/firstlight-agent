@@ -13,7 +13,9 @@ Hotel servers run ONLY cloudflared — all code, queries, and keys live here.
   `lead_time` in the fetcher: try/except → empty list, publication proceeds).
   Narration failures degrade to fallback cards — only data-level failures block.
 - **Claude runs once per hotel per day** (06:30 Europe/Athens scheduled run). Manual and
-  data-only runs REUSE the day's `ai_insights` and are silent (no email/push).
+  data-only runs REUSE the day's `ai_insights`. Manual runs are silent; scheduled
+  data-only runs only send the daytime alert / good-news pushes (FL Pulse's own
+  gates on today-so-far, max 1 each per hotel per day, `briefing/intraday.py`).
 - **Update [docs/ENGINEERING_LOG.md](docs/ENGINEERING_LOG.md) after every
   step, incident, or decision** — release history, decision log, TO-DO list.
   This is a user-mandated living document.
