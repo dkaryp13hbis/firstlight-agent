@@ -135,24 +135,50 @@ def push_to_cloud(data: dict[str, Any], ai: dict[str, Any], rendered_html: str |
     return True
 
 
-def _send_push_notifications(ai: dict[str, Any], hotel_id: str, hotel_name: str | None = None,
-                             data: dict[str, Any] | None = None) -> None:
-    """Morning-briefing push: deterministic headline body (no AI phrasing)."""
-    hotel_name = hotel_name or config.HOTEL_NAME or "Hotel"
-    title = f"{hotel_name} · Morning Briefing"[:80]
-    body = ""
+def morning_body(ai: dict[str, Any] | None, data: dict[str, Any] | None) -> str:
+    """The morning push text = FL Pulse's own top finding (2026-10-31, user:
+    one analyst behind every notification): "5 insights in FL Pulse · Nov 11–14
+    bookings are half last year's level". The headline is the analyst's
+    narrated + validated card headline (plain words, no estimates). A quiet
+    day (no new card) falls back to the deterministic rule ladder."""
+    insights = [i for i in ((ai or {}).get("insights") or []) if isinstance(i, dict)]
+    top = next((str(i.get("headline") or i.get("title") or "").strip() for i in insights
+                if str(i.get("headline") or i.get("title") or "").strip()), "")
+    if top:
+        n = len(insights)
+        return f"{n} insight{'s' if n != 1 else ''} in FL Pulse · {top}"[:180]
+    rule = ""
     if data:
         try:
             from briefing.intraday import headline
-            body = headline(data)
+            rule = headline(data)
         except Exception as exc:  # noqa: BLE001 — never block the morning push
             print(f"[push] headline failed, falling back: {exc}")
-    if not body:
-        insights = ai.get("insights", [])
-        body = (insights[0].get("title") if insights
-                else (ai.get("executive_summary") or "Your morning briefing is ready."))[:140]
-    send_typed_push(hotel_id, hotel_name, title, body, "morning", section_id="sec-ai",
-                    title_is_full=True)
+    if rule:
+        return f"Nothing new in FL Pulse today · {rule}"[:180]
+    return str((ai or {}).get("executive_summary") or "Your morning briefing is ready.")[:180]
+
+
+def _send_push_notifications(ai: dict[str, Any], hotel_id: str, hotel_name: str | None = None,
+                             data: dict[str, Any] | None = None) -> None:
+    """Morning-briefing push (scheduled full run only): FL Pulse's top headline."""
+    hotel_name = hotel_name or config.HOTEL_NAME or "Hotel"
+    title = f"{hotel_name} · Morning Briefing"[:80]
+    send_typed_push(hotel_id, hotel_name, title, morning_body(ai, data), "morning",
+                    section_id="sec-ai", title_is_full=True)
+
+
+# QUIET HOURS (2026-10-31): alerts and good-news pushes wait outside 22:00–08:00
+# hotel time (the summer 19:00 UTC refresh lands at 22:00 Athens). The morning
+# briefing is the product and is never held. Every hotel is Greek today — the
+# pipeline does not load hotels.timezone, so Athens is the zone.
+QUIET_FROM, QUIET_TO = 22, 8
+
+
+def in_quiet_hours(now: datetime | None = None, tz: str = "Europe/Athens") -> bool:
+    from zoneinfo import ZoneInfo
+    local = (now or datetime.now(ZoneInfo("UTC"))).astimezone(ZoneInfo(tz))
+    return local.hour >= QUIET_FROM or local.hour < QUIET_TO
 
 
 def _subscriptions(hotel_id: str) -> list[dict] | None:
@@ -185,9 +211,13 @@ def _subscriptions(hotel_id: str) -> list[dict] | None:
 def send_typed_push(hotel_id: str, hotel_name: str, title: str, body: str,
                     ntype: str, section_id: str = "sec-ai",
                     title_is_full: bool = False) -> None:
-    """Send one typed Web Push to every subscription of the hotel whose
-    notification_prefs allow `ntype` (morning | alerts | momentum). Missing
-    prefs column/value = all types on (schema-tolerant)."""
+    """Send one typed Web Push to every DEVICE of the hotel whose person's
+    prefs allow `ntype` (morning | alerts | momentum; "test" ignores prefs).
+    Missing prefs = all types on (schema-tolerant). Alerts / momentum are
+    held in quiet hours. Devices the push service reports gone are removed."""
+    if ntype in ("alerts", "momentum") and in_quiet_hours():
+        print(f"[push] {ntype} held — quiet hours ({QUIET_FROM}:00–{QUIET_TO:02d}:00 hotel time).")
+        return
     vapid_private     = os.getenv("VAPID_PRIVATE_KEY", "")
     vapid_email       = os.getenv("VAPID_EMAIL", "mailto:dk@bi-automations.com")
     supabase_hotel_id = hotel_id or os.getenv("SUPABASE_HOTEL_ID", "")   # legacy env name
@@ -217,9 +247,12 @@ def send_typed_push(hotel_id: str, hotel_name: str, title: str, body: str,
     pwa_url = os.getenv("PWA_URL", "https://firstlight.hbis.io")
     # hotelId: the SW deep-links the click to THIS hotel (multi-hotel users
     # otherwise land on whatever hotel they browsed last, 2026-09-20)
+    # tag per hotel PER TYPE (2026-10-31): with one tag per hotel an afternoon
+    # alert replaced the still-unread morning notification on the phone
     push_payload = json.dumps({"title": title, "body": body[:180],
                                "sectionId": section_id, "url": pwa_url,
-                               "hotelId": supabase_hotel_id})
+                               "hotelId": supabase_hotel_id, "type": ntype,
+                               "tag": f"firstlight-{supabase_hotel_id}-{ntype}"})
 
     subscriptions = _subscriptions(supabase_hotel_id)
     if subscriptions is None:
@@ -228,14 +261,19 @@ def send_typed_push(hotel_id: str, hotel_name: str, title: str, body: str,
         print("[push] No push subscriptions registered.")
         return
 
-    sent = 0
+    sent = pruned = 0
+    seen: set[str] = set()
     for row in subscriptions:
         sub_info = row.get("subscription")
         if not sub_info:
             continue
+        endpoint = str(sub_info.get("endpoint") or "") if isinstance(sub_info, dict) else ""
+        if endpoint and endpoint in seen:
+            continue                      # one notification per device (pre-SQL rows may repeat)
         prefs = row.get("notification_prefs") or {}
-        if prefs.get(ntype) is False:
+        if ntype != "test" and prefs.get(ntype) is False:
             continue
+        seen.add(endpoint)
         try:
             webpush(
                 subscription_info=sub_info,
@@ -245,11 +283,15 @@ def send_typed_push(hotel_id: str, hotel_name: str, title: str, body: str,
             )
             sent += 1
         except WebPushException as exc:
-            if exc.response is not None and exc.response.status_code == 410:
-                print(f"[push] Subscription expired (410) — consider pruning.")
+            code = exc.response.status_code if exc.response is not None else None
+            if code in (404, 410):        # the device is gone (app removed, permission revoked)
+                from db import store
+                store.push_delete_endpoint(endpoint)
+                pruned += 1
             else:
                 print(f"[push] WebPush error: {exc}")
         except Exception as exc:
             print(f"[push] Error sending to subscription: {exc}")
 
-    print(f"[push] Sent {sent}/{len(subscriptions)} {ntype} notifications.")
+    print(f"[push] Sent {sent}/{len(subscriptions)} {ntype} notifications"
+          + (f"; removed {pruned} gone device(s)." if pruned else "."))

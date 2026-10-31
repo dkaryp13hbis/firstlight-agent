@@ -237,8 +237,21 @@ create table if not exists push_subscriptions (
   subscription       jsonb not null,
   notification_prefs jsonb not null
     default '{"morning": true, "alerts": true, "momentum": true}'::jsonb,
-  created_at         timestamptz not null default now(),
-  unique (user_id, hotel_id)                 -- one row per user PER HOTEL
+  created_at         timestamptz not null default now()
+  -- one row per hotel PER DEVICE (2026-10-31_push_devices.sql); the legacy
+  -- notification_prefs copy here is superseded by push_prefs
+);
+create unique index if not exists push_subscriptions_hotel_endpoint
+  on push_subscriptions (hotel_id, (subscription->>'endpoint'));
+
+-- per person per hotel, independent of devices (2026-10-31)
+create table if not exists push_prefs (
+  user_id    uuid not null,
+  hotel_id   uuid not null references hotels(id),
+  prefs      jsonb not null
+    default '{"morning": true, "alerts": true, "momentum": true}'::jsonb,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, hotel_id)
 );
 
 create table if not exists watchlist (

@@ -365,7 +365,7 @@ def push_test(hotel_id: str = Depends(auth_hotel)):
     verify a phone right after tapping the bell (no need to wait for the 06:30 run).
     Returns how many subscriptions the hotel has and how many sends succeeded."""
     import io, contextlib
-    from briefing.cloud_push import _send_push_notifications
+    from briefing.cloud_push import send_typed_push
     from db import store
     if store.read_from_pg():
         name = store.hotel_names().get(hotel_id) or "FirstLight"
@@ -376,11 +376,11 @@ def push_test(hotel_id: str = Depends(auth_hotel)):
         subs = _sb_get("push_subscriptions", {"hotel_id": f"eq.{hotel_id}", "select": "id"})
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        _send_push_notifications(
-            {"insights": [], "executive_summary":
-             "Test notification — push is working on this device. "
-             "Your real briefing arrives every morning at 06:30 Greek time."},
-            hotel_id, hotel_name=name)
+        # type "test" ignores the per-type choices (2026-10-31: sent as
+        # "morning" it stayed silent for anyone with morning switched off)
+        send_typed_push(hotel_id, name, "Test notification",
+                        "Push is working on this device. Your real briefing arrives "
+                        "every morning at 06:30 Greek time.", "test")
     log = buf.getvalue().strip().splitlines()
     return {"hotel_id": hotel_id, "subscriptions": len(subs), "log": log[-6:]}
 
@@ -1387,7 +1387,9 @@ def push_subscribe(request: Request, body: dict):
     if not isinstance(body.get("subscription"), dict):
         raise HTTPException(422, "subscription object required")
     from db import store
-    store.push_replace(uid, hotel_id, body["subscription"])
+    # one row per DEVICE (2026-10-31) — and a failed write is an error, never "ok"
+    if not store.push_upsert_device(uid, hotel_id, body["subscription"]):
+        raise HTTPException(503, "could not save the subscription — notifications are not on")
     sb_echo.echo("DELETE", "push_subscriptions", {"user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}"})
     sb_echo.echo("POST", "push_subscriptions", None,
                  {"hotel_id": hotel_id, "user_id": uid, "subscription": body["subscription"]})
@@ -1396,12 +1398,18 @@ def push_subscribe(request: Request, body: dict):
 
 @app.post("/push/unsubscribe")
 def push_unsubscribe(request: Request, body: dict):
+    """Bell off on THIS device (`endpoint`) for this hotel. `device_left`
+    tells the app whether the device still has another hotel subscribed —
+    only when it has none may the app drop the browser subscription."""
     uid = auth_user(request)
     hotel_id = str(body.get("hotel_id", ""))
+    endpoint = str(body.get("endpoint") or "") or None
     from db import store
-    store.push_delete(uid, hotel_id)
+    left = store.push_delete_device(uid, hotel_id, endpoint)
     sb_echo.echo("DELETE", "push_subscriptions", {"user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}"})
-    return {"ok": True}
+    if left is None:
+        raise HTTPException(503, "push storage unavailable")
+    return {"ok": True, "device_left": left}
 
 
 @app.get("/push/any")
@@ -1424,20 +1432,23 @@ def push_prefs(request: Request, body: dict):
     prefs = body.get("notification_prefs")
     if not isinstance(prefs, dict):
         raise HTTPException(422, "notification_prefs object required")
+    require_member(uid, hotel_id)
+    prefs = {k: bool(prefs[k]) for k in ("morning", "alerts", "momentum") if k in prefs}
     from db import store
-    store.push_set_prefs(uid, hotel_id, prefs)
+    if not store.push_set_prefs(uid, hotel_id, prefs):
+        raise HTTPException(503, "could not save the notification settings")
     sb_echo.echo("PATCH", "push_subscriptions", {"user_id": f"eq.{uid}", "hotel_id": f"eq.{hotel_id}"},
                  {"notification_prefs": prefs})
     return {"ok": True}
 
 
 @app.get("/push/status")
-def push_status(request: Request, hotel_id: str = Query(...)):
-    """Is this user subscribed for this hotel + their prefs (C2: replaces
-    the app's direct push_subscriptions reads)."""
+def push_status(request: Request, hotel_id: str = Query(...), endpoint: str | None = Query(None)):
+    """Is THIS device (`endpoint`) subscribed for this hotel + the person's
+    per-type prefs (2026-10-31; without `endpoint`: any device of this user)."""
     uid = auth_user(request)
     from db import store
-    pg = store.push_status(uid, hotel_id)
+    pg = store.push_status(uid, hotel_id, endpoint)
     if pg is not None:
         return pg
     rows = _sb_get("push_subscriptions", {

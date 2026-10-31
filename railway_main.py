@@ -414,9 +414,23 @@ def _process_hotel_locked(hotel: dict, run, force: bool, data_only: bool, result
             save_preview(data, ai, preview_path)
             rendered_html = Path(preview_path).read_text(encoding="utf-8")
 
-        # Previously-published snapshot (for intraday comparisons) — read
-        # BEFORE this run overwrites it.
-        prev_data = _get_existing_data(hotel["id"]) if (data_only and not manual) else None
+        # Daytime events (2026-10-31: FL Pulse's own gates on today-so-far,
+        # scheduled data-only runs only, max 1 alert + 1 good news a day,
+        # claimed in intraday_log). Added to the briefing BEFORE publishing so
+        # the app's FL Pulse shows what the push announced ("Since this morning").
+        intraday = []
+        if data_only and not manual and ai is not None:
+            try:
+                from briefing.intraday import intraday_events
+                intraday = intraday_events(data, hotel["id"])
+                if intraday:
+                    ai = dict(ai)
+                    ai["since_morning"] = list(ai.get("since_morning") or []) + [
+                        {k: e[k] for k in ("type", "card_id", "month", "title", "body", "at")}
+                        for e in intraday]
+            except Exception as _ie:
+                log.warning(f"[processor] intraday events skipped: {_ie}")
+                intraday = []
 
         # Follow-up engine ("one watchlist, two authors", 2026-09-10): keep
         # FirstLight's auto-watched months current, resolve/retire, attach
@@ -434,11 +448,10 @@ def _process_hotel_locked(hotel: dict, run, force: bool, data_only: bool, result
                           hotel_id=hotel["id"], source_run_id=run.run_id,
                           notify=not manual and not data_only)
 
-        # Intraday alert/momentum pushes: scheduled data-only runs only,
-        # deterministic templates, capped 1/type/day (intraday_log claims).
-        if data_only and not manual:
-            from briefing.intraday import run_intraday_checks
-            run_intraday_checks(data, prev_data, hotel["id"], hotel["name"])
+        # ...and pushed after the publish (quiet hours + per-type choices apply)
+        if intraday:
+            from briefing.intraday import send_intraday
+            send_intraday(intraday, hotel["id"], hotel["name"])
 
         # Email only on the SCHEDULED morning full briefing — manual refreshes
         # update the app silently (learned 2026-07-24: refresh storms mailed

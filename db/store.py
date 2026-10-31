@@ -224,15 +224,45 @@ def command_get(cmd_id: str) -> dict | None:
     return _safe("command_get", go)
 
 
+# ACCESS AT SEND TIME (2026-10-31): a device row only receives while its user
+# still exists as active AND can see the hotel (platform admin, or any hotel /
+# company / group membership through the hotel_access view). Rows of users that
+# predate our login (no users row) are kept — they cannot sign in anyway.
+_PUSH_ACCESS = ("(u.id is null or (u.active and (u.is_platform_admin or exists ("
+                "select 1 from hotel_access a where a.user_id = s.user_id "
+                "and a.hotel_id = s.hotel_id))))")
+
+
 def push_subs_for_hotel(hotel_id: str) -> list[dict] | None:
-    """Every subscription of a hotel with its per-type prefs — read at SEND
-    time (morning, intraday, test pushes)."""
+    """Every DEVICE subscribed to a hotel, with its user's per-type prefs —
+    read at SEND time (morning, intraday, test pushes). Prefs come from
+    push_prefs (per user per hotel, 2026-10-31); before that SQL is applied the
+    legacy copy on the row is used."""
     cols = ["id", "user_id", "subscription", "notification_prefs"]
     def go():
-        rows = _exec("select id, user_id, subscription, notification_prefs "
-                     "from push_subscriptions where hotel_id = %s", (hotel_id,), fetch=True)
+        try:
+            rows = _exec(
+                "select s.id, s.user_id, s.subscription, "
+                "coalesce(p.prefs, s.notification_prefs) "
+                "from push_subscriptions s "
+                "left join push_prefs p on p.user_id = s.user_id and p.hotel_id = s.hotel_id "
+                "left join users u on u.id = s.user_id "
+                f"where s.hotel_id = %s and {_PUSH_ACCESS}", (hotel_id,), fetch=True)
+        except Exception as exc:  # noqa: BLE001 — push_prefs not created yet
+            print(f"[store] push_subs_for_hotel: legacy read ({type(exc).__name__})")
+            rows = _exec(
+                "select s.id, s.user_id, s.subscription, s.notification_prefs "
+                "from push_subscriptions s left join users u on u.id = s.user_id "
+                f"where s.hotel_id = %s and {_PUSH_ACCESS}", (hotel_id,), fetch=True)
         return [_row(cols, r) for r in rows]
     return _safe("push_subs_for_hotel", go)
+
+
+def push_delete_endpoint(endpoint: str) -> None:
+    """A device the push service reports gone (404 / 410): drop it everywhere."""
+    if endpoint:
+        _safe("push_delete_endpoint", lambda: _exec(
+            "delete from push_subscriptions where subscription->>'endpoint' = %s", (endpoint,)))
 
 
 def push_any_for_user(user_id: str) -> bool | None:
@@ -336,7 +366,7 @@ def claim_intraday(hotel_id: str, day: str, ntype: str) -> bool | None:
 _MIRROR_CONFLICT = {
     "hotels": "id", "hotel_users": "hotel_id, user_id", "organizations": "id",
     "insight_feedback": "hotel_id, report_date, card_id, user_id",
-    "hotel_prefs": "hotel_id", "push_subscriptions": "user_id, hotel_id",
+    "hotel_prefs": "hotel_id", "push_subscriptions": "id",   # one row per device since 2026-10-31
     "watchlist": "user_id, hotel_id, kind, key", "usage_events": "id",
     "briefings": "hotel_id, report_date", "refresh_runs": "id",
     "refresh_commands": "id", "intraday_log": "hotel_id, day, type",
@@ -792,6 +822,8 @@ def pref_upsert(hotel_id: str, language: str, updated_at: str) -> None:
 
 
 def push_replace(user_id: str, hotel_id: str, subscription: dict) -> None:
+    """LEGACY one-device-per-user write (kept as the fallback before the
+    2026-10-31 SQL is applied — see push_upsert_device)."""
     def go():
         _exec("delete from push_subscriptions where user_id = %s and hotel_id = %s",
               (user_id, hotel_id))
@@ -800,27 +832,102 @@ def push_replace(user_id: str, hotel_id: str, subscription: dict) -> None:
     _safe("push_replace", go)
 
 
+def push_upsert_device(user_id: str, hotel_id: str, subscription: dict) -> bool | None:
+    """Turn the bell on for THIS device (2026-10-31): one row per hotel per
+    device endpoint, so a person's phone AND tablet both receive, and ten
+    users on ten phones are ten rows. The same device signed in by another
+    user takes the row over (one device = one notification per hotel). Before
+    the unique index exists the legacy one-device write runs instead.
+    True = saved; None = the store failed (the API must not answer ok)."""
+    def go():
+        try:
+            _exec("insert into push_subscriptions (user_id, hotel_id, subscription) "
+                  "values (%s,%s,%s) on conflict (hotel_id, (subscription->>'endpoint')) "
+                  "do update set user_id = excluded.user_id, subscription = excluded.subscription",
+                  (user_id, hotel_id, _jsonb(subscription)))
+        except Exception as exc:  # noqa: BLE001 — device index not created yet
+            print(f"[store] push_upsert_device: legacy one-device write ({type(exc).__name__})")
+            _exec("delete from push_subscriptions where user_id = %s and hotel_id = %s",
+                  (user_id, hotel_id))
+            _exec("insert into push_subscriptions (user_id, hotel_id, subscription) "
+                  "values (%s,%s,%s)", (user_id, hotel_id, _jsonb(subscription)))
+        return True
+    return _safe("push_upsert_device", go)
+
+
 def push_delete(user_id: str, hotel_id: str) -> None:
     _safe("push_delete", lambda: _exec(
         "delete from push_subscriptions where user_id = %s and hotel_id = %s",
         (user_id, hotel_id)))
 
 
-def push_set_prefs(user_id: str, hotel_id: str, prefs: dict) -> None:
-    _safe("push_set_prefs", lambda: _exec(
-        "update push_subscriptions set notification_prefs = %s "
-        "where user_id = %s and hotel_id = %s",
-        (_jsonb(prefs), user_id, hotel_id)))
-
-
-def push_status(user_id: str, hotel_id: str) -> dict | None:
+def push_delete_device(user_id: str, hotel_id: str, endpoint: str | None) -> bool | None:
+    """Bell off on THIS device for this hotel (other devices and other hotels
+    keep theirs). Returns whether this device still has ANY hotel subscribed —
+    the app keeps the browser subscription while one is left (2026-10-31: the
+    old check asked Supabase, which our own login cannot read, so turning one
+    hotel off silenced every hotel on the phone). No endpoint (old app) =
+    the legacy per-user delete."""
     def go():
-        rows = _exec("select notification_prefs from push_subscriptions "
-                     "where user_id = %s and hotel_id = %s",
-                     (user_id, hotel_id), fetch=True)
-        if not rows:
-            return {"subscribed": False, "notification_prefs": None}
-        return {"subscribed": True, "notification_prefs": rows[0][0]}
+        if not endpoint:
+            _exec("delete from push_subscriptions where user_id = %s and hotel_id = %s",
+                  (user_id, hotel_id))
+            rows = _exec("select 1 from push_subscriptions where user_id = %s limit 1",
+                         (user_id,), fetch=True)
+            return bool(rows)
+        _exec("delete from push_subscriptions where hotel_id = %s "
+              "and subscription->>'endpoint' = %s", (hotel_id, endpoint))
+        rows = _exec("select 1 from push_subscriptions where subscription->>'endpoint' = %s "
+                     "limit 1", (endpoint,), fetch=True)
+        return bool(rows)
+    return _safe("push_delete_device", go)
+
+
+def push_set_prefs(user_id: str, hotel_id: str, prefs: dict) -> bool | None:
+    """Per-type choices per PERSON per hotel (push_prefs, 2026-10-31) — they
+    survive the bell going off and on and apply to every device of that
+    person. The legacy copy on the device rows is kept in step for the
+    pre-SQL send path."""
+    def go():
+        try:
+            _exec("insert into push_prefs (user_id, hotel_id, prefs, updated_at) "
+                  "values (%s,%s,%s, now()) on conflict (user_id, hotel_id) do update "
+                  "set prefs = excluded.prefs, updated_at = now()",
+                  (user_id, hotel_id, _jsonb(prefs)))
+        except Exception as exc:  # noqa: BLE001 — push_prefs not created yet
+            print(f"[store] push_set_prefs: legacy row update only ({type(exc).__name__})")
+        _exec("update push_subscriptions set notification_prefs = %s "
+              "where user_id = %s and hotel_id = %s", (_jsonb(prefs), user_id, hotel_id))
+        return True
+    return _safe("push_set_prefs", go)
+
+
+def push_status(user_id: str, hotel_id: str, endpoint: str | None = None) -> dict | None:
+    """Bell state + prefs. With `endpoint` the bell answers for THIS device
+    (2026-10-31: the old answer was "this user has a row", so a replaced
+    first phone still showed the bell on). Prefs are the person's
+    (push_prefs), else the legacy row copy, else None (= all on)."""
+    def go():
+        if endpoint:
+            sub = _exec("select 1 from push_subscriptions where hotel_id = %s "
+                        "and subscription->>'endpoint' = %s limit 1",
+                        (hotel_id, endpoint), fetch=True)
+        else:
+            sub = _exec("select 1 from push_subscriptions where user_id = %s "
+                        "and hotel_id = %s limit 1", (user_id, hotel_id), fetch=True)
+        prefs = None
+        try:
+            p = _exec("select prefs from push_prefs where user_id = %s and hotel_id = %s",
+                      (user_id, hotel_id), fetch=True)
+            prefs = p[0][0] if p else None
+        except Exception:  # noqa: BLE001 — push_prefs not created yet
+            pass
+        if prefs is None:
+            r = _exec("select notification_prefs from push_subscriptions "
+                      "where user_id = %s and hotel_id = %s limit 1",
+                      (user_id, hotel_id), fetch=True)
+            prefs = r[0][0] if r else None
+        return {"subscribed": bool(sub), "notification_prefs": prefs}
     return _safe("push_status", go)
 
 
@@ -1212,7 +1319,8 @@ def hotels_by_ids(ids: list[str]) -> list[dict] | None:
 
 _USER_LIST_COLS = ["id", "email", "display_name", "language", "is_platform_admin",
                    "must_change_password", "active", "failed_logins", "locked_until",
-                   "created_at", "last_login_at", "sessions_live"]
+                   "created_at", "last_login_at", "sessions_live",
+                   "push_devices", "push_hotels"]
 
 
 def users_list() -> list[dict] | None:
@@ -1223,7 +1331,11 @@ def users_list() -> list[dict] | None:
             "u.must_change_password, u.active, u.failed_logins, u.locked_until, "
             "u.created_at, u.last_login_at, "
             "(select count(*) from sessions s where s.user_id = u.id "
-            " and s.revoked_at is null and s.expires_at > now()) "
+            " and s.revoked_at is null and s.expires_at > now()), "
+            # notifications (2026-10-31): devices with the bell on, and for how many hotels
+            "(select count(distinct p.subscription->>'endpoint') from push_subscriptions p "
+            " where p.user_id = u.id), "
+            "(select count(distinct p.hotel_id) from push_subscriptions p where p.user_id = u.id) "
             "from users u order by lower(u.email)", fetch=True)
         users = [_row(_USER_LIST_COLS, r) for r in rows]
         for u in users:

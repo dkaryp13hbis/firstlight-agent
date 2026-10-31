@@ -1,17 +1,27 @@
 """
-Intraday notifications — deterministic, zero-Claude (2026-08-24).
+Intraday notifications — deterministic, zero-Claude.
 
-Runs after the scheduled data-only refreshes (11:00 / 17:00 UTC): compares the
-fresh snapshot against the previously PUBLISHED one and fires at most one
-ALERT and one MOMENTUM push per hotel per day. All text is templated from
-real PMS numbers and percentages — never derived euro figures (standing rule).
+ONE ANALYST BEHIND EVERY NOTIFICATION (2026-10-31, user: "yes go for all fixes
+now"): the scheduled data-only refreshes (07 / 10 / 13 / 16 / 19 UTC) run FL
+Pulse's OWN checks on TODAY-SO-FAR — Signal 1 (bookings, |z| >= 2 vs the prior
+7 days, stake floor) and Signal 6 (cancellation spike, z >= 2, >= 3 rn, real
+cancelled revenue >= €1,000), from briefing/analyst.py unchanged. The snapshot is
+re-anchored so the analyst's 'yesterday' is today's partial day (Q9 / Q14 carry
+the run day's bookings). UPWARD events only: a partial day can only under-count,
+so a surge or a spike that already clears the gate is real, while a 'slow day'
+at 10:00 is not. The old fixed rules (cancellations >= 8 and 3×, a month newly
+−5%, a month past last year's final, a 15-room day) are retired — they could
+tell a phone something the Pulse never said.
 
-Dedupe/caps live in the `intraday_log` table (PK hotel_id+day+type): the row
-is claimed BEFORE sending, so two runs can never double-push. If the table
-does not exist yet (SQL not pasted), checks run but nothing is sent.
+At most one ALERT (cancellation spike) and one good-news push ('momentum',
+booking surge) per hotel per day: the `intraday_log` row is claimed BEFORE
+sending, so two runs can never double-push. Each claimed event is also added to
+the briefing as `ai_insights.since_morning`, shown at the top of FL Pulse — the
+push opens the app on the thing it announced. Text is plain words from real
+PMS numbers (never derived euro figures).
 
-Also home of `headline()` — the deterministic morning-push body (same rule
-ladder as the app's Smart Summary — change both together).
+Also home of `headline()` — the deterministic quiet-day morning-push body (same
+rule ladder as the app's Smart Summary — change both together).
 """
 from __future__ import annotations
 
@@ -102,81 +112,66 @@ def headline(data: dict[str, Any]) -> str:
     return f"Steady day — MTD {mtd_var:+.0f}% on last year."
 
 
-# ── intraday checks (fresh snapshot vs previously published one) ─────────────
+# ── intraday checks: FL Pulse's own gates on today-so-far (2026-10-31) ───────
 
-def _month_vars(data: dict[str, Any]) -> dict[int, tuple[str, float, float, float]]:
-    """month_num -> (name, var vs STLY %, rev, rev_final)."""
-    out = {}
-    for p in data.get("pace", []) or []:
-        if (p.get("rev_stly") or 0) > 0:
-            out[p.get("month_num", 0)] = (
-                p.get("month", "?"), _var(p.get("rev", 0) or 0, p["rev_stly"]),
-                p.get("rev", 0) or 0, p.get("rev_final", 0) or 0)
-    return out
+def _today_local(tz: str = "Europe/Athens") -> date:
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo(tz)).date()
 
 
-def check_intraday(data: dict[str, Any], prev: dict[str, Any] | None) -> list[dict[str, str]]:
-    """Return up to one alert and one momentum: [{type,title,body}]. Pure."""
-    out: list[dict[str, str]] = []
-    cur_m = date.today().month
-    now_m = _month_vars(data)
-    prev_m = _month_vars(prev) if prev else {}
+def _fv(facts: dict, key: str) -> str:
+    v = facts.get(key)
+    return str(v.get("value") if isinstance(v, dict) else (v or ""))
 
-    # ALERT 1: cancellation spike today (vs trailing daily cancel average)
-    pu = data.get("pickup", {}) or {}
-    c_today = pu.get("cancellationsToday", 0) or 0
-    cd = data.get("cancel_daily", []) or []
-    if cd and c_today:
-        days = {}
-        for r in cd:
-            days.setdefault(r.get("ref_date"), 0)
-            days[r.get("ref_date")] += r.get("cancel_rn", 0) or 0
-        past = sorted(days.items())[:-1][-7:]          # exclude today
-        avg = (sum(v for _, v in past) / len(past)) if past else 0
-        if c_today >= max(8, 3 * avg):
-            out.append({"type": "alerts",
-                        "title": "Cancellations spiking today",
-                        "body": f"{c_today} rooms cancelled so far today, vs ~{avg:.0f}/day recently. Worth a look before end of day."})
 
-    # ALERT 2: a forward month slipped behind LY since the last snapshot
-    if not any(o["type"] == "alerts" for o in out):
-        for mn in sorted(now_m):
-            if mn < cur_m:
+def _plain(v: str) -> str:
+    """'+44 rn' → '+44 room nights', '6.7 rn/day' → '6.7 a day' (a phone, not a report)."""
+    return str(v).replace(" rn/day", " a day").replace(" rn", " room nights")
+
+
+def pulse_checks(data: dict[str, Any], today: date | None = None) -> list[dict[str, str]]:
+    """Up to one ALERT (cancellation spike) and one good-news event (booking
+    surge) for TODAY so far, decided by the analyst's own signal functions —
+    same gates, same numbers as the Pulse. Pure: no store, no network.
+    Returns [{type, card_id, month, title, body}]."""
+    from briefing import analyst as A
+    today = today or _today_local()
+    # the analyst reads report_date_iso as 'yesterday': point it at today-so-far
+    ctx = A._signal_context(dict(data, report_date_iso=today.isoformat()))
+    best: dict[str, tuple[float, dict]] = {}
+    for kind, fn, prefix in (("alerts", A._signal_cancellations, "cancel_"),
+                             ("momentum", A._signal_pickup, "pickup_")):
+        try:
+            cands = fn(ctx) or []
+        except Exception as exc:  # noqa: BLE001 — one broken check never takes the other
+            print(f"[intraday] {kind} check failed (non-fatal): {exc}")
+            continue
+        for c in cands:
+            cid = str((c.get("insight") or {}).get("id") or "")
+            if not cid.startswith(prefix):
                 continue
-            name, v_now, _, _ = now_m[mn]
-            v_prev = prev_m.get(mn, (None, 99, 0, 0))[1]
-            if v_now <= -5 and v_prev > -5:
-                out.append({"type": "alerts",
-                            "title": f"{name} slipped behind last year",
-                            "body": f"{name} OTB is now {v_now:.0f}% behind same time last year (was {v_prev:+.0f}% this morning)."})
-                break
-
-    # MOMENTUM 1: a month crossed above last year's FINAL result
-    for mn in sorted(now_m):
-        name, _, rev, fin = now_m[mn]
-        if fin > 0 and rev >= fin:
-            p_rev, p_fin = prev_m.get(mn, (None, 0, 0, 0))[2:4]
-            if not (p_fin > 0 and p_rev >= p_fin):     # newly crossed
-                out.append({"type": "momentum",
-                            "title": f"{name} beats last year — already",
-                            "body": f"{name} on the books has passed last year's FINAL result, with the month still selling."})
-                break
-
-    # MOMENTUM 2: strong booking day so far
-    if not any(o["type"] == "momentum" for o in out):
-        t_rn = (pu.get("today") or {}).get("roomNights", 0) or 0
-        pd = data.get("pickup_daily", []) or []
-        if pd and t_rn:
-            days = {}
-            for r in pd:
-                days.setdefault(r.get("ref_date"), 0)
-                days[r.get("ref_date")] += r.get("net_rn", 0) or 0
-            past = sorted(days.items())[:-1][-7:]
-            avg = (sum(v for _, v in past) / len(past)) if past else 0
-            if avg > 0 and t_rn >= max(15, 2 * avg):
-                out.append({"type": "momentum",
-                            "title": "Strong booking day",
-                            "body": f"+{t_rn} rooms booked so far today — about double the recent daily pace."})
+            if kind == "momentum" and c.get("tag") != "OPPORTUNITY":
+                continue                     # a slow partial day is not news
+            score = float(c.get("score") or 0)
+            if kind not in best or score > best[kind][0]:
+                best[kind] = (score, c)
+    out: list[dict[str, str]] = []
+    for kind, (_, c) in best.items():
+        ins = c.get("insight") or {}
+        facts = ins.get("facts") or {}
+        month = str(facts.get("month_label") or "")
+        if kind == "alerts":
+            title = f"Cancellations spiking for {month}"
+            body = (f"{_plain(_fv(facts, 'cancelled_yday'))} cancelled so far today for {month} "
+                    f"({_fv(facts, 'cancelled_rev_yday')} of room revenue), against a normal "
+                    f"{_plain(_fv(facts, 'cancel_avg_prior'))}.")
+        else:
+            title = f"Strong booking day for {month}"
+            body = (f"{_plain(_fv(facts, 'yday_net_rn'))} added so far today for {month} "
+                    f"({_fv(facts, 'yday_net_rev')}), against a normal "
+                    f"{_plain(_fv(facts, 'trailing_avg'))}.")
+        out.append({"type": kind, "card_id": str(ins.get("id") or ""), "month": month,
+                    "title": title, "body": body})
     return out
 
 
@@ -225,18 +220,36 @@ def _claim(hotel_id: str, ntype: str) -> bool:
         return False
 
 
+def intraday_events(data: dict[str, Any], hotel_id: str) -> list[dict[str, str]]:
+    """Pulse checks on today-so-far + the once-a-day claim per type. Returns
+    the CLAIMED events, each stamped with the Athens time it was found — the
+    pipeline adds them to the briefing (`since_morning`) BEFORE publishing and
+    pushes them after. Fail-open: any error = no event, never a broken run."""
+    try:
+        hits = pulse_checks(data)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[intraday] Pulse checks failed (non-fatal): {exc}")
+        return []
+    if not hits:
+        print("[intraday] No Pulse gate fired on today so far.")
+        return []
+    from zoneinfo import ZoneInfo
+    at = datetime.now(ZoneInfo("Europe/Athens")).strftime("%H:%M")
+    return [{**h, "at": at} for h in hits if _claim(hotel_id, h["type"])]
+
+
+def send_intraday(events: list[dict[str, str]], hotel_id: str, hotel_name: str) -> None:
+    """Push the claimed events; the tap opens FL Pulse, where `since_morning`
+    shows them (quiet hours and per-type choices apply in cloud_push)."""
+    from briefing.cloud_push import send_typed_push
+    for e in events or []:
+        try:
+            send_typed_push(hotel_id, hotel_name, e["title"], e["body"], e["type"], section_id="sec-ai")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[intraday] push failed (non-fatal): {exc}")
+
+
 def run_intraday_checks(data: dict[str, Any], prev: dict[str, Any] | None,
                         hotel_id: str, hotel_name: str) -> None:
-    """Fail-open wrapper the pipeline calls after a scheduled data-only publish."""
-    try:
-        hits = check_intraday(data, prev)
-        if not hits:
-            print("[intraday] No alert/momentum gates fired.")
-            return
-        from briefing.cloud_push import send_typed_push
-        for h in hits:
-            if _claim(hotel_id, h["type"]):
-                send_typed_push(hotel_id, hotel_name, h["title"], h["body"], h["type"],
-                                section_id="sec-ai" if h["type"] == "alerts" else "sec-overview")
-    except Exception as exc:  # noqa: BLE001
-        print(f"[intraday] Checks failed (non-fatal): {exc}")
+    """Backward-compatible wrapper: claim + push, without the app item."""
+    send_intraday(intraday_events(data, hotel_id), hotel_id, hotel_name)
